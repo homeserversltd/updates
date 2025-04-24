@@ -35,21 +35,6 @@
       "lastApplied": "2024-06-10T15:23:00Z",
       "enabled": true,
       "description": "Lightweight Git server."
-    },
-    {
-      "name": "all_services",
-      "checksum": null,
-      "lastApplied": null,
-      "lastSafeVersion": null,
-      "enabled": true,
-      "description": null,
-      "children": [
-        "adblock",
-        "atuin",
-        "filebrowser",
-        "gogs"
-      ]
     }
-  ],
-  "entrypoint": "all_services"
+  ]
 }
