@@ -1,0 +1,55 @@
+{
+  "updates": [
+    {
+      "name": "adblock",
+      "version": "1.0.0",
+      "lastSafeVersion": "1.0.0",
+      "checksum": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "lastApplied": "2024-06-10T15:23:00Z",
+      "enabled": true,
+      "description": "Blocks ads at the network level."
+    },
+    {
+      "name": "atuin",
+      "version": "1.0.0",
+      "lastSafeVersion": "1.0.0",
+      "checksum": "sha256:atuinhash",
+      "lastApplied": "2024-06-10T15:23:00Z",
+      "enabled": true,
+      "description": "Shell history sync and search."
+    },
+    {
+      "name": "filebrowser",
+      "version": "1.0.0",
+      "lastSafeVersion": "1.0.0",
+      "checksum": "sha256:filebrowserhash",
+      "lastApplied": "2024-06-10T15:23:00Z",
+      "enabled": true,
+      "description": "Web-based file manager."
+    },
+    {
+      "name": "gogs",
+      "version": "1.0.0",
+      "lastSafeVersion": "1.0.0",
+      "checksum": "sha256:gogshash",
+      "lastApplied": "2024-06-10T15:23:00Z",
+      "enabled": true,
+      "description": "Lightweight Git server."
+    },
+    {
+      "name": "all_services",
+      "checksum": null,
+      "lastApplied": null,
+      "lastSafeVersion": null,
+      "enabled": true,
+      "description": null,
+      "children": [
+        "adblock",
+        "atuin",
+        "filebrowser",
+        "gogs"
+      ]
+    }
+  ],
+  "entrypoint": "all_services"
+}
