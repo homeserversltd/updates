@@ -1,11 +1,16 @@
+#!/usr/bin/env python3
+
 import asyncio
 import os
 import sys
 import argparse
 from pathlib import Path
 
-# Import from the package root
-from initialization.files.user_local_lib.updates import (
+# Add current directory to path for relative imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import from the current package using relative imports
+from . import (
     log_message,
     sync_from_repo,
     detect_module_updates,
@@ -16,7 +21,7 @@ from initialization.files.user_local_lib.updates import (
 # Configuration
 DEFAULT_REPO_URL = "https://github.com/homeserverltd/updates.git"
 DEFAULT_LOCAL_PATH = "/tmp/homeserver-updates-repo"
-DEFAULT_MODULES_PATH = "/usr/local/lib/user_local_lib/updates"
+DEFAULT_MODULES_PATH = "/var/local/lib/updates"
 
 def load_global_index(modules_path: str) -> dict:
     """Load the global index.json that tracks current module versions."""
@@ -108,9 +113,14 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         
         # Step 2: Detect modules that need updates
         log_message("Step 2: Detecting module updates...")
-        repo_modules_path = os.path.join(local_repo_path, "updates")  # Assuming updates are in /updates subdirectory
+        repo_modules_path = os.path.join(local_repo_path, "modules")  # Look for modules subdirectory
         if not os.path.exists(repo_modules_path):
-            repo_modules_path = local_repo_path  # Fallback to root if no /updates subdirectory
+            repo_modules_path = local_repo_path  # Fallback to root if no modules subdirectory
+        
+        # Ensure local modules path has modules subdirectory
+        local_modules_search_path = os.path.join(modules_path, "modules")
+        if not os.path.exists(local_modules_search_path):
+            local_modules_search_path = modules_path  # Fallback to root
         
         modules_to_update = detect_module_updates(modules_path, repo_modules_path)
         results["modules_detected"] = modules_to_update
@@ -183,7 +193,7 @@ def run_legacy_updates():
                 
                 for child_name in children:
                     try:
-                        from initialization.files.user_local_lib.updates import run_update
+                        from . import run_update
                         run_update(child_name)
                     except Exception as e:
                         log_message(f"Legacy update failed for {child_name}: {e}", "ERROR")

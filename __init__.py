@@ -153,14 +153,24 @@ def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> Li
     """
     modules_to_update = []
     
-    if not os.path.exists(repo_modules_path):
-        log_message(f"Repository modules path not found: {repo_modules_path}", "ERROR")
+    # Check if repo has modules subdirectory, otherwise use repo root
+    repo_search_path = repo_modules_path
+    if os.path.exists(os.path.join(repo_modules_path, "modules")):
+        repo_search_path = os.path.join(repo_modules_path, "modules")
+    
+    # Check if local has modules subdirectory, otherwise use local root  
+    local_search_path = local_modules_path
+    if os.path.exists(os.path.join(local_modules_path, "modules")):
+        local_search_path = os.path.join(local_modules_path, "modules")
+    
+    if not os.path.exists(repo_search_path):
+        log_message(f"Repository modules path not found: {repo_search_path}", "ERROR")
         return modules_to_update
     
     # Check each module in the repository
-    for module_name in os.listdir(repo_modules_path):
-        repo_module_path = os.path.join(repo_modules_path, module_name)
-        local_module_path = os.path.join(local_modules_path, module_name)
+    for module_name in os.listdir(repo_search_path):
+        repo_module_path = os.path.join(repo_search_path, module_name)
+        local_module_path = os.path.join(local_search_path, module_name)
         
         if not os.path.isdir(repo_module_path):
             continue
@@ -206,10 +216,19 @@ def update_modules(modules_to_update: List[str], local_modules_path: str, repo_m
     """
     results = {}
     
+    # Determine search paths (same logic as detect_module_updates)
+    repo_search_path = repo_modules_path
+    if os.path.exists(os.path.join(repo_modules_path, "modules")):
+        repo_search_path = os.path.join(repo_modules_path, "modules")
+    
+    local_search_path = local_modules_path
+    if os.path.exists(os.path.join(local_modules_path, "modules")):
+        local_search_path = os.path.join(local_modules_path, "modules")
+    
     for module_name in modules_to_update:
         try:
-            repo_module_path = os.path.join(repo_modules_path, module_name)
-            local_module_path = os.path.join(local_modules_path, module_name)
+            repo_module_path = os.path.join(repo_search_path, module_name)
+            local_module_path = os.path.join(local_search_path, module_name)
             
             # Create backup if local module exists
             if os.path.exists(local_module_path):
@@ -256,10 +275,12 @@ def run_update(module_path, args=None, callback=None):
     result = None
     try:
         # Handle both full import paths and simple module names
-        if not module_path.startswith("initialization.files.user_local_lib.updates"):
-            module_path = f"initialization.files.user_local_lib.updates.{module_path}"
+        if "." not in module_path:
+            # Simple module name - look in modules subdirectory
+            module_path = f"modules.{module_path}"
         
-        mod = importlib.import_module(module_path)
+        # Use relative import from current package
+        mod = importlib.import_module(f".{module_path}", package=__name__)
         if hasattr(mod, 'main'):
             log_message(f"Running update: {module_path}")
             result = mod.main(args)
