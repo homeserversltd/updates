@@ -27,6 +27,36 @@ This directory implements a modular, manifest-driven Python update orchestration
 - **Shared utilities:**  
   Common logging, checksum, and helper functions are available in the `utils/` directory.
 
+- **Virtual Environment Isolation:**  
+  Dependencies are isolated in a virtual environment to prevent conflicts with system packages.
+
+## Setup
+
+### Virtual Environment Setup
+
+The updates system uses a virtual environment to isolate its dependencies:
+
+```bash
+# Run the setup script to create and configure the virtual environment
+sudo ./setup_venv.sh
+
+# Or manually:
+python3 -m venv /usr/local/lib/user_local_lib/updates/venv
+source /usr/local/lib/user_local_lib/updates/venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Running Updates
+
+```bash
+# Using the virtual environment
+/usr/local/lib/user_local_lib/updates/venv/bin/python /usr/local/lib/user_local_lib/updates/index.py
+
+# Or activate first
+source /usr/local/lib/user_local_lib/updates/venv/bin/activate
+python /usr/local/lib/user_local_lib/updates/index.py
+```
+
 ## Directory Structure
 
 - `manifest.json`  
@@ -34,6 +64,15 @@ This directory implements a modular, manifest-driven Python update orchestration
 
 - `index.py`  
   The master orchestrator script. Reads the manifest, verifies checksums, and runs the top-level updates.
+
+- `requirements.txt`  
+  Python dependencies for the updates system.
+
+- `setup_venv.sh`  
+  Script to set up the virtual environment and install dependencies.
+
+- `venv/`  
+  Virtual environment directory (created by setup script).
 
 - `<module_name>/`  
   Each update module is a subdirectory with:
@@ -60,7 +99,6 @@ This directory implements a modular, manifest-driven Python update orchestration
       "name": "adblock",
       "version": "1.0.0",
       "lastSafeVersion": "1.0.0",
-      "checksum": "sha256:...",
       "lastApplied": "2024-06-10T15:23:00Z",
       "enabled": true,
       "description": "Blocks ads at the network level."
@@ -135,6 +173,7 @@ LIVE_CHECKSUM = compute_folder_sha256(os.path.dirname(os.path.abspath(__file__))
 - Only the master orchestrator should run top-level updates; submodules handle their own children.
 - Use the manifest as the single source of truth for update relationships and metadata.
 - Use the checksummer utility to keep checksums up to date.
+- Always use the virtual environment when running updates.
 
 ## Version Control and Rollback
 
@@ -213,6 +252,14 @@ git push origin adblock-v1.0.0-$(date +%Y%m%d)
 - `utils/checksummer.py`: Script to (re)generate checksums for all modules.
 - `utils/rollback.py`: Version rollback and management utilities.
 - `config/utils.sh`: Shared shell functions for update scripts.
+
+## Dependencies
+
+The updates system requires the following Python packages:
+- `requests`: For HTTP requests (used by adblock module)
+- `pathlib2`: For Python < 3.4 compatibility (if needed)
+
+All dependencies are managed through the virtual environment to ensure isolation from system packages.
 
 ## License
 

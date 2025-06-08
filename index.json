@@ -1,0 +1,17 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "channel": "stable"
+    },
+    "packages": {
+        "adblock": "1.0.0",
+        "atuin": "1.0.0",
+        "filebrowser": "1.0.0",
+        "gogs": "1.0.0",
+        "ohmyposh": "1.0.0",
+        "os": "1.0.0",
+        "vaultwarden": "1.0.0",
+        "venvs": "1.0.0",
+        "website": "1.0.0"
+    }
+}

@@ -1,0 +1,89 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "description": "Emergency hotfixes and critical patches for homeserver systems",
+        "created": "2024-12-08",
+        "priority": "critical"
+    },
+    "config": {
+        "backup_dir": "/var/backups/hotfix",
+        "log_file": "/var/log/homeserver/hotfix.log",
+        "validation_timeout": 30,
+        "rollback_on_failure": true
+    },
+    "operations": [
+        {
+            "id": "example_copy",
+            "type": "copy",
+            "source": "fixed_script.py",
+            "target": "/var/www/homeserver/backend/problematic_module.py",
+            "description": "Replace broken authentication module",
+            "backup": true,
+            "permissions": {
+                "user": "www-data",
+                "group": "www-data",
+                "mode": "644"
+            },
+            "enabled": false
+        },
+        {
+            "id": "example_append",
+            "type": "append",
+            "source": "security_patch.conf",
+            "target": "/etc/nginx/nginx.conf",
+            "description": "Add security headers to nginx config",
+            "identifier": "hotfix_security_headers",
+            "marker": "# HOTFIX SECURITY PATCHES",
+            "backup": true,
+            "enabled": false
+        },
+        {
+            "id": "example_symlink",
+            "type": "symlink",
+            "source": "updated_binary",
+            "target": "/usr/local/bin/homeserver-tool",
+            "description": "Link to patched binary",
+            "backup": true,
+            "permissions": {
+                "mode": "755"
+            },
+            "enabled": false
+        },
+        {
+            "id": "example_execute",
+            "type": "execute",
+            "source": "emergency_fix.sh",
+            "description": "Run emergency database repair script",
+            "working_dir": "/tmp",
+            "timeout": 300,
+            "cleanup_after": true,
+            "enabled": false
+        }
+    ],
+    "validation": {
+        "pre_checks": [
+            {
+                "command": "systemctl is-active homeserver",
+                "expected": "active",
+                "description": "Ensure homeserver is running before applying fixes"
+            }
+        ],
+        "post_checks": [
+            {
+                "command": "systemctl status homeserver",
+                "expected_exit_code": 0,
+                "description": "Verify homeserver is still healthy after fixes"
+            },
+            {
+                "command": "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/health",
+                "expected": "200",
+                "description": "Check web interface is responding"
+            }
+        ]
+    },
+    "rollback": {
+        "enabled": true,
+        "preserve_backups": true,
+        "rollback_order": "reverse"
+    }
+}

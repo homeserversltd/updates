@@ -1,9 +1,18 @@
 """
 Updates Orchestrator System
 
-This package provides a modular, manifest-driven update orchestration system.
-It enables robust, maintainable, and extensible management of service/component updates.
-See README.md for architecture and usage details.
+This package provides a schema-version driven update orchestration system.
+It enables live, dynamic management of service/component updates by comparing
+schema versions between local modules and a GitHub repository source of truth.
+
+Architecture:
+- Git clone/pull updates repository to get latest module definitions
+- Compare schema_version in each module's index.json (local vs repo)
+- Clobber entire module directories when repo has newer schema_version
+- Run module update scripts which handle their own configuration changes
+- Each module is self-contained and version-independent
+
+See README.md for detailed architecture and usage.
 """
 
 import json
@@ -12,38 +21,232 @@ import traceback
 import os
 import sys
 import asyncio
+import subprocess
+import shutil
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Any, Optional, Callable
+from typing import List, Dict, Any, Optional, Callable, Tuple
+from pathlib import Path
 
 # Import shared utilities
 from .utils.index import log_message
 
 # Re-export utilities for easy access by submodules
-__all__ = ['log_message', 'run_update', 'run_updates_async', 'load_manifest']
+__all__ = [
+    'log_message', 
+    'run_update', 
+    'run_updates_async', 
+    'load_module_index',
+    'compare_schema_versions',
+    'sync_from_repo',
+    'detect_module_updates',
+    'update_modules'
+]
 
-def load_manifest(manifest_path=None):
+def load_module_index(module_path: str) -> Optional[Dict[str, Any]]:
     """
-    Load the manifest file containing update configurations.
+    Load a module's index.json file containing metadata and configuration.
     
     Args:
-        manifest_path: Path to manifest file. If None, uses default location.
+        module_path: Path to the module directory
         
     Returns:
-        dict: The loaded manifest data
+        dict: The loaded index.json data, or None if not found/invalid
     """
-    if manifest_path is None:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        manifest_path = os.path.join(base_dir, 'manifest.json')
+    index_file = os.path.join(module_path, 'index.json')
+    if not os.path.exists(index_file):
+        return None
     
-    with open(manifest_path, 'r') as f:
-        return json.load(f)
+    try:
+        with open(index_file, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        log_message(f"Failed to load index.json from {module_path}: {e}", "ERROR")
+        return None
+
+def compare_schema_versions(version1: str, version2: str) -> int:
+    """
+    Compare two semantic version strings.
+    
+    Args:
+        version1: First version string (e.g., "1.0.0")
+        version2: Second version string (e.g., "1.1.0")
+        
+    Returns:
+        int: -1 if version1 < version2, 0 if equal, 1 if version1 > version2
+    """
+    def parse_version(version_str):
+        try:
+            parts = version_str.split('.')
+            return [int(part) for part in parts]
+        except:
+            return [0, 0, 0]
+    
+    v1_parts = parse_version(version1)
+    v2_parts = parse_version(version2)
+    
+    # Pad to same length
+    max_len = max(len(v1_parts), len(v2_parts))
+    v1_parts.extend([0] * (max_len - len(v1_parts)))
+    v2_parts.extend([0] * (max_len - len(v2_parts)))
+    
+    for i in range(max_len):
+        if v1_parts[i] < v2_parts[i]:
+            return -1
+        elif v1_parts[i] > v2_parts[i]:
+            return 1
+    
+    return 0
+
+def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool:
+    """
+    Sync updates from a Git repository.
+    
+    Args:
+        repo_url: URL of the Git repository
+        local_path: Local path to sync to
+        branch: Git branch to sync (default: main)
+        
+    Returns:
+        bool: True if sync successful, False otherwise
+    """
+    try:
+        if os.path.exists(local_path):
+            # Pull latest changes
+            log_message(f"Pulling latest changes from {repo_url}")
+            result = subprocess.run(
+                ["git", "pull", "origin", branch],
+                cwd=local_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            log_message(f"Git pull completed: {result.stdout.strip()}")
+        else:
+            # Clone repository
+            log_message(f"Cloning repository {repo_url} to {local_path}")
+            result = subprocess.run(
+                ["git", "clone", "-b", branch, repo_url, local_path],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            log_message(f"Git clone completed")
+        
+        return True
+    except subprocess.CalledProcessError as e:
+        log_message(f"Git operation failed: {e.stderr}", "ERROR")
+        return False
+    except Exception as e:
+        log_message(f"Sync failed: {e}", "ERROR")
+        return False
+
+def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> List[str]:
+    """
+    Detect which modules need updates by comparing schema versions.
+    
+    Args:
+        local_modules_path: Path to local modules directory
+        repo_modules_path: Path to repository modules directory
+        
+    Returns:
+        List[str]: List of module names that need updates
+    """
+    modules_to_update = []
+    
+    if not os.path.exists(repo_modules_path):
+        log_message(f"Repository modules path not found: {repo_modules_path}", "ERROR")
+        return modules_to_update
+    
+    # Check each module in the repository
+    for module_name in os.listdir(repo_modules_path):
+        repo_module_path = os.path.join(repo_modules_path, module_name)
+        local_module_path = os.path.join(local_modules_path, module_name)
+        
+        if not os.path.isdir(repo_module_path):
+            continue
+        
+        # Load repository module index
+        repo_index = load_module_index(repo_module_path)
+        if not repo_index:
+            log_message(f"No valid index.json found for repo module: {module_name}", "WARNING")
+            continue
+        
+        repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
+        if not repo_schema_version:
+            log_message(f"No schema_version found in repo module: {module_name}", "WARNING")
+            continue
+        
+        # Load local module index (if exists)
+        local_schema_version = "0.0.0"  # Default for new modules
+        if os.path.exists(local_module_path):
+            local_index = load_module_index(local_module_path)
+            if local_index:
+                local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
+        
+        # Compare versions
+        if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
+            log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
+            modules_to_update.append(module_name)
+        else:
+            log_message(f"Module {module_name} is up to date: {local_schema_version}")
+    
+    return modules_to_update
+
+def update_modules(modules_to_update: List[str], local_modules_path: str, repo_modules_path: str) -> Dict[str, bool]:
+    """
+    Update specified modules by clobbering local versions with repo versions.
+    
+    Args:
+        modules_to_update: List of module names to update
+        local_modules_path: Path to local modules directory
+        repo_modules_path: Path to repository modules directory
+        
+    Returns:
+        Dict[str, bool]: Results of each module update (module_name -> success)
+    """
+    results = {}
+    
+    for module_name in modules_to_update:
+        try:
+            repo_module_path = os.path.join(repo_modules_path, module_name)
+            local_module_path = os.path.join(local_modules_path, module_name)
+            
+            # Create backup if local module exists
+            if os.path.exists(local_module_path):
+                backup_path = f"{local_module_path}.backup"
+                if os.path.exists(backup_path):
+                    shutil.rmtree(backup_path)
+                shutil.move(local_module_path, backup_path)
+                log_message(f"Backed up {module_name} to {backup_path}")
+            
+            # Copy repo module to local
+            shutil.copytree(repo_module_path, local_module_path)
+            log_message(f"Updated module {module_name}")
+            
+            # Run the module's update script
+            update_result = run_update(module_name)
+            results[module_name] = update_result is not None
+            
+        except Exception as e:
+            log_message(f"Failed to update module {module_name}: {e}", "ERROR")
+            results[module_name] = False
+            
+            # Restore backup if update failed
+            backup_path = f"{local_module_path}.backup"
+            if os.path.exists(backup_path):
+                if os.path.exists(local_module_path):
+                    shutil.rmtree(local_module_path)
+                shutil.move(backup_path, local_module_path)
+                log_message(f"Restored backup for {module_name}")
+    
+    return results
 
 def run_update(module_path, args=None, callback=None):
     """
     Run a single update module.
     
     Args:
-        module_path (str): Import path to the module
+        module_path (str): Import path to the module or module name
         args (list, optional): Arguments to pass to the module's main function
         callback (callable, optional): Function to call when update completes
         
@@ -52,6 +255,7 @@ def run_update(module_path, args=None, callback=None):
     """
     result = None
     try:
+        # Handle both full import paths and simple module names
         if not module_path.startswith("initialization.files.user_local_lib.updates"):
             module_path = f"initialization.files.user_local_lib.updates.{module_path}"
         
