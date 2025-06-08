@@ -1,0 +1,54 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "module_name": "vaultwarden",
+        "description": "Vaultwarden password manager server with web vault",
+        "enabled": true
+    },
+    "config": {
+        "service": {
+            "name": "vaultwarden",
+            "user": "vaultwarden",
+            "group": "vaultwarden"
+        },
+        "directories": {
+            "binary_path": "/opt/vaultwarden/vaultwarden",
+            "web_vault_dir": "/opt/vaultwarden/web-vault",
+            "data_dir": "/var/lib/vaultwarden",
+            "log_dir": "/var/log/vaultwarden",
+            "attachments_dir": "/mnt/nas/vaultwarden/attachments",
+            "config_file": "/etc/vaultwarden.env",
+            "cargo_home": "/usr/local/cargo",
+            "cargo_bin": "~/.cargo/bin/vaultwarden"
+        },
+        "backup": {
+            "backup_dir": "/var/backups/updates",
+            "max_age_days": 30,
+            "keep_minimum": 5,
+            "include_paths": [
+                "/opt/vaultwarden/vaultwarden",
+                "/opt/vaultwarden/web-vault",
+                "/var/lib/vaultwarden",
+                "/etc/vaultwarden.env",
+                "/var/log/vaultwarden",
+                "/mnt/nas/vaultwarden/attachments"
+            ]
+        },
+        "installation": {
+            "main_repo": {
+                "github_api_url": "https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest",
+                "cargo_package": "vaultwarden",
+                "cargo_features": ["postgresql"]
+            },
+            "web_vault": {
+                "github_api_url": "https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest",
+                "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/{version}/bw_web_{version}.tar.gz"
+            },
+            "temp_dir": "/tmp"
+        },
+        "verification": {
+            "startup_wait_seconds": 5,
+            "version_check_retries": 3
+        }
+    }
+} 

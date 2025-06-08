@@ -1,10 +1,21 @@
 import os
+import json
 import shutil
 import tempfile
 import subprocess
 import requests
 from pathlib import Path
-from .config import UNBOUND_DIR, BLOCKLIST_PATH, BACKUP_PATH, STEVENBLACK_URL, NOTRACKING_URL
+
+
+def load_config():
+    """Load configuration from index.json file."""
+    config_path = Path(__file__).parent / "index.json"
+    try:
+        with open(config_path, 'r') as f:
+            data = json.load(f)
+        return data['config']
+    except Exception as e:
+        raise RuntimeError(f"Failed to load adblock configuration from {config_path}: {e}")
 
 
 def log(msg):
@@ -52,15 +63,19 @@ def combine_lists(unbound_conf, blacklist, out_path):
         return False
 
 
-def backup_existing_blocklist():
-    if BLOCKLIST_PATH.exists():
-        shutil.copy2(BLOCKLIST_PATH, BACKUP_PATH)
-        log(f"Backed up existing blocklist to {BACKUP_PATH}")
+def backup_existing_blocklist(config):
+    blocklist_path = Path(config['blocklist_path'])
+    backup_path = Path(config['backup_path'])
+    
+    if blocklist_path.exists():
+        shutil.copy2(blocklist_path, backup_path)
+        log(f"Backed up existing blocklist to {backup_path}")
 
 
-def move_blocklist(new_blocklist):
-    shutil.move(new_blocklist, BLOCKLIST_PATH)
-    log(f"Installed new blocklist at {BLOCKLIST_PATH}")
+def move_blocklist(new_blocklist, config):
+    blocklist_path = Path(config['blocklist_path'])
+    shutil.move(new_blocklist, blocklist_path)
+    log(f"Installed new blocklist at {blocklist_path}")
 
 
 def restart_unbound():
@@ -80,9 +95,15 @@ def restart_unbound():
 
 def main(args=None):
     log("Starting adblock update...")
-    if not UNBOUND_DIR.exists():
-        log(f"Error: {UNBOUND_DIR} does not exist")
+    
+    # Load configuration from index.json
+    config = load_config()
+    unbound_dir = Path(config['unbound_dir'])
+    
+    if not unbound_dir.exists():
+        log(f"Error: {unbound_dir} does not exist")
         return False
+        
     with tempfile.TemporaryDirectory() as temp_dir:
         temp = Path(temp_dir)
         hosts1 = temp / "hosts.1"
@@ -91,8 +112,8 @@ def main(args=None):
         blocklist = temp / "blocklist.conf"
 
         log("Downloading blocklists...")
-        download_file(STEVENBLACK_URL, hosts1)
-        download_file(NOTRACKING_URL, blacklist)
+        download_file(config['sources']['stevenblack'], hosts1)
+        download_file(config['sources']['notracking'], blacklist)
 
         log("Processing hosts file...")
         if hosts1.stat().st_size > 0:
@@ -104,8 +125,8 @@ def main(args=None):
         log("Combining blocklists...")
         combine_lists(unbound_conf, blacklist, blocklist)
 
-        backup_existing_blocklist()
-        move_blocklist(blocklist)
+        backup_existing_blocklist(config)
+        move_blocklist(blocklist, config)
         restart_unbound()
 
     log("Blocklist update completed")

@@ -5,81 +5,121 @@ import tarfile
 import urllib.request
 import json
 import time
-from initialization.files.user_local_lib.updates import log_message
+from ...index import log_message
+from ...utils.global_rollback import GlobalRollback
 
-SERVICE_NAME = "vaultwarden"
-DATA_DIR = "/var/lib/vaultwarden"
-CONFIG_FILE = "/etc/vaultwarden.env"
-VAULTWARDEN_BIN = "/opt/vaultwarden/vaultwarden"
-WEB_VAULT_DIR = "/opt/vaultwarden/web-vault"
-LOG_DIR = "/var/log/vaultwarden"
-ATTACHMENTS_DIR = "/mnt/nas/vaultwarden/attachments"
-
-# --- Backup/Restore/Cleanup helpers ---
-def backup_create(service_name, path, ext=None):
-    if ext is None:
-        ext = ".bak"
-    backup_path = path + ext
+# Load module configuration from index.json
+def load_module_config():
+    """
+    Load configuration from the module's index.json file.
+    Returns:
+        dict: Configuration data or default values if loading fails
+    """
     try:
-        if os.path.isdir(path) and ext.endswith(".tar.gz"):
-            with tarfile.open(backup_path, "w:gz") as tar:
-                tar.add(path, arcname=os.path.basename(path))
-            log_message(f"Backup created (tar.gz) at {backup_path}")
-            return backup_path
-        elif os.path.exists(path):
-            shutil.copy2(path, backup_path)
-            log_message(f"Backup created at {backup_path}")
-            return backup_path
-        else:
-            log_message(f"No file found to backup at {path}", "WARNING")
-            return None
+        config_path = os.path.join(os.path.dirname(__file__), "index.json")
+        with open(config_path, 'r') as f:
+            return json.load(f)
     except Exception as e:
-        log_message(f"Failed to create backup: {e}", "ERROR")
-        return None
+        log_message(f"Failed to load module config: {e}", "WARNING")
+        # Return default configuration
+        return {
+            "metadata": {
+                "schema_version": "1.0.0",
+                "module_name": "vaultwarden"
+            },
+            "config": {
+                "service": {
+                    "name": "vaultwarden",
+                    "user": "vaultwarden",
+                    "group": "vaultwarden"
+                },
+                "directories": {
+                    "binary_path": "/opt/vaultwarden/vaultwarden",
+                    "web_vault_dir": "/opt/vaultwarden/web-vault",
+                    "data_dir": "/var/lib/vaultwarden",
+                    "log_dir": "/var/log/vaultwarden",
+                    "attachments_dir": "/mnt/nas/vaultwarden/attachments",
+                    "config_file": "/etc/vaultwarden.env",
+                    "cargo_home": "/usr/local/cargo",
+                    "cargo_bin": "~/.cargo/bin/vaultwarden"
+                },
+                "backup": {
+                    "backup_dir": "/var/backups/updates",
+                    "max_age_days": 30,
+                    "keep_minimum": 5,
+                    "include_paths": [
+                        "/opt/vaultwarden/vaultwarden",
+                        "/opt/vaultwarden/web-vault",
+                        "/var/lib/vaultwarden",
+                        "/etc/vaultwarden.env",
+                        "/var/log/vaultwarden",
+                        "/mnt/nas/vaultwarden/attachments"
+                    ]
+                },
+                "installation": {
+                    "main_repo": {
+                        "github_api_url": "https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest",
+                        "cargo_package": "vaultwarden",
+                        "cargo_features": ["postgresql"]
+                    },
+                    "web_vault": {
+                        "github_api_url": "https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest",
+                        "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/{version}/bw_web_{version}.tar.gz"
+                    },
+                    "temp_dir": "/tmp"
+                },
+                "verification": {
+                    "startup_wait_seconds": 5,
+                    "version_check_retries": 3
+                }
+            }
+        }
 
-def backup_restore(service_name, path, ext=None):
-    if ext is None:
-        ext = ".bak"
-    backup_path = path + ext
-    try:
-        if ext.endswith(".tar.gz") and os.path.exists(backup_path):
-            with tarfile.open(backup_path, "r:gz") as tar:
-                tar.extractall(os.path.dirname(path))
-            log_message(f"Restored backup (tar.gz) from {backup_path}")
-            return True
-        elif os.path.exists(backup_path):
-            shutil.copy2(backup_path, path)
-            log_message(f"Restored backup from {backup_path}")
-            return True
+# Global configuration
+MODULE_CONFIG = load_module_config()
+
+def get_service_config():
+    """Get service configuration from module config."""
+    return MODULE_CONFIG["config"]["service"]
+
+def get_directories_config():
+    """Get directories configuration from module config."""
+    return MODULE_CONFIG["config"]["directories"]
+
+def get_backup_config():
+    """Get backup configuration from module config."""
+    return MODULE_CONFIG["config"]["backup"]
+
+def get_installation_config():
+    """Get installation configuration from module config."""
+    return MODULE_CONFIG["config"]["installation"]
+
+def get_verification_config():
+    """Get verification configuration from module config."""
+    return MODULE_CONFIG["config"]["verification"]
+
+def get_existing_backup_paths():
+    """
+    Get all Vaultwarden-related paths that exist and should be backed up.
+    Returns:
+        list: List of existing paths to backup
+    """
+    backup_config = get_backup_config()
+    include_paths = backup_config["include_paths"]
+    
+    existing_paths = []
+    for path in include_paths:
+        if os.path.exists(path):
+            existing_paths.append(path)
+            log_message(f"Found Vaultwarden path for backup: {path}")
         else:
-            log_message(f"No backup found at {backup_path}", "ERROR")
-            return False
-    except Exception as e:
-        log_message(f"Failed to restore backup: {e}", "ERROR")
-        return False
-
-def backup_cleanup(service_name):
-    for path, ext in [
-        (DATA_DIR, ".tar.gz"),
-        (CONFIG_FILE, ".env"),
-        (VAULTWARDEN_BIN, ".bin"),
-        (WEB_VAULT_DIR, "_web.tar.gz"),
-        (LOG_DIR, "_logs.tar.gz"),
-        (ATTACHMENTS_DIR, "_attachments.tar.gz")
-    ]:
-        backup_path = path + ext
-        try:
-            if os.path.exists(backup_path):
-                if os.path.isdir(backup_path):
-                    shutil.rmtree(backup_path)
-                else:
-                    os.remove(backup_path)
-                log_message(f"Cleaned up backup {backup_path}")
-        except Exception as e:
-            log_message(f"Failed to cleanup backup: {e}", "WARNING")
+            log_message(f"Vaultwarden path not found (skipping): {path}", "DEBUG")
+    
+    return existing_paths
 
 # --- Service management ---
 def systemctl(action, service):
+    """Execute systemctl command for service management."""
     try:
         result = subprocess.run(["systemctl", action, service], capture_output=True, text=True)
         if result.returncode != 0:
@@ -91,6 +131,7 @@ def systemctl(action, service):
         return False
 
 def is_service_active(service):
+    """Check if a systemd service is active."""
     try:
         result = subprocess.run(["systemctl", "is-active", "--quiet", service])
         return result.returncode == 0
@@ -99,16 +140,27 @@ def is_service_active(service):
 
 # --- Version helpers ---
 def get_current_version():
+    """
+    Get the current version of Vaultwarden if installed.
+    Returns:
+        str: Version string or None if not installed
+    """
     try:
-        if not os.path.isfile(VAULTWARDEN_BIN) or not os.access(VAULTWARDEN_BIN, os.X_OK):
+        directories = get_directories_config()
+        binary_path = directories["binary_path"]
+        
+        if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
             return None
-        result = subprocess.run([VAULTWARDEN_BIN, "--version"], capture_output=True, text=True)
+            
+        result = subprocess.run([binary_path, "--version"], capture_output=True, text=True)
         if result.returncode == 0:
+            # Parse version from output
             for line in result.stdout.splitlines():
                 parts = line.strip().split()
                 for part in parts:
                     if part[0].isdigit() and part.count('.') == 2:
                         return part
+            # Fallback parsing
             parts = result.stdout.strip().split()
             if len(parts) >= 2:
                 return parts[1].lstrip("v")
@@ -117,8 +169,16 @@ def get_current_version():
         return None
 
 def get_latest_version():
+    """
+    Get the latest Vaultwarden version from GitHub releases.
+    Returns:
+        str: Latest version string or None
+    """
     try:
-        with urllib.request.urlopen("https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest") as resp:
+        installation_config = get_installation_config()
+        api_url = installation_config["main_repo"]["github_api_url"]
+        
+        with urllib.request.urlopen(api_url) as resp:
             data = json.load(resp)
             tag = data.get("tag_name", "")
             if tag.startswith("v"):
@@ -129,8 +189,16 @@ def get_latest_version():
         return None
 
 def get_latest_web_version():
+    """
+    Get the latest web vault version from GitHub releases.
+    Returns:
+        str: Latest web vault version string or None
+    """
     try:
-        with urllib.request.urlopen("https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest") as resp:
+        installation_config = get_installation_config()
+        api_url = installation_config["web_vault"]["github_api_url"]
+        
+        with urllib.request.urlopen(api_url) as resp:
             data = json.load(resp)
             tag = data.get("tag_name", "")
             return tag
@@ -140,139 +208,368 @@ def get_latest_web_version():
 
 # --- Update logic ---
 def update_vaultwarden():
+    """
+    Update Vaultwarden binary and web vault using configured settings.
+    Returns:
+        bool: True if update succeeded, False otherwise
+    """
+    directories = get_directories_config()
+    installation_config = get_installation_config()
+    service_config = get_service_config()
+    
     # Install new version using cargo
-    log_message("Installing new version...")
-    env = os.environ.copy()
-    env["CARGO_HOME"] = "/usr/local/cargo"
-    env["PATH"] = "/usr/local/cargo/bin:" + env.get("PATH", "")
-    result = subprocess.run(["cargo", "install", "vaultwarden", "--features", "postgresql"], env=env, capture_output=True, text=True)
-    if result.returncode != 0:
-        log_message(f"Failed to build/install vaultwarden: {result.stderr}", "ERROR")
+    log_message("Installing new version with Cargo...")
+    try:
+        env = os.environ.copy()
+        env["CARGO_HOME"] = directories["cargo_home"]
+        env["PATH"] = f"{directories['cargo_home']}/bin:" + env.get("PATH", "")
+        
+        cargo_features = installation_config["main_repo"]["cargo_features"]
+        cargo_package = installation_config["main_repo"]["cargo_package"]
+        
+        cmd = ["cargo", "install", cargo_package, "--features", ",".join(cargo_features)]
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            log_message(f"Failed to build/install vaultwarden: {result.stderr}", "ERROR")
+            return False
+            
+    except Exception as e:
+        log_message(f"Error during cargo install: {e}", "ERROR")
         return False
+    
     # Copy binary to system location
     try:
-        shutil.copy2(os.path.expanduser("~/.cargo/bin/vaultwarden"), VAULTWARDEN_BIN)
-        os.chmod(VAULTWARDEN_BIN, 0o755)
-        subprocess.run(["chown", "vaultwarden:vaultwarden", VAULTWARDEN_BIN])
+        cargo_bin_path = os.path.expanduser(directories["cargo_bin"])
+        system_bin_path = directories["binary_path"]
+        
+        shutil.copy2(cargo_bin_path, system_bin_path)
+        os.chmod(system_bin_path, 0o755)
+        
+        # Set ownership
+        user = service_config["user"]
+        group = service_config["group"]
+        subprocess.run(["chown", f"{user}:{group}", system_bin_path])
+        
+        log_message(f"Binary copied to {system_bin_path}")
+        
     except Exception as e:
         log_message(f"Failed to copy binary to system location: {e}", "ERROR")
         return False
+    
     # Update web vault
     log_message("Updating web vault...")
     latest_web_version = get_latest_web_version()
     if not latest_web_version:
         log_message("Failed to get latest web vault version", "ERROR")
         return False
+    
     try:
-        if os.path.exists(WEB_VAULT_DIR):
-            shutil.rmtree(WEB_VAULT_DIR)
-        os.makedirs(WEB_VAULT_DIR, exist_ok=True)
-        tarball_url = f"https://github.com/dani-garcia/bw_web_builds/releases/download/{latest_web_version}/bw_web_{latest_web_version}.tar.gz"
-        tarball_path = "/tmp/web_vault.tar.gz"
+        web_vault_dir = directories["web_vault_dir"]
+        temp_dir = installation_config["temp_dir"]
+        download_template = installation_config["web_vault"]["download_template"]
+        
+        # Remove existing web vault
+        if os.path.exists(web_vault_dir):
+            shutil.rmtree(web_vault_dir)
+        os.makedirs(web_vault_dir, exist_ok=True)
+        
+        # Download and extract web vault
+        tarball_url = download_template.format(version=latest_web_version)
+        tarball_path = os.path.join(temp_dir, "web_vault.tar.gz")
+        
         result = subprocess.run(["curl", "-L", tarball_url, "-o", tarball_path])
         if result.returncode != 0:
             log_message("Failed to download web vault", "ERROR")
             return False
+        
         with tarfile.open(tarball_path, "r:gz") as tar:
-            tar.extractall(WEB_VAULT_DIR)
+            tar.extractall(web_vault_dir)
+        
+        # Cleanup temp file
         os.remove(tarball_path)
-        subprocess.run(["chown", "-R", "vaultwarden:vaultwarden", WEB_VAULT_DIR])
+        
+        # Set ownership
+        user = service_config["user"]
+        group = service_config["group"]
+        subprocess.run(["chown", "-R", f"{user}:{group}", web_vault_dir])
+        
+        log_message(f"Web vault updated to version {latest_web_version}")
+        
     except Exception as e:
         log_message(f"Failed to update web vault: {e}", "ERROR")
         return False
+    
     return True
+
+def verify_vaultwarden_installation():
+    """
+    Verify that Vaultwarden is properly installed and functional.
+    Returns:
+        dict: Verification results with status and details
+    """
+    verification_results = {
+        "binary_exists": False,
+        "binary_executable": False,
+        "version_readable": False,
+        "web_vault_exists": False,
+        "data_dir_exists": False,
+        "config_file_exists": False,
+        "service_active": False,
+        "version": None,
+        "paths": {}
+    }
+    
+    try:
+        directories = get_directories_config()
+        service_config = get_service_config()
+        
+        # Check binary
+        binary_path = directories["binary_path"]
+        verification_results["paths"]["binary"] = binary_path
+        
+        if os.path.exists(binary_path):
+            verification_results["binary_exists"] = True
+            if os.access(binary_path, os.X_OK):
+                verification_results["binary_executable"] = True
+                
+                # Check version
+                version = get_current_version()
+                if version:
+                    verification_results["version_readable"] = True
+                    verification_results["version"] = version
+        
+        # Check other components
+        web_vault_dir = directories["web_vault_dir"]
+        data_dir = directories["data_dir"]
+        config_file = directories["config_file"]
+        
+        verification_results["paths"]["web_vault_dir"] = web_vault_dir
+        verification_results["paths"]["data_dir"] = data_dir
+        verification_results["paths"]["config_file"] = config_file
+        
+        verification_results["web_vault_exists"] = os.path.exists(web_vault_dir)
+        verification_results["data_dir_exists"] = os.path.exists(data_dir)
+        verification_results["config_file_exists"] = os.path.exists(config_file)
+        
+        # Check service status
+        service_name = service_config["name"]
+        verification_results["service_active"] = is_service_active(service_name)
+        
+        # Log verification results
+        for check, result in verification_results.items():
+            if check not in ["version", "paths"]:
+                status = "✓" if result else "✗"
+                log_message(f"Vaultwarden verification - {check}: {status}")
+        
+        if verification_results["version"]:
+            log_message(f"Vaultwarden verification - version: {verification_results['version']}")
+        
+    except Exception as e:
+        log_message(f"Error during Vaultwarden verification: {e}", "ERROR")
+    
+    return verification_results
 
 def main(args=None):
     """
     Main entry point for Vaultwarden update module.
     Args:
-        args: List of arguments (supports '--check')
+        args: List of arguments (supports '--check', '--verify', '--config')
     Returns:
         dict: Status and results of the update
     """
     if args is None:
         args = []
+    
+    service_config = get_service_config()
+    directories = get_directories_config()
+    SERVICE_NAME = service_config["name"]
+    VAULTWARDEN_BIN = directories["binary_path"]
 
-    # --check mode
+    # --config mode: show current configuration
+    if len(args) > 0 and args[0] == "--config":
+        log_message("Current Vaultwarden module configuration:")
+        log_message(f"  Service: {SERVICE_NAME}")
+        log_message(f"  Binary path: {VAULTWARDEN_BIN}")
+        log_message(f"  Web vault dir: {directories['web_vault_dir']}")
+        log_message(f"  Data dir: {directories['data_dir']}")
+        log_message(f"  Config file: {directories['config_file']}")
+        
+        backup_config = get_backup_config()
+        log_message(f"  Backup dir: {backup_config['backup_dir']}")
+        log_message(f"  Max age: {backup_config['max_age_days']} days")
+        log_message(f"  Keep minimum: {backup_config['keep_minimum']} backups")
+        
+        return {
+            "success": True,
+            "config": MODULE_CONFIG,
+            "service": SERVICE_NAME,
+            "paths": directories
+        }
+
+    # --verify mode: comprehensive installation verification
+    if len(args) > 0 and args[0] == "--verify":
+        log_message("Running comprehensive Vaultwarden verification...")
+        verification = verify_vaultwarden_installation()
+        
+        all_checks_passed = all([
+            verification["binary_exists"],
+            verification["binary_executable"], 
+            verification["version_readable"]
+        ])
+        
+        return {
+            "success": all_checks_passed,
+            "verification": verification,
+            "version": verification.get("version"),
+            "config": MODULE_CONFIG
+        }
+
+    # --check mode: simple version check
     if len(args) > 0 and args[0] == "--check":
-        # Try multiple version methods
         version = get_current_version()
         if version:
             log_message(f"OK - Current version: {version}")
             return {"success": True, "version": version}
-        log_message(f"Vaultwarden not found at {VAULTWARDEN_BIN} or not executable", "ERROR")
-        return {"success": False, "error": "Not found"}
+        else:
+            log_message(f"Vaultwarden binary not found at {VAULTWARDEN_BIN}", "ERROR")
+            return {"success": False, "error": "Not found"}
 
-    # Get current and latest version
+    # Get current version
     current_version = get_current_version()
     if not current_version:
         log_message("Failed to get current version of Vaultwarden", "ERROR")
         return {"success": False, "error": "No current version"}
     log_message(f"Current Vaultwarden version: {current_version}")
 
+    # Get latest version
     latest_version = get_latest_version()
     if not latest_version:
         log_message("Failed to get latest version information", "ERROR")
         return {"success": False, "error": "No latest version"}
     log_message(f"Latest available version: {latest_version}")
 
-    if current_version == latest_version:
-        log_message("Vaultwarden is already at the latest version")
-        return {"success": True, "updated": False, "version": current_version}
-
-    # Stop service
-    log_message("Stopping Vaultwarden service...")
-    systemctl("stop", SERVICE_NAME)
-
-    # Create backups
-    log_message("Creating backup...")
-    backup_create(SERVICE_NAME, DATA_DIR, ".tar.gz")
-    backup_create(SERVICE_NAME, CONFIG_FILE, ".env")
-    backup_create(SERVICE_NAME, VAULTWARDEN_BIN, ".bin")
-    backup_create(SERVICE_NAME, WEB_VAULT_DIR, "_web.tar.gz")
-    backup_create(SERVICE_NAME, LOG_DIR, "_logs.tar.gz")
-    backup_create(SERVICE_NAME, ATTACHMENTS_DIR, "_attachments.tar.gz")
-
-    # Cleanup old backups
-    log_message("Cleaning up old backups...")
-    backup_cleanup(SERVICE_NAME)
-
-    # Update Vaultwarden
-    if not update_vaultwarden():
-        log_message("Failed to update vaultwarden, restoring from backup...")
-        backup_restore(SERVICE_NAME, DATA_DIR, ".tar.gz")
-        backup_restore(SERVICE_NAME, CONFIG_FILE, ".env")
-        backup_restore(SERVICE_NAME, VAULTWARDEN_BIN, ".bin")
-        backup_restore(SERVICE_NAME, WEB_VAULT_DIR, "_web.tar.gz")
-        backup_restore(SERVICE_NAME, LOG_DIR, "_logs.tar.gz")
-        backup_restore(SERVICE_NAME, ATTACHMENTS_DIR, "_attachments.tar.gz")
-        systemctl("start", SERVICE_NAME)
-        return {"success": False, "error": "Update failed, restored backup"}
-
-    # Start service
-    log_message("Starting Vaultwarden service...")
-    systemctl("start", SERVICE_NAME)
-
-    # Wait for service to start
-    time.sleep(5)
-
-    # Check service status
-    if not is_service_active(SERVICE_NAME):
-        log_message("Service failed to start, restoring from backup...")
-        backup_restore(SERVICE_NAME, DATA_DIR, ".tar.gz")
-        backup_restore(SERVICE_NAME, CONFIG_FILE, ".env")
-        backup_restore(SERVICE_NAME, VAULTWARDEN_BIN, ".bin")
-        backup_restore(SERVICE_NAME, WEB_VAULT_DIR, "_web.tar.gz")
-        backup_restore(SERVICE_NAME, LOG_DIR, "_logs.tar.gz")
-        backup_restore(SERVICE_NAME, ATTACHMENTS_DIR, "_attachments.tar.gz")
-        systemctl("start", SERVICE_NAME)
-        return {"success": False, "error": "Service failed to start, restored backup"}
-
-    log_message("Update completed successfully!")
-    new_version = get_current_version()
-    log_message(f"New version: {new_version}")
-    subprocess.run(["systemctl", "status", SERVICE_NAME])
-    return {"success": True, "updated": True, "old_version": current_version, "new_version": new_version}
+    # Compare and update if needed
+    if current_version != latest_version:
+        log_message("Update available. Creating comprehensive backup...")
+        
+        # Initialize global rollback system
+        backup_config = get_backup_config()
+        rollback = GlobalRollback(backup_config["backup_dir"])
+        
+        # Get all existing Vaultwarden paths for backup
+        files_to_backup = get_existing_backup_paths()
+        
+        if not files_to_backup:
+            log_message("No Vaultwarden files found for backup", "WARNING")
+            return {"success": False, "error": "No files to backup"}
+        
+        log_message(f"Creating backup for {len(files_to_backup)} Vaultwarden paths...")
+        
+        # Stop service before backup and update
+        log_message(f"Stopping {SERVICE_NAME} service...")
+        systemctl("stop", SERVICE_NAME)
+        
+        # Create comprehensive rollback point
+        rollback_point = rollback.create_rollback_point(
+            module_name=SERVICE_NAME,
+            description=f"pre_update_{current_version}_to_{latest_version}",
+            files=files_to_backup
+        )
+        
+        if not rollback_point:
+            log_message("Failed to create rollback point", "ERROR")
+            systemctl("start", SERVICE_NAME)  # Restart service on backup failure
+            return {"success": False, "error": "Backup failed"}
+        
+        log_message(f"Rollback point created with {len(rollback_point)} backups")
+        
+        # Perform the update
+        log_message("Installing update...")
+        try:
+            if not update_vaultwarden():
+                raise Exception("Vaultwarden update failed")
+            
+            # Start service
+            log_message(f"Starting {SERVICE_NAME} service...")
+            systemctl("start", SERVICE_NAME)
+            
+            # Wait for service to start
+            verification_config = get_verification_config()
+            wait_time = verification_config["startup_wait_seconds"]
+            log_message(f"Waiting {wait_time} seconds for service to start...")
+            time.sleep(wait_time)
+            
+            # Verify new installation
+            log_message("Verifying new installation...")
+            verification = verify_vaultwarden_installation()
+            new_version = verification.get("version")
+            
+            if new_version == latest_version and verification["service_active"]:
+                log_message(f"Successfully updated Vaultwarden from {current_version} to {latest_version}")
+                
+                # Clean up old backups
+                cleaned_count = rollback.cleanup_old_backups(
+                    max_age_days=backup_config["max_age_days"], 
+                    keep_minimum=backup_config["keep_minimum"]
+                )
+                log_message(f"Cleaned up {cleaned_count} old backups")
+                
+                return {
+                    "success": True, 
+                    "updated": True, 
+                    "old_version": current_version, 
+                    "new_version": new_version,
+                    "verification": verification,
+                    "rollback_point": rollback_point,
+                    "backups_cleaned": cleaned_count,
+                    "config": MODULE_CONFIG
+                }
+            else:
+                raise Exception(f"Post-update verification failed. Version: {new_version}, Service active: {verification['service_active']}")
+                
+        except Exception as e:
+            log_message(f"Update failed: {e}", "ERROR")
+            log_message("Restoring from rollback point...")
+            
+            # Stop service before rollback
+            systemctl("stop", SERVICE_NAME)
+            
+            # Restore entire rollback point
+            rollback_success = rollback.restore_rollback_point(rollback_point)
+            
+            # Start service after rollback
+            systemctl("start", SERVICE_NAME)
+            
+            if rollback_success:
+                log_message("Successfully restored from rollback point")
+                # Verify rollback worked
+                restored_version = get_current_version()
+                log_message(f"Restored version: {restored_version}")
+            else:
+                log_message("Failed to restore from rollback point", "ERROR")
+            
+            return {
+                "success": False, 
+                "error": str(e),
+                "rollback_success": rollback_success,
+                "rollback_point": rollback_point,
+                "restored_version": get_current_version() if rollback_success else None,
+                "config": MODULE_CONFIG
+            }
+    else:
+        log_message(f"Vaultwarden is already at the latest version ({current_version})")
+        
+        # Still run verification to ensure everything is working
+        verification = verify_vaultwarden_installation()
+        
+        return {
+            "success": True, 
+            "updated": False, 
+            "version": current_version,
+            "verification": verification,
+            "config": MODULE_CONFIG
+        }
 
 if __name__ == "__main__":
     main()

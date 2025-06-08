@@ -1,0 +1,45 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "module_name": "gogs",
+        "description": "Gogs Git service update module configuration",
+        "enabled": true
+    },
+    "config": {
+        "service": {
+            "name": "gogs",
+            "systemd_service": "gogs"
+        },
+        "directories": {
+            "install_dir": "/opt/gogs",
+            "data_dir": "/mnt/nas/git",
+            "config_file": "/opt/gogs/custom/conf/app.ini",
+            "repo_path": "/mnt/nas/git/repositories",
+            "gogs_bin": "/opt/gogs/gogs"
+        },
+        "backup": {
+            "backup_dir": "/var/backups/updates",
+            "include_paths": [
+                "/opt/gogs",
+                "/opt/gogs/custom/conf/app.ini",
+                "/mnt/nas/git/repositories"
+            ]
+        },
+        "database": {
+            "type": "postgresql",
+            "user": "git",
+            "database": "gogs",
+            "dump_path": "/tmp/gogs_db.sql"
+        },
+        "installation": {
+            "github_api_url": "https://api.github.com/repos/gogs/gogs/releases/latest",
+            "download_url_template": "https://dl.gogs.io/{version}/gogs_{version}_linux_amd64.tar.gz",
+            "extract_path": "/opt/"
+        },
+        "permissions": {
+            "owner": "git",
+            "group": "git",
+            "mode": "750"
+        }
+    }
+} 

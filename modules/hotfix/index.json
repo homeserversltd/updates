@@ -3,7 +3,8 @@
         "schema_version": "1.0.0",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "created": "2024-12-08",
-        "priority": "critical"
+        "priority": "critical",
+        "enabled": true
     },
     "config": {
         "backup_dir": "/var/backups/hotfix",

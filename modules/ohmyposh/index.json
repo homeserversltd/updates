@@ -1,0 +1,31 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "module_name": "ohmyposh",
+        "description": "Oh My Posh prompt theme engine update module configuration",
+        "enabled": true
+    },
+    "config": {
+        "directories": {
+            "install_dir": "/usr/local/bin",
+            "oh_my_posh_bin": "/usr/local/bin/oh-my-posh",
+            "themes_dir": "/usr/local/share/oh-my-posh/themes"
+        },
+        "backup": {
+            "backup_dir": "/var/backups/updates",
+            "include_paths": [
+                "/usr/local/bin/oh-my-posh",
+                "/usr/local/share/oh-my-posh"
+            ]
+        },
+        "installation": {
+            "github_api_url": "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest",
+            "download_url_template": "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/v{version}/posh-linux-amd64",
+            "themes_url": "https://github.com/JanDeDobbeleer/oh-my-posh/archive/refs/heads/main.zip"
+        },
+        "permissions": {
+            "binary_mode": "755",
+            "themes_mode": "644"
+        }
+    }
+} 

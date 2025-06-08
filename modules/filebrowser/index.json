@@ -1,0 +1,29 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "module_name": "filebrowser",
+        "enabled": true
+    },
+    "config": {
+        "service": {
+            "name": "filebrowser",
+            "systemd_service": "filebrowser"
+        },
+        "directories": {
+            "bin_path": "/usr/local/bin/filebrowser",
+            "data_dir": "/etc/filebrowser",
+            "db_path": "/etc/filebrowser/filebrowser.db",
+            "settings_path": "/etc/filebrowser/settings.json"
+        },
+        "backup": {
+            "backup_dir": "/var/backups/updates",
+            "include_paths": [
+                "/usr/local/bin/filebrowser"
+            ]
+        },
+        "installation": {
+            "install_script_url": "https://raw.githubusercontent.com/filebrowser/get/master/get.sh",
+            "github_api_url": "https://api.github.com/repos/filebrowser/filebrowser/releases/latest"
+        }
+    }
+} 

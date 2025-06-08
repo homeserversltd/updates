@@ -1,7 +1,9 @@
 {
     "metadata": {
         "schema_version": "1.0.0",
-        "unbound_version": "1.19.0"
+        "unbound_version": "1.19.0",
+        "module_name": "adblock",
+        "enabled": true
     },
     "config": {
         "unbound_dir": "/etc/unbound",
