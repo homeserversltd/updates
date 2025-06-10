@@ -38,23 +38,9 @@ from .index import (
 )
 
 # Import rollback utilities
-from ..utils.global_rollback import GlobalRollback
+from ...utils.global_rollback import GlobalRollback
 
-# Expose CHECKSUM for orchestrator integrity checks
-import os
-from ..utils.index import compute_folder_sha256
-
-_CHECKSUM_FILE = os.path.join(os.path.dirname(__file__), "checksum")
-
-def _read_checksum():
-    try:
-        with open(_CHECKSUM_FILE, "r") as f:
-            return f.read().strip()
-    except Exception:
-        return None
-
-CHECKSUM = _read_checksum()
-LIVE_CHECKSUM = compute_folder_sha256(os.path.dirname(os.path.abspath(__file__)))
+# Module integrity - no longer using checksums, relying on schema versioning
 
 # Convenience functions for external use
 def create_atuin_backup(description="manual_backup"):
@@ -260,8 +246,6 @@ def validate_atuin_config():
 __all__ = [
     'main', 
     'log_message', 
-    'CHECKSUM', 
-    'LIVE_CHECKSUM',
     'verify_atuin_installation',
     'get_all_atuin_paths',
     'create_atuin_backup',
