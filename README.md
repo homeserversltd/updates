@@ -2,265 +2,280 @@
 
 ## Overview
 
-This directory implements a modular, manifest-driven Python update orchestration system for managing and updating services and components in a robust, maintainable, and extensible way. Updates are run from a single entrypoint, with each update module being self-contained and responsible for its own logic and integrity.
+This directory implements a **schema-version driven** Python update orchestration system for managing and updating services and components. The system enables live, dynamic management of service updates by comparing schema versions between local modules and a GitHub repository source of truth.
+
+## Architecture
+
+The update system follows a Git-based approach:
+
+1. **Git Repository Sync**: Clone/pull from a GitHub repository containing the latest module definitions
+2. **Schema Version Comparison**: Compare `schema_version` in each module's `index.json` (local vs repository)
+3. **Atomic Module Updates**: Completely replace local module directories when repository has newer schema version
+4. **Module Execution**: Run each module's update scripts which handle their own configuration changes
+5. **Global Index Tracking**: Maintain a global index tracking current versions of all modules
+
+Each module is self-contained and version-independent, enabling safe atomic updates with automatic rollback on failure.
 
 ## Key Features
 
-- **Manifest-driven:**  
-  All updates, their relationships, and metadata (version, checksum, enablement, etc.) are defined in `manifest.json`. This file is the single source of truth for update orchestration.
+- **Schema-Version Driven**: Updates based on semantic versioning in module `index.json` files
+- **Git Repository Integration**: Automatic sync from remote GitHub repository
+- **Atomic Updates**: Complete module directory replacement ensures consistency
+- **Automatic Backup & Rollback**: Failed updates automatically restore from backup
+- **Global Version Tracking**: Central `index.json` tracks current module versions
+- **Dual Mode Support**: Both new schema-based and legacy manifest-based updates
+- **Robust Error Handling**: Individual module failures don't halt the entire process
+- **Shell Script Integration**: Convenient `updateManager.sh` wrapper for common operations
 
-- **Python modules:**  
-  Each update is a Python module (with an `index.py` and optional `__init__.py`), supporting complex logic, error handling, and integration with Python's ecosystem.
+## System Paths
 
-- **Checksum-based integrity:**  
-  Each module directory contains a `checksum` file (SHA-256, auto-generated) and exposes a `CHECKSUM` variable for runtime verification against the manifest.
+- **Local Modules**: `/var/local/lib/updates/modules/`
+- **Global Index**: `/var/local/lib/updates/index.json`
+- **Repository URL**: `https://github.com/homeserverltd/updates.git`
+- **Temp Sync Path**: `/tmp/homeserver-updates-repo`
 
-- **Self-contained submodules:**  
-  The orchestrator only calls the top-level children defined in the manifest. Each submodule is responsible for invoking its own children, ensuring a failure in one module does not halt the entire process.
+## Running Updates
 
-- **Robust error handling:**  
-  If a submodule fails, the error is logged, but the orchestrator continues with the next update, maximizing the chance that as many updates as possible succeed.
-
-- **Extensible:**  
-  New update modules can be added by creating a new subdirectory with the required files and updating the manifest. No changes to the orchestrator are required.
-
-- **Shared utilities:**  
-  Common logging, checksum, and helper functions are available in the `utils/` directory.
-
-- **Virtual Environment Isolation:**  
-  Dependencies are isolated in a virtual environment to prevent conflicts with system packages.
-
-## Setup
-
-### Virtual Environment Setup
-
-The updates system uses a virtual environment to isolate its dependencies:
+### Using the Shell Manager (Recommended)
 
 ```bash
-# Run the setup script to create and configure the virtual environment
-sudo ./setup_venv.sh
+# Run schema-based updates (default)
+/var/local/lib/updates/updateManager.sh
 
-# Or manually:
-python3 -m venv /usr/local/lib/user_local_lib/updates/venv
-source /usr/local/lib/user_local_lib/updates/venv/bin/activate
-pip install -r requirements.txt
+# Check for available updates without applying
+/var/local/lib/updates/updateManager.sh --check
+
+# Run legacy manifest-based updates
+/var/local/lib/updates/updateManager.sh --legacy
+
+# Show help
+/var/local/lib/updates/updateManager.sh --help
 ```
 
-### Running Updates
+### Direct Python Execution
 
 ```bash
-# Using the virtual environment
-/usr/local/lib/user_local_lib/updates/venv/bin/python /usr/local/lib/user_local_lib/updates/index.py
+# Schema-based updates
+python3 /var/local/lib/updates/index.py
 
-# Or activate first
-source /usr/local/lib/user_local_lib/updates/venv/bin/activate
-python /usr/local/lib/user_local_lib/updates/index.py
+# Check-only mode
+python3 /var/local/lib/updates/index.py --check-only
+
+# Legacy mode
+python3 /var/local/lib/updates/index.py --legacy
+
+# Custom repository
+python3 /var/local/lib/updates/index.py --repo-url https://github.com/custom/updates.git --branch develop
 ```
 
 ## Directory Structure
 
-- `manifest.json`  
-  The manifest file describing all update modules, their arguments, metadata, and child relationships.
+- `index.py` - Main orchestrator script implementing schema-based updates
+- `__init__.py` - Package initialization with utility functions for module management
+- `index.json` - Global index tracking current module versions and system metadata
+- `updateManager.sh` - Shell wrapper providing convenient access to update functions
+- `modules/` - Directory containing individual update modules
+- `utils/` - Shared utilities for logging, version comparison, and Git operations
 
-- `index.py`  
-  The master orchestrator script. Reads the manifest, verifies checksums, and runs the top-level updates.
+## Global Index Format
 
-- `requirements.txt`  
-  Python dependencies for the updates system.
-
-- `setup_venv.sh`  
-  Script to set up the virtual environment and install dependencies.
-
-- `venv/`  
-  Virtual environment directory (created by setup script).
-
-- `<module_name>/`  
-  Each update module is a subdirectory with:
-  - `index.py` (required): Contains a `main(args)` function.
-  - `__init__.py` (optional but recommended): Exposes `CHECKSUM` and/or `main`.
-  - `checksum` (required): SHA-256 hash of the module directory, for integrity verification.
-  - `README.md`, `requirements.txt`, `test_*.py` (optional): For documentation, dependencies, and tests.
-
-- `utils/`  
-  Shared utilities for logging, checksum calculation, and automation (e.g., `checksummer.py`).
-
-- `config/`  
-  Shared shell utilities and configuration scripts.
-
-- `update_*.sh`  
-  Legacy or supplementary shell scripts for updates (not required for Python modules).
-
-## Example manifest.json
+The `index.json` file tracks the current state of all modules:
 
 ```json
 {
-  "updates": [
-    {
-      "name": "adblock",
-      "version": "1.0.0",
-      "lastSafeVersion": "1.0.0",
-      "lastApplied": "2024-06-10T15:23:00Z",
-      "enabled": true,
-      "description": "Blocks ads at the network level."
+    "metadata": {
+        "schema_version": "1.0.0",
+        "channel": "stable"
     },
-    {
-      "name": "all_services",
-      "checksum": null,
-      "lastApplied": null,
-      "lastSafeVersion": null,
-      "enabled": true,
-      "description": null,
-      "children": [
-        "adblock",
-        "atuin",
-        "filebrowser",
-        "gogs"
-      ]
+    "packages": {
+        "adblock": "1.0.0",
+        "atuin": "1.0.0",
+        "filebrowser": "1.0.0",
+        "gogs": "1.0.0",
+        "ohmyposh": "1.0.0",
+        "os": "1.0.0",
+        "vaultwarden": "1.0.0",
+        "venvs": "1.0.0",
+        "website": "1.0.0",
+        "hotfix": "1.0.0"
     }
-  ],
-  "entrypoint": "all_services"
 }
 ```
 
-## How it Works
+## Module Structure
 
-- The orchestrator (`index.py`) reads `manifest.json` and runs each child of the entrypoint.
-- Each update module (e.g., `adblock/index.py`) implements a `main(args)` function and is responsible for running its own children (if any).
-- Before running, the orchestrator verifies the module's checksum against the manifest.
-- If a module fails, the error is logged, but the orchestrator continues with the next module.
-- This design ensures updates are modular, maintainable, and robust against partial failures.
+Each module directory must contain:
 
-## Adding a New Update Module
+- `index.json` - Module metadata with schema version
+- `index.py` - Main module script with `main(args)` function
+- Optional: `__init__.py`, `README.md`, configuration files
 
-1. Create a new subdirectory under `updates/` (e.g., `foobar/`).
-2. Add an `index.py` with a `main(args)` function.
-3. Add a `checksum` file (use `utils/checksummer.py` to generate).
-4. (Recommended) Add an `__init__.py` that exposes `CHECKSUM` and/or `main`.
-5. Add an entry for your module in `manifest.json`, and add it as a child to the appropriate parent.
-6. (Optional) Add `README.md`, `requirements.txt`, and tests as needed.
+### Example Module index.json
 
-## Example index.py for a Module
+```json
+{
+    "metadata": {
+        "schema_version": "1.2.0",
+        "name": "adblock",
+        "description": "Network-level ad blocking service"
+    },
+    "configuration": {
+        "service_name": "adblock",
+        "config_path": "/etc/adblock/config.json",
+        "backup_paths": [
+            "/etc/adblock/",
+            "/var/lib/adblock/"
+        ]
+    }
+}
+```
+
+### Example Module index.py
 
 ```python
 def main(args=None):
-    print("Running update for this module...")
-    # Module-specific update logic here
+    """
+    Main entry point for module update.
+    
+    Args:
+        args: Optional command line arguments
+    """
+    print("Updating adblock module...")
+    
+    # Module-specific update logic
+    # - Update configuration files
+    # - Restart services
+    # - Verify functionality
+    
+    print("Adblock module update completed")
 ```
 
-## Example __init__.py for a Module
+## How Schema Updates Work
 
-```python
-import os
-from ..utils.index import compute_folder_sha256
+1. **Repository Sync**: Git clone/pull latest module definitions from repository
+2. **Version Detection**: Compare each module's `schema_version` between local and repository
+3. **Update Selection**: Identify modules where repository version > local version
+4. **Backup Creation**: Create `.backup` copy of existing module directory
+5. **Atomic Replacement**: Copy entire module directory from repository to local
+6. **Module Execution**: Run the module's `main()` function to apply changes
+7. **Index Update**: Update global `index.json` with new version numbers
+8. **Rollback on Failure**: Restore from backup if any step fails
 
-_CHECKSUM_FILE = os.path.join(os.path.dirname(__file__), "checksum")
+## Version Comparison
 
-def _read_checksum():
-    try:
-        with open(_CHECKSUM_FILE, "r") as f:
-            return f.read().strip()
-    except Exception:
-        return None
+The system uses semantic versioning comparison:
 
-CHECKSUM = _read_checksum()
-LIVE_CHECKSUM = compute_folder_sha256(os.path.dirname(os.path.abspath(__file__)))
+- `1.0.0` < `1.0.1` (patch update)
+- `1.0.1` < `1.1.0` (minor update)  
+- `1.1.0` < `2.0.0` (major update)
+
+Updates are only applied when the repository has a higher schema version than the local module.
+
+## Error Handling and Rollback
+
+- **Individual Module Failures**: Other modules continue updating if one fails
+- **Automatic Backup**: Each module backed up before update
+- **Rollback on Failure**: Failed modules automatically restored from backup
+- **Detailed Logging**: All operations logged with timestamps and error details
+- **Exit Codes**: Non-zero exit codes indicate failures for script integration
+
+## Adding New Modules
+
+1. **Create Module Directory**: Add new directory under `modules/`
+2. **Add index.json**: Define schema version and metadata
+3. **Add index.py**: Implement `main(args)` function
+4. **Repository Integration**: Commit module to Git repository
+5. **Automatic Detection**: System will detect and apply on next update run
+
+No changes to the orchestrator are required - new modules are automatically discovered.
+
+## Command Line Options
+
+### index.py Options
+
+```bash
+--repo-url URL          Git repository URL (default: homeserverltd/updates.git)
+--local-repo PATH       Local sync path (default: /tmp/homeserver-updates-repo)
+--modules-path PATH     Local modules directory (default: /var/local/lib/updates)
+--branch BRANCH         Git branch to sync (default: main)
+--legacy                Use legacy manifest-based updates
+--check-only            Check for updates without applying
 ```
+
+### updateManager.sh Options
+
+```bash
+--check                 Check for updates without applying
+--legacy                Use legacy manifest-based updates  
+--help                  Show usage information
+```
+
+## Utility Functions
+
+The `__init__.py` module provides utility functions for module development:
+
+- `load_module_index(path)` - Load module index.json
+- `compare_schema_versions(v1, v2)` - Compare semantic versions
+- `sync_from_repo(url, path, branch)` - Git sync operations
+- `detect_module_updates(local, repo)` - Find modules needing updates
+- `update_modules(modules, local, repo)` - Execute module updates
+- `run_update(module_path, args)` - Run individual module
+- `run_updates_async(updates)` - Parallel module execution
+
+## Legacy Support
+
+The system maintains backward compatibility with the previous manifest-driven approach:
+
+```bash
+# Run legacy updates
+python3 index.py --legacy
+```
+
+This fallback ensures existing manifest-based modules continue to function during the transition period.
 
 ## Best Practices
 
-- Keep each module self-contained and idempotent.
-- Handle errors within each module and log them appropriately.
-- Only the master orchestrator should run top-level updates; submodules handle their own children.
-- Use the manifest as the single source of truth for update relationships and metadata.
-- Use the checksummer utility to keep checksums up to date.
-- Always use the virtual environment when running updates.
-
-## Version Control and Rollback
-
-The system provides built-in version rollback capabilities using Git tags and the manifest's version tracking.
-
-### Version Tracking
-Each module in the manifest includes version information:
-```json
-{
-  "name": "adblock",
-  "version": "1.0.0",
-  "lastSafeVersion": "1.0.0",
-  "lastApplied": "2024-06-10T15:23:00Z",
-  "enabled": true
-}
-```
-
-### Git Tag Convention
-Updates are tagged in Git using the format:
-```
-<module_name>-v<version>-<timestamp>
-# Example: adblock-v1.0.0-20240610
-```
-
-### Rollback Functions
-The `utils.rollback` module provides several functions for version management:
-
-1. **Roll Back to Last Safe Version**
-```python
-from initialization.files.user_local_lib.updates.utils import rollback_to_last_safe
-
-success = rollback_to_last_safe('adblock')
-```
-
-2. **Roll Back to Specific Version**
-```python
-from initialization.files.user_local_lib.updates.utils import rollback_module
-
-success = rollback_module('adblock', target_version='1.0.0')
-```
-
-3. **List Available Versions**
-```python
-from initialization.files.user_local_lib.updates.utils import list_available_versions
-
-versions = list_available_versions('adblock')
-for v in versions:
-    print(f"Version {v['version']} from {v['timestamp']}")
-```
-
-### Deployment Best Practices
-
-1. **Tag Updates When Deploying**
-```bash
-# After successful update
-git tag adblock-v1.0.0-$(date +%Y%m%d) HEAD
-git push origin adblock-v1.0.0-$(date +%Y%m%d)
-```
-
-2. **Update Manifest Fields**
-- `version`: Set to new version when deploying
-- `lastSafeVersion`: Update when version is confirmed stable
-- `lastApplied`: Set to deployment timestamp
-- `enabled`: Toggle module activation
-
-3. **Rollback Safety**
-- Test rollbacks in staging environment first
-- Keep Git tags synchronized across environments
-- Document configuration changes with versions
-- Create pre-rollback backups when possible
-- Verify rolled-back version functionality
-
-## Utilities
-
-- `utils/index.py`: Logging and checksum helpers.
-- `utils/checksummer.py`: Script to (re)generate checksums for all modules.
-- `utils/rollback.py`: Version rollback and management utilities.
-- `config/utils.sh`: Shared shell functions for update scripts.
+- **Idempotent Updates**: Modules should be safe to run multiple times
+- **Self-Contained Logic**: Each module handles its own dependencies and configuration
+- **Proper Error Handling**: Use try/catch blocks and meaningful error messages
+- **Schema Versioning**: Increment schema version for any breaking changes
+- **Configuration Validation**: Verify configuration files and service states
+- **Atomic Operations**: Group related changes to enable clean rollback
 
 ## Dependencies
 
-The updates system requires the following Python packages:
-- `requests`: For HTTP requests (used by adblock module)
-- `pathlib2`: For Python < 3.4 compatibility (if needed)
+The system uses only Python standard library modules:
+- `json` - Configuration file parsing
+- `subprocess` - Git operations and system commands
+- `shutil` - File and directory operations
+- `pathlib` - Path manipulation
+- `asyncio` - Asynchronous execution support
+- `concurrent.futures` - Parallel module execution
 
-All dependencies are managed through the virtual environment to ensure isolation from system packages.
+No external dependencies are required, ensuring system reliability.
+
+## Security Considerations
+
+- **Git Repository Trust**: Only sync from trusted repository sources
+- **File System Permissions**: Module directories require appropriate write permissions
+- **Backup Integrity**: Verify backup creation before proceeding with updates
+- **Atomic Operations**: Use temporary directories for staging before final deployment
+- **Error Isolation**: Module failures contained to prevent system-wide issues
+
+## Monitoring and Logging
+
+All operations are logged with timestamps and appropriate log levels:
+
+```
+[2024-12-08 10:30:15] Starting schema-based update orchestration
+[2024-12-08 10:30:16] Repository: https://github.com/homeserverltd/updates.git
+[2024-12-08 10:30:17] Module adblock needs update: 1.0.0 → 1.1.0
+[2024-12-08 10:30:18] Updated module adblock
+[2024-12-08 10:30:19] Update orchestration completed: 1 successful, 0 failed
+```
+
+Log output can be redirected or parsed for monitoring system integration.
 
 ## License
 
-This system is intended for internal use. Adapt and extend as needed for your environment.
+This system is intended for internal HOMESERVER use. Adapt and extend as needed for your environment.
