@@ -1,0 +1,34 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2024 HOMESERVER LLC
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+HOMESERVER Update Management System
+===================================
+
+This update management system is part of the HOMESERVER platform but is
+separately licensed under GPL v3 to encourage community contribution and
+ensure that improvements to the update infrastructure benefit all users.
+
+The core HOMESERVER platform (website backend and frontend) remains under
+the Business Source License with a 3-year grace period.
+
+For the complete licensing terms of the HOMESERVER platform, see:
+docs/LICENSE.md in the project root.
+
+Contact: legal@homeserver.com 
