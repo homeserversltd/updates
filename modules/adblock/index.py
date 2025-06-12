@@ -214,6 +214,29 @@ def restart_unbound():
         log(f"Warning: Failed to restart unbound: {e}")
 
 
+def install_cron_job():
+    """Install the cron job for daily blocklist updates."""
+    try:
+        cron_file = Path(__file__).parent / "adblock.cron"
+        if not cron_file.exists():
+            log("Error: adblock.cron not found")
+            return False
+            
+        # Create cron.d directory if it doesn't exist
+        cron_dir = Path("/etc/cron.d")
+        if not cron_dir.exists():
+            cron_dir.mkdir(parents=True, exist_ok=True)
+            
+        # Copy cron file to /etc/cron.d
+        shutil.copy(cron_file, cron_dir / "homeserver-adblock")
+        log("Installed cron job for daily blocklist updates")
+        return True
+        
+    except Exception as e:
+        log(f"Warning: Failed to install cron job: {e}")
+        return False
+
+
 def main(args=None):
     # Handle command line arguments
     if args and len(args) > 0:
@@ -227,6 +250,9 @@ def main(args=None):
                 return {"success": False, "error": "Version detection failed"}
     
     log("Starting adblock update...")
+    
+    # Install/update cron job
+    install_cron_job()
     
     # Update Unbound version in configuration
     update_config_version()

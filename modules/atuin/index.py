@@ -71,56 +71,6 @@ def load_module_config():
             }
         }
 
-def get_atuin_version():
-    """Detect currently installed Atuin version."""
-    admin_user = get_admin_user()
-    if not admin_user:
-        return None
-    
-    try:
-        bin_path = get_atuin_bin_path(admin_user)
-        if not os.path.isfile(bin_path) or not os.access(bin_path, os.X_OK):
-            return None
-        
-        result = subprocess.run([bin_path, "--version"], capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            version_parts = result.stdout.strip().split()
-            if len(version_parts) >= 2:
-                return version_parts[1]
-        return None
-    except Exception as e:
-        log_message(f"Warning: Failed to detect Atuin version: {e}")
-        return None
-
-def update_config_version():
-    """Update Atuin version in index.json with detected version."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), "index.json")
-        
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
-        
-        current_version = get_atuin_version()
-        if not current_version:
-            log_message("Warning: Could not detect Atuin version - keeping existing config")
-            return False
-        
-        old_version = config_data.get('metadata', {}).get('atuin_version', 'unknown')
-        config_data['metadata']['atuin_version'] = current_version
-        
-        with open(config_path, 'w') as f:
-            json.dump(config_data, f, indent=4)
-        
-        if old_version != current_version:
-            log_message(f"Updated Atuin version in config: {old_version} → {current_version}")
-        else:
-            log_message(f"Atuin version confirmed: {current_version}")
-        
-        return True
-    except Exception as e:
-        log_message(f"Warning: Failed to update config version: {e}")
-        return False
-
 # Global configuration
 MODULE_CONFIG = load_module_config()
 
@@ -233,7 +183,251 @@ def get_installation_config():
     """
     return MODULE_CONFIG["config"]["installation"]
 
+# --- Backup and State Management ---
+def create_atuin_backup(description="manual_backup"):
+    """
+    Create a comprehensive backup of all Atuin files using configuration.
+    
+    Args:
+        description: Description for the backup
+        
+    Returns:
+        dict: Backup information with rollback point details
+    """
+    admin_user = get_admin_user()
+    if not admin_user:
+        return {"success": False, "error": "No admin user found"}
+    
+    try:
+        backup_config = get_backup_config()
+        state_manager = StateManager(backup_config["backup_dir"])
+        files_to_backup = get_all_atuin_paths(admin_user)
+        
+        if not files_to_backup:
+            return {"success": False, "error": "No Atuin files found"}
+        
+        success = state_manager.backup_module_state(
+            module_name=MODULE_CONFIG["metadata"]["module_name"],
+            description=description,
+            files=files_to_backup
+        )
+        
+        if not success:
+            return {"success": False, "error": "Failed to create backup"}
+            
+        backup_info = state_manager.get_backup_info(MODULE_CONFIG["metadata"]["module_name"])
+        
+        return {
+            "success": True,
+            "backup_info": backup_info,
+            "files_backed_up": len(files_to_backup),
+            "backup_paths": files_to_backup,
+            "backup_config": backup_config
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def restore_atuin_backup():
+    """
+    Restore Atuin from its backup using configuration.
+    
+    Returns:
+        dict: Restoration results
+    """
+    try:
+        backup_config = get_backup_config()
+        state_manager = StateManager(backup_config["backup_dir"])
+        success = state_manager.restore_module_state(MODULE_CONFIG["metadata"]["module_name"])
+        
+        # Verify restoration if successful
+        verification = None
+        if success:
+            admin_user = get_admin_user()
+            if admin_user:
+                verification = verify_atuin_installation(admin_user)
+        
+        return {
+            "success": success,
+            "verification": verification,
+            "backup_config": backup_config
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def list_atuin_backups():
+    """
+    List all available Atuin backups using configuration.
+    
+    Returns:
+        list: List of BackupInfo objects for Atuin module
+    """
+    try:
+        backup_config = get_backup_config()
+        state_manager = StateManager(backup_config["backup_dir"])
+        backup_info = state_manager.get_backup_info(MODULE_CONFIG["metadata"]["module_name"])
+        return [backup_info] if backup_info else []
+    except Exception as e:
+        log_message(f"Failed to list Atuin backups: {e}", "ERROR")
+        return []
+
+def cleanup_atuin_backups():
+    """
+    Clean up old Atuin backups using configuration defaults.
+    
+    Returns:
+        bool: True if cleanup successful
+    """
+    try:
+        backup_config = get_backup_config()
+        state_manager = StateManager(backup_config["backup_dir"])
+        return state_manager.remove_module_backup(MODULE_CONFIG["metadata"]["module_name"])
+    except Exception as e:
+        log_message(f"Failed to cleanup Atuin backups: {e}", "ERROR")
+        return False
+
+def get_atuin_config():
+    """
+    Get the current Atuin module configuration.
+    
+    Returns:
+        dict: Complete module configuration
+    """
+    return MODULE_CONFIG
+
+def reload_atuin_config():
+    """
+    Reload the Atuin module configuration from index.json.
+    
+    Returns:
+        dict: Reloaded configuration
+    """
+    global MODULE_CONFIG
+    MODULE_CONFIG = load_module_config()
+    return MODULE_CONFIG
+
+def validate_atuin_config():
+    """
+    Validate the current Atuin configuration.
+    
+    Returns:
+        dict: Validation results
+    """
+    config = MODULE_CONFIG
+    validation_results = {
+        "valid": True,
+        "errors": [],
+        "warnings": []
+    }
+    
+    try:
+        # Check required sections
+        required_sections = ["metadata", "config"]
+        for section in required_sections:
+            if section not in config:
+                validation_results["errors"].append(f"Missing required section: {section}")
+                validation_results["valid"] = False
+        
+        if "config" in config:
+            # Check required config subsections
+            required_config_sections = ["admin_user_uid", "directories", "backup", "installation"]
+            for section in required_config_sections:
+                if section not in config["config"]:
+                    validation_results["errors"].append(f"Missing required config section: {section}")
+                    validation_results["valid"] = False
+            
+            # Check admin user UID
+            if "admin_user_uid" in config["config"]:
+                try:
+                    uid = config["config"]["admin_user_uid"]
+                    if not isinstance(uid, int) or uid < 0:
+                        validation_results["errors"].append("admin_user_uid must be a positive integer")
+                        validation_results["valid"] = False
+                except Exception:
+                    validation_results["errors"].append("Invalid admin_user_uid format")
+                    validation_results["valid"] = False
+            
+            # Check directories section
+            if "directories" in config["config"]:
+                required_dirs = ["atuin_root", "atuin_bin", "atuin_env", "config_dir", "data_dir"]
+                for dir_key in required_dirs:
+                    if dir_key not in config["config"]["directories"]:
+                        validation_results["warnings"].append(f"Missing directory config: {dir_key}")
+            
+            # Check backup section
+            if "backup" in config["config"]:
+                backup_config = config["config"]["backup"]
+                if "include_paths" not in backup_config:
+                    validation_results["warnings"].append("No backup include_paths specified")
+                
+                # Check numeric values
+                for key in ["max_age_days", "keep_minimum"]:
+                    if key in backup_config:
+                        try:
+                            val = backup_config[key]
+                            if not isinstance(val, int) or val < 0:
+                                validation_results["warnings"].append(f"backup.{key} should be a positive integer")
+                        except Exception:
+                            validation_results["warnings"].append(f"Invalid backup.{key} format")
+        
+    except Exception as e:
+        validation_results["errors"].append(f"Configuration validation error: {e}")
+        validation_results["valid"] = False
+    
+    return validation_results
+
 # --- Atuin version helpers ---
+def get_atuin_version():
+    """Detect currently installed Atuin version."""
+    admin_user = get_admin_user()
+    if not admin_user:
+        return None
+    
+    try:
+        bin_path = get_atuin_bin_path(admin_user)
+        if not os.path.isfile(bin_path) or not os.access(bin_path, os.X_OK):
+            return None
+        
+        result = subprocess.run([bin_path, "--version"], capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            version_parts = result.stdout.strip().split()
+            if len(version_parts) >= 2:
+                return version_parts[1]
+        return None
+    except Exception as e:
+        log_message(f"Warning: Failed to detect Atuin version: {e}")
+        return None
+
+def update_config_version():
+    """Update Atuin version in index.json with detected version."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "index.json")
+        
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+        
+        current_version = get_atuin_version()
+        if not current_version:
+            log_message("Warning: Could not detect Atuin version - keeping existing config")
+            return False
+        
+        old_version = config_data.get('metadata', {}).get('atuin_version', 'unknown')
+        config_data['metadata']['atuin_version'] = current_version
+        
+        with open(config_path, 'w') as f:
+            json.dump(config_data, f, indent=4)
+        
+        if old_version != current_version:
+            log_message(f"Updated Atuin version in config: {old_version} → {current_version}")
+        else:
+            log_message(f"Atuin version confirmed: {current_version}")
+        
+        return True
+    except Exception as e:
+        log_message(f"Warning: Failed to update config version: {e}")
+        return False
+
 def check_atuin_version(bin_path):
     """
     Check the current version of Atuin if installed at bin_path.

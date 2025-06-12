@@ -1,10 +1,10 @@
 # Atuin Update Module
 
-> **Enhanced with Global Rollback Integration and Configuration Management**
+> **Enhanced with StateManager Integration and Configuration Management**
 
 ## Overview
 
-The Atuin update module provides comprehensive management of the Atuin shell history tool with advanced backup and rollback capabilities. All paths and settings are configurable through `index.json`.
+The Atuin update module provides comprehensive management of the Atuin shell history tool with advanced backup and state management capabilities. All paths and settings are configurable through `index.json`.
 
 ## Features
 
@@ -13,9 +13,9 @@ The Atuin update module provides comprehensive management of the Atuin shell his
 - Template-based path configuration with `{admin_user}` substitution
 - Configurable backup policies and installation URLs
 
-### ✅ Global Rollback Integration
+### ✅ StateManager Integration
 - Comprehensive backup of all Atuin-related files
-- Atomic rollback operations on update failures
+- Atomic state restoration on update failures
 - Configurable backup retention policies
 - Checksum verification for backup integrity
 
@@ -97,7 +97,7 @@ python -m initialization.files.user_local_lib.updates.modules.atuin --verify
 # Show configuration
 python -m initialization.files.user_local_lib.updates.modules.atuin --config
 
-# Run update (with automatic backup/rollback)
+# Run update (with automatic backup/restore)
 python -m initialization.files.user_local_lib.updates.modules.atuin
 ```
 
@@ -114,20 +114,20 @@ from initialization.files.user_local_lib.updates.modules.atuin import (
     validate_atuin_config
 )
 
-# Run update with full rollback protection
+# Run update with full state management
 result = main()
 print(f"Update success: {result['success']}")
 
 # Create manual backup
 backup_result = create_atuin_backup("pre_maintenance")
 if backup_result["success"]:
-    rollback_point = backup_result["rollback_point"]
-    print(f"Backup created: {len(rollback_point)} files backed up")
+    backup_info = backup_result["backup_info"]
+    print(f"Backup created: {backup_info}")
 
 # List available backups
 backups = list_atuin_backups()
 for backup in backups:
-    print(f"Backup: {backup.backup_id} - {backup.description}")
+    print(f"Backup: {backup}")
 
 # Validate configuration
 validation = validate_atuin_config()
@@ -135,21 +135,21 @@ if not validation["valid"]:
     print("Configuration errors:", validation["errors"])
 ```
 
-### Global Rollback Integration
+### StateManager Integration
 
 ```python
-from initialization.files.user_local_lib.updates.utils.global_rollback import GlobalRollback
+from initialization.files.user_local_lib.updates.utils.state_manager import StateManager
 from initialization.files.user_local_lib.updates.modules.atuin import get_backup_config
 
 # Use Atuin's configured backup directory
 backup_config = get_backup_config()
-rollback = GlobalRollback(backup_config["backup_dir"])
+state_manager = StateManager(backup_config["backup_dir"])
 
 # List all Atuin backups
-atuin_backups = rollback.list_backups(module_name="atuin")
+atuin_backups = state_manager.get_backup_info(module_name="atuin")
 
-# Restore specific backup
-success = rollback.restore_backup(backup_id)
+# Restore module state
+success = state_manager.restore_module_state(module_name="atuin")
 ```
 
 ## Update Process Flow
@@ -158,7 +158,7 @@ success = rollback.restore_backup(backup_id)
 - Load configuration from `index.json`
 - Verify admin user and paths
 - Check current vs. latest version
-- Create comprehensive backup rollback point
+- Create comprehensive state backup
 
 ### 2. Update Phase
 - Download and install new version using configured URL
@@ -170,10 +170,10 @@ success = rollback.restore_backup(backup_id)
 - Clean up old backups per retention policy
 - Return detailed results
 
-### 4. Rollback on Failure
-- Automatic rollback on any failure
+### 4. State Restoration on Failure
+- Automatic state restoration on any failure
 - Restore all backed up files and directories
-- Verify rollback success
+- Verify restoration success
 - Log detailed error information
 
 ## Backup Strategy
@@ -203,9 +203,9 @@ success = rollback.restore_backup(backup_id)
 - Detailed error messages with context
 - Verification results with pass/fail status
 
-### Rollback Guarantees
-- Failed updates trigger automatic rollback
-- Rollback success is verified and reported
+### State Restoration Guarantees
+- Failed updates trigger automatic state restoration
+- Restoration success is verified and reported
 - Original state restoration is confirmed
 
 ## Integration Examples
@@ -225,7 +225,7 @@ if result["success"]:
 else:
     print(f"Atuin update failed: {result['error']}")
     if result.get("rollback_success"):
-        print("Successfully rolled back to previous version")
+        print("Successfully restored to previous state")
 ```
 
 ### With Custom Backup Scripts
@@ -233,13 +233,13 @@ else:
 ```python
 # Create backup before maintenance
 backup_result = create_atuin_backup("pre_maintenance_2024")
-rollback_point = backup_result["rollback_point"]
+backup_info = backup_result["backup_info"]
 
 # Perform maintenance operations...
 
 # Restore if needed
 if maintenance_failed:
-    restore_result = restore_atuin_backup(rollback_point)
+    restore_result = restore_atuin_backup()
     if restore_result["success"]:
         print("Successfully restored from backup")
 ```
@@ -282,7 +282,7 @@ for key, template in config["config"]["directories"].items():
 3. **Validation**: Always validate config after changes
 4. **Documentation**: Document any custom path changes
 
-### Backup Management
+### State Management
 1. **Regular Cleanup**: Run cleanup periodically to manage disk space
 2. **Monitoring**: Monitor backup success/failure rates
 3. **Testing**: Periodically test restore procedures
@@ -291,7 +291,7 @@ for key, template in config["config"]["directories"].items():
 ### Update Safety
 1. **Pre-Update Backups**: Always create backups before updates
 2. **Verification**: Run verification after updates
-3. **Rollback Testing**: Test rollback procedures in non-production
+3. **Restore Testing**: Test restore procedures in non-production
 4. **Monitoring**: Monitor update success rates and failure patterns
 
 ## Troubleshooting
@@ -360,10 +360,10 @@ python -m initialization.files.user_local_lib.updates.modules.atuin
 - [ ] Incremental backup support
 - [ ] Configuration schema validation
 - [ ] Integration with system package managers
-- [ ] Automated rollback triggers based on health checks
+- [ ] Automated state restoration triggers based on health checks
 
 ### Extension Points
 - Custom backup destinations via configuration
 - Plugin system for additional verification checks
 - Integration with external monitoring systems
-- Custom rollback triggers and conditions 
+- Custom state restoration triggers and conditions 

@@ -95,10 +95,21 @@ config = load_config()  # Reads updated index.json
 
 ## Update Triggers
 
-The module updates when:
-- **Schema Version Bump**: `metadata.schema_version` increased in repository
-- **Manual Execution**: Direct call to `main()` function
-- **Orchestrator Run**: Part of system-wide update cycle
+The module has two distinct update mechanisms:
+
+1. **Blocklist Updates** (via cron):
+   - Runs daily at 3 AM with random delay
+   - Downloads and processes latest blocklists
+   - Independent of schema version
+   - Logs output to `/var/log/homeserver/adblock.log`
+
+2. **Module Code Updates** (triggered by schema version):
+   - `metadata.schema_version` changes trigger module code updates
+   - Updates `__init__.py`, `index.json`, `index.py`, `README.md`, `adblock.cron`
+   - Used to modify blocklist sources, cron schedule, or module behavior
+   - Does not affect daily blocklist update frequency
+
+This separation ensures blocklists stay current while allowing module code and cron configuration to be updated independently.
 
 ## Error Handling
 
