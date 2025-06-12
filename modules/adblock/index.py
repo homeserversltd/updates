@@ -23,6 +23,7 @@ import tempfile
 import subprocess
 import requests
 from pathlib import Path
+from ...utils.state_manager import StateManager
 
 
 def get_unbound_version():
@@ -192,15 +193,6 @@ def combine_lists(unbound_conf, blacklist, out_path):
         return False
 
 
-def backup_existing_blocklist(config):
-    blocklist_path = Path(config['blocklist_path'])
-    backup_path = Path(config['backup_path'])
-    
-    if blocklist_path.exists():
-        shutil.copy2(blocklist_path, backup_path)
-        log(f"Backed up existing blocklist to {backup_path}")
-
-
 def move_blocklist(new_blocklist, config):
     blocklist_path = Path(config['blocklist_path'])
     shutil.move(new_blocklist, blocklist_path)
@@ -268,7 +260,18 @@ def main(args=None):
         log("Combining blocklists...")
         combine_lists(unbound_conf, blacklist, blocklist)
 
-        backup_existing_blocklist(config)
+        # Create backup using StateManager
+        state_manager = StateManager()
+        backup_success = state_manager.backup_module_state(
+            module_name="adblock",
+            description="Pre-update blocklist backup",
+            files=[config['blocklist_path']]
+        )
+        
+        if not backup_success:
+            log("Warning: Failed to create backup using StateManager")
+            return False
+
         move_blocklist(blocklist, config)
         restart_unbound()
 

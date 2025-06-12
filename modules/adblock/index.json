@@ -9,7 +9,6 @@
     "config": {
         "unbound_dir": "/etc/unbound",
         "blocklist_path": "/etc/unbound/blocklist.conf",
-        "backup_path": "/etc/unbound/blocklist.conf.bak",
         "sources": {
             "stevenblack": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
             "notracking": "https://raw.githubusercontent.com/notracking/hosts-blocklists/master/unbound/unbound.blacklist.conf"

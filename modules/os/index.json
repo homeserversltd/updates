@@ -2,29 +2,12 @@
     "metadata": {
         "schema_version": "1.0.0",
         "module_name": "os",
-        "description": "Debian OS package update module configuration",
+        "description": "Operating system update module",
         "enabled": true
     },
-    "config": { 
-        "package_manager": {
-            "type": "apt",
-            "update_command": ["apt", "update"],
-            "upgrade_command": ["apt", "upgrade", "-y"],
-            "autoremove_command": ["apt", "autoremove", "-y"],
-            "clean_command": ["apt", "clean"],
-            "list_upgradable_command": ["apt", "list", "--upgradable"]
-        },
-        "backup": {
-            "backup_dir": "/var/backups/updates",
-            "include_paths": [
-                "/var/lib/dpkg/status",
-                "/var/lib/apt/extended_states"
-            ]
-        },
-        "safety": {
-            "create_snapshot": true,
-            "max_upgrade_count": 100,
-            "skip_kernel_updates": false
+    "config": {
+        "directories": {
+            "config_dir": "/etc/os-updates"
         }
     }
 } 

@@ -13,6 +13,7 @@ The update system follows a Git-based approach:
 3. **Atomic Module Updates**: Completely replace local module directories when repository has newer schema version
 4. **Module Execution**: Run each module's update scripts which handle their own configuration changes
 5. **Global Index Tracking**: Maintain a global index tracking current versions of all modules
+6. **Self-Updating Orchestrator**: The system can update its own orchestrator code when repository contains newer versions
 
 Each module is self-contained and version-independent, enabling safe atomic updates with automatic rollback on failure.
 
@@ -26,6 +27,7 @@ Each module is self-contained and version-independent, enabling safe atomic upda
 - **Dual Mode Support**: Both new schema-based and legacy manifest-based updates
 - **Robust Error Handling**: Individual module failures don't halt the entire process
 - **Shell Script Integration**: Convenient `updateManager.sh` wrapper for common operations
+- **Self-Updating Capability**: The orchestrator can update itself when newer versions are available
 
 ## System Paths
 
@@ -153,13 +155,30 @@ def main(args=None):
 ## How Schema Updates Work
 
 1. **Repository Sync**: Git clone/pull latest module definitions from repository
-2. **Version Detection**: Compare each module's `schema_version` between local and repository
-3. **Update Selection**: Identify modules where repository version > local version
-4. **Backup Creation**: Create `.backup` copy of existing module directory
-5. **Atomic Replacement**: Copy entire module directory from repository to local
-6. **Module Execution**: Run the module's `main()` function to apply changes
-7. **Index Update**: Update global `index.json` with new version numbers
-8. **Rollback on Failure**: Restore from backup if any step fails
+2. **Orchestrator Check**: Determine if the orchestrator system itself needs updating
+3. **Module Version Detection**: Compare each module's `schema_version` between local and repository
+4. **Update Selection**: Identify modules where repository version > local version
+5. **Backup Creation**: Create `.backup` copy of existing module directory
+6. **Atomic Replacement**: Copy entire module directory from repository to local
+7. **Module Execution**: Run the module's `main()` function to apply changes
+8. **Index Update**: Update global `index.json` with new version numbers
+9. **Orchestrator Update**: If needed, update orchestrator system files after modules are updated
+10. **Rollback on Failure**: Restore from backup if any step fails
+
+## Self-Updating Orchestrator
+
+The system can update its own core files when the repository contains a newer version:
+
+1. **Schema Version Check**: Compare orchestrator schema version in local vs repository `index.json`
+2. **Backup Creation**: Create backup of orchestrator files before updating
+3. **Core File Update**: Update orchestrator files including:
+   - `index.py` - Main orchestrator script
+   - `updateManager.sh` - Shell wrapper
+   - `__init__.py` - Package utilities
+   - `utils/` - Shared utilities
+   - Additional configuration files
+4. **Restart Awareness**: System is aware when it has updated itself and needs restarting
+5. **Rollback Protection**: Automatic rollback if orchestrator update fails
 
 ## Version Comparison
 
@@ -222,6 +241,17 @@ The `__init__.py` module provides utility functions for module development:
 - `run_update(module_path, args)` - Run individual module
 - `run_updates_async(updates)` - Parallel module execution
 
+## Update Process Flow
+
+1. **Initialization**: Parse command line arguments and set configuration
+2. **Repository Sync**: Clone/pull from Git repository
+3. **Orchestrator Check**: Determine if orchestrator needs updating
+4. **Module Detection**: Find modules with newer versions in repository
+5. **Module Updates**: Update each module with newer version available
+6. **Global Index Update**: Update index.json with new module versions
+7. **Orchestrator Update**: If needed, update orchestrator system itself
+8. **Summary**: Log summary of update process results
+
 ## Legacy Support
 
 The system maintains backward compatibility with the previous manifest-driven approach:
@@ -275,7 +305,3 @@ All operations are logged with timestamps and appropriate log levels:
 ```
 
 Log output can be redirected or parsed for monitoring system integration.
-
-## License
-
-This system is intended for internal HOMESERVER use. Adapt and extend as needed for your environment.

@@ -2,36 +2,16 @@
     "metadata": {
         "schema_version": "1.0.0",
         "module_name": "navidrome",
-        "description": "Navidrome music server update module configuration",
+        "description": "Navidrome music server",
         "enabled": true
     },
     "config": {
-        "service": {
-            "name": "navidrome",
-            "systemd_service": "navidrome"
-        },
         "directories": {
-            "install_dir": "/opt/navidrome",
             "data_dir": "/var/lib/navidrome",
-            "navidrome_bin": "/opt/navidrome/navidrome",
-            "config_file": "/var/lib/navidrome/navidrome.toml"
-        },
-        "backup": {
-            "backup_dir": "/var/backups/updates",
-            "include_paths": [
-                "/opt/navidrome/navidrome",
-                "/var/lib/navidrome"
-            ]
+            "config_dir": "/etc/navidrome"
         },
         "installation": {
-            "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest",
-            "download_url_template": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_amd64.tar.gz",
-            "extract_path": "/opt/navidrome/"
-        },
-        "permissions": {
-            "owner": "navidrome",
-            "group": "navidrome",
-            "mode": "755"
+            "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest"
         }
     }
 } 
