@@ -22,8 +22,8 @@ import json
 import time
 import tarfile
 import urllib.request
-from ...index import log_message
-from ...utils.state_manager import StateManager
+from updates.index import log_message
+from updates.utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():

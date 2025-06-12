@@ -23,8 +23,8 @@ import json
 import time
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from initialization.files.user_local_lib.updates import log_message
-from initialization.files.user_local_lib.updates.utils.state_manager import StateManager
+from updates.index import log_message
+from updates.utils.state_manager import StateManager
 
 class HotfixOperationError(Exception):
     """Custom exception for hotfix operation failures."""

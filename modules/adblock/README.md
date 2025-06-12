@@ -177,13 +177,13 @@ python3 index.py --version
 ### Manual Update
 ```bash
 # Run adblock update directly
-python3 -c "from initialization.files.user_local_lib.updates.modules.adblock import main; main()"
+python3 -c "from updates.modules.adblock import main; main()"
 ```
 
 ### Orchestrator Integration
 ```python
 # Called automatically by update orchestrator
-from initialization.files.user_local_lib.updates.modules.adblock import main
+from updates.modules.adblock import main
 result = main()
 print(f"Adblock update: {'success' if result else 'failed'}")
 ```

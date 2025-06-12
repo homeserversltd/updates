@@ -37,7 +37,7 @@ Components:
 
 import os
 from pathlib import Path
-from ...utils.index import get_module_version
+from updates.utils.index import get_module_version
 from .index import HotfixManager, HotfixOperationError, main
 
 __all__ = [

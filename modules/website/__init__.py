@@ -52,19 +52,7 @@ import os
 from pathlib import Path
 
 from .index import WebsiteUpdater, main
+from updates.utils.index import get_module_version
 
+__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 __all__ = ['WebsiteUpdater', 'main']
-
-# Read version from index.json
-def _get_version():
-    try:
-        module_path = Path(os.path.dirname(os.path.abspath(__file__)))
-        with open(module_path / "index.json", 'r') as f:
-            config = json.load(f)
-            return config.get("metadata", {}).get("schema_version", "unknown")
-    except Exception:
-        return "unknown"
-
-__version__ = _get_version()
-__author__ = 'HOMESERVER Development Team'
-__description__ = 'Git-based website updater with StateManager integration and graceful failure handling'

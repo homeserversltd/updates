@@ -24,21 +24,9 @@ Implements a main(args) entrypoint for orchestrated updates.
 """
 
 import os
-from ...utils.index import get_module_version
+from updates.utils.index import get_module_version
 from .index import (
-    main,
-    create_atuin_backup,
-    restore_atuin_backup,
-    list_atuin_backups,
-    cleanup_atuin_backups,
-    get_atuin_config,
-    reload_atuin_config,
-    validate_atuin_config,
-    verify_atuin_installation,
-    get_all_atuin_paths,
-    get_backup_config,
-    get_installation_config,
-    MODULE_CONFIG
+    main
 )
 
 __version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))

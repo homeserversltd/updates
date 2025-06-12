@@ -24,7 +24,7 @@ Implements a main(args) entrypoint for orchestrated updates.
 """
 
 import os
-from ...utils.index import get_module_version
+from updates.utils.index import get_module_version
 from .index import main  # Expose main at package level
 
 __version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))

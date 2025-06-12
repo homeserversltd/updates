@@ -23,7 +23,7 @@ import tempfile
 import subprocess
 import requests
 from pathlib import Path
-from ...utils.state_manager import StateManager
+from updates.utils.state_manager import StateManager
 
 
 def get_unbound_version():

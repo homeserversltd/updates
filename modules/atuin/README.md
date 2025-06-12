@@ -6,25 +6,6 @@
 
 The Atuin update module provides comprehensive management of the Atuin shell history tool with advanced backup and state management capabilities. All paths and settings are configurable through `index.json`.
 
-## Features
-
-### ✅ Configuration-Driven
-- All paths and settings defined in `index.json`
-- Template-based path configuration with `{admin_user}` substitution
-- Configurable backup policies and installation URLs
-
-### ✅ StateManager Integration
-- Comprehensive backup of all Atuin-related files
-- Atomic state restoration on update failures
-- Configurable backup retention policies
-- Checksum verification for backup integrity
-
-### ✅ Advanced Verification
-- Multi-level installation verification
-- Post-update integrity checks
-- Path existence validation
-- Version consistency verification
-
 ## Configuration
 
 ### index.json Structure
@@ -48,8 +29,6 @@ The Atuin update module provides comprehensive management of the Atuin shell his
         },
         "backup": {
             "backup_dir": "/var/backups/updates",
-            "max_age_days": 30,
-            "keep_minimum": 5,
             "include_paths": [
                 "{atuin_root}",
                 "{config_dir}",
@@ -75,8 +54,6 @@ The Atuin update module provides comprehensive management of the Atuin shell his
 
 #### `backup`
 - **backup_dir**: Global backup storage location
-- **max_age_days**: Maximum age for backup retention
-- **keep_minimum**: Minimum backups to retain per module
 - **include_paths**: Paths to include in backups (supports templates)
 
 #### `installation`
@@ -89,22 +66,22 @@ The Atuin update module provides comprehensive management of the Atuin shell his
 
 ```bash
 # Check current version
-python -m initialization.files.user_local_lib.updates.modules.atuin --check
+python -m updates.modules.atuin --check
 
 # Comprehensive verification
-python -m initialization.files.user_local_lib.updates.modules.atuin --verify
+python -m updates.modules.atuin --verify
 
 # Show configuration
-python -m initialization.files.user_local_lib.updates.modules.atuin --config
+python -m updates.modules.atuin --config
 
 # Run update (with automatic backup/restore)
-python -m initialization.files.user_local_lib.updates.modules.atuin
+python -m updates.modules.atuin
 ```
 
 ### Programmatic Interface
 
 ```python
-from initialization.files.user_local_lib.updates.modules.atuin import (
+from updates.modules.atuin import (
     main, 
     create_atuin_backup,
     restore_atuin_backup,
@@ -138,8 +115,8 @@ if not validation["valid"]:
 ### StateManager Integration
 
 ```python
-from initialization.files.user_local_lib.updates.utils.state_manager import StateManager
-from initialization.files.user_local_lib.updates.modules.atuin import get_backup_config
+from updates.utils.state_manager import StateManager
+from updates.modules.atuin import get_backup_config
 
 # Use Atuin's configured backup directory
 backup_config = get_backup_config()
@@ -214,7 +191,7 @@ success = state_manager.restore_module_state(module_name="atuin")
 
 ```python
 # In update orchestrator
-from initialization.files.user_local_lib.updates.modules.atuin import main
+from updates.modules.atuin import main
 
 result = main()
 if result["success"]:
@@ -304,7 +281,7 @@ for key, template in config["config"]["directories"].items():
 python -c "import json; print(json.load(open('index.json')))"
 
 # Validate configuration
-python -m initialization.files.user_local_lib.updates.modules.atuin --config
+python -m updates.modules.atuin --config
 ```
 
 #### Backup Failures
@@ -316,13 +293,13 @@ ls -la /var/backups/updates
 df -h /var/backups
 
 # List existing backups
-python -c "from initialization.files.user_local_lib.updates.modules.atuin import list_atuin_backups; print(list_atuin_backups())"
+python -c "from updates.modules.atuin import list_atuin_backups; print(list_atuin_backups())"
 ```
 
 #### Update Failures
 ```bash
 # Run verification to check installation
-python -m initialization.files.user_local_lib.updates.modules.atuin --verify
+python -m updates.modules.atuin --verify
 
 # Check logs for detailed error information
 journalctl -u your-service-name
@@ -332,7 +309,7 @@ journalctl -u your-service-name
 Set environment variable for detailed logging:
 ```bash
 export ATUIN_UPDATE_DEBUG=1
-python -m initialization.files.user_local_lib.updates.modules.atuin
+python -m updates.modules.atuin
 ```
 
 ## Security Considerations

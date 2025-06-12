@@ -31,7 +31,7 @@ Key Features:
 - Predictable backup locations
 
 Usage:
-    from initialization.files.user_local_lib.updates.utils import StateManager
+    from updates.utils import StateManager
     
     state_manager = StateManager("/var/backups/updates")
     

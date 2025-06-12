@@ -35,8 +35,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import requests
 import time
-from initialization.files.user_local_lib.updates import log_message
-from initialization.files.user_local_lib.updates.utils.state_manager import StateManager
+from updates.index import log_message
+from updates.utils.state_manager import StateManager
 
 class WebsiteUpdateError(Exception):
     """Custom exception for website update failures."""

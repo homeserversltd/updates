@@ -8,10 +8,21 @@
     "config": {
         "directories": {
             "data_dir": "/var/lib/gogs",
-            "config_dir": "/etc/gogs"
+            "config_dir": "/etc/gogs",
+            "install_dir": "/opt/gogs",
+            "config_file": "/opt/gogs/custom/conf/app.ini",
+            "repo_path": "/mnt/nas/git/repositories",
+            "gogs_bin": "/opt/gogs/gogs"
         },
         "installation": {
-            "github_api_url": "https://api.github.com/repos/gogs/gogs/releases/latest"
+            "github_api_url": "https://api.github.com/repos/gogs/gogs/releases/latest",
+            "download_url_template": "https://dl.gogs.io/{version}/gogs_{version}_linux_amd64.tar.gz",
+            "extract_path": "/opt/"
+        },
+        "permissions": {
+            "owner": "git",
+            "group": "git",
+            "mode": "750"
         }
     }
 } 

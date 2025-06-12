@@ -17,14 +17,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import os
-import subprocess
 import json
-import time
-import tarfile
+import subprocess
+import shutil
+import requests
+from pathlib import Path
+from typing import Dict, Any, Optional, List
 import urllib.request
-from datetime import datetime
-from ...index import log_message
-from ...utils.state_manager import StateManager
+import tempfile
+from updates.index import log_message
+from updates.utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():
@@ -46,30 +48,13 @@ def load_module_config():
                 "module_name": "gogs"
             },
             "config": {
-                "service": {
-                    "name": "gogs",
-                    "systemd_service": "gogs"
-                },
                 "directories": {
+                    "data_dir": "/var/lib/gogs",
+                    "config_dir": "/etc/gogs",
                     "install_dir": "/opt/gogs",
-                    "data_dir": "/mnt/nas/git",
                     "config_file": "/opt/gogs/custom/conf/app.ini",
                     "repo_path": "/mnt/nas/git/repositories",
                     "gogs_bin": "/opt/gogs/gogs"
-                },
-                "backup": {
-                    "backup_dir": "/var/backups/updates",
-                    "include_paths": [
-                        "/opt/gogs",
-                        "/opt/gogs/custom/conf/app.ini",
-                        "/mnt/nas/git/repositories"
-                    ]
-                },
-                "database": {
-                    "type": "postgresql",
-                    "user": "git",
-                    "database": "gogs",
-                    "dump_path": "/tmp/gogs_db.sql"
                 },
                 "installation": {
                     "github_api_url": "https://api.github.com/repos/gogs/gogs/releases/latest",
@@ -87,80 +72,50 @@ def load_module_config():
 # Global configuration
 MODULE_CONFIG = load_module_config()
 
-def get_backup_config():
-    """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"]["backup"]
-
-def get_installation_config():
-    """Get installation configuration from module config."""
-    return MODULE_CONFIG["config"]["installation"]
-
-def get_service_config():
-    """Get service configuration from module config."""
-    return MODULE_CONFIG["config"]["service"]
-
-def get_directories_config():
-    """Get directories configuration from module config."""
-    return MODULE_CONFIG["config"]["directories"]
-
-def get_database_config():
-    """Get database configuration from module config."""
-    return MODULE_CONFIG["config"]["database"]
-
-def get_permissions_config():
-    """Get permissions configuration from module config."""
-    return MODULE_CONFIG["config"]["permissions"]
-
-# --- Service management ---
-def systemctl(action, service):
-    """Execute systemctl command for a service."""
-    try:
-        result = subprocess.run(["systemctl", action, service], capture_output=True, text=True)
-        if result.returncode != 0:
-            log_message(f"systemctl {action} {service} failed: {result.stderr}", "ERROR")
-            return False
-        return True
-    except Exception as e:
-        log_message(f"systemctl {action} {service} error: {e}", "ERROR")
-        return False
-
-def is_service_active(service):
-    """Check if a systemd service is active."""
-    try:
-        result = subprocess.run(["systemctl", "is-active", "--quiet", service])
-        return result.returncode == 0
-    except Exception:
-        return False
-
-# --- Version helpers ---
-def get_current_version():
+def get_gogs_paths():
     """
-    Get the current version of Gogs if installed.
+    Get all Gogs-related paths that should be backed up.
     Returns:
-        str: Version string or None if not installed
+        list: List of paths that exist and should be backed up
     """
+    paths = []
+    config = MODULE_CONFIG["config"]
+    
+    # Add all configured directories
+    for key, path in config["directories"].items():
+        if os.path.exists(path):
+            paths.append(path)
+            log_message(f"Found Gogs path for backup: {path}")
+        else:
+            log_message(f"Gogs path not found (skipping): {path}", "DEBUG")
+    
+    return paths
+
+def get_gogs_version():
+    """Detect currently installed Gogs version."""
     try:
-        gogs_bin = get_directories_config()["gogs_bin"]
-        if not os.path.isfile(gogs_bin) or not os.access(gogs_bin, os.X_OK):
+        bin_path = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+        if not os.path.isfile(bin_path) or not os.access(bin_path, os.X_OK):
             return None
         
-        result = subprocess.run([gogs_bin, "--version"], capture_output=True, text=True)
+        result = subprocess.run([bin_path, "--version"], capture_output=True, text=True, check=False)
         if result.returncode == 0:
-            parts = result.stdout.strip().split()
-            if len(parts) >= 3:
-                return parts[2].lstrip("v")
+            version_parts = result.stdout.strip().split()
+            if len(version_parts) >= 2:
+                return version_parts[1]
         return None
-    except Exception:
+    except Exception as e:
+        log_message(f"Warning: Failed to detect Gogs version: {e}")
         return None
 
-def get_latest_version():
+def get_latest_gogs_version():
     """
-    Get the latest Gogs version from GitHub releases using configured URL.
+    Get the latest Gogs version from GitHub releases.
     Returns:
         str: Latest version string or None
     """
     try:
-        api_url = get_installation_config()["github_api_url"]
+        api_url = MODULE_CONFIG["config"]["installation"]["github_api_url"]
         with urllib.request.urlopen(api_url) as resp:
             data = json.load(resp)
             tag = data.get("tag_name", "")
@@ -170,138 +125,6 @@ def get_latest_version():
     except Exception as e:
         log_message(f"Failed to get latest version info: {e}", "ERROR")
         return None
-
-# --- Database helpers ---
-def dump_database():
-    """
-    Create a database dump using configured settings.
-    Returns:
-        bool: True if dump succeeded, False otherwise
-    """
-    try:
-        db_config = get_database_config()
-        dump_path = db_config["dump_path"]
-        
-        result = subprocess.run([
-            "pg_dump", "-U", db_config["user"], 
-            db_config["database"], "-f", dump_path
-        ], capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            log_message(f"Database dumped to {dump_path}")
-            return True
-        else:
-            log_message(f"DB dump failed: {result.stderr}", "ERROR")
-            return False
-    except Exception as e:
-        log_message(f"DB dump error: {e}", "ERROR")
-        return False
-
-def restore_database(backup_sql_path):
-    """
-    Restore database from backup file.
-    Args:
-        backup_sql_path: Path to SQL backup file
-    Returns:
-        bool: True if restore succeeded, False otherwise
-    """
-    try:
-        db_config = get_database_config()
-        
-        result = subprocess.run([
-            "psql", "-U", db_config["user"], 
-            db_config["database"], "-f", backup_sql_path
-        ], capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            log_message(f"Database restored from {backup_sql_path}")
-            return True
-        else:
-            log_message(f"DB restore failed: {result.stderr}", "ERROR")
-            return False
-    except Exception as e:
-        log_message(f"DB restore error: {e}", "ERROR")
-        return False
-
-def set_permissions():
-    """Set proper ownership and permissions for Gogs installation."""
-    try:
-        dirs_config = get_directories_config()
-        perms_config = get_permissions_config()
-        install_dir = dirs_config["install_dir"]
-        
-        # Set ownership
-        subprocess.run([
-            "chown", "-R", 
-            f"{perms_config['owner']}:{perms_config['group']}", 
-            install_dir
-        ], check=True)
-        
-        # Set permissions
-        subprocess.run([
-            "chmod", "-R", perms_config["mode"], install_dir
-        ], check=True)
-        
-        log_message(f"Set permissions on {install_dir}")
-        return True
-    except Exception as e:
-        log_message(f"Failed to set permissions: {e}", "WARNING")
-        return False
-
-def install_gogs(version):
-    """
-    Download and install Gogs using configured settings.
-    Args:
-        version: Version to install
-    Returns:
-        bool: True if install succeeded, False otherwise
-    """
-    log_message(f"Installing Gogs {version}...", "INFO")
-    try:
-        install_config = get_installation_config()
-        dirs_config = get_directories_config()
-        
-        # Build download URL
-        download_url = install_config["download_url_template"].format(version=version)
-        tarball_path = "/tmp/gogs.tar.gz"
-        
-        # Download
-        log_message(f"Downloading from {download_url}...")
-        result = subprocess.run(["wget", "-q", download_url, "-O", tarball_path])
-        if result.returncode != 0:
-            log_message("Failed to download new version", "ERROR")
-            return False
-        
-        # Create backup of current installation if it exists
-        install_dir = dirs_config["install_dir"]
-        today = datetime.now().strftime("%Y%m%d")
-        backup_dir = f"{install_dir}_backup_{today}"
-        
-        if os.path.exists(install_dir):
-            os.rename(install_dir, backup_dir)
-            log_message(f"Moved current installation to {backup_dir}")
-        
-        # Extract new version
-        with tarfile.open(tarball_path, "r:gz") as tar:
-            tar.extractall(install_config["extract_path"])
-        
-        os.remove(tarball_path)
-        log_message("Extracted new version")
-        
-        # Set permissions
-        set_permissions()
-        
-        # Clean up backup after successful extraction
-        if os.path.exists(backup_dir):
-            import shutil
-            shutil.rmtree(backup_dir)
-            log_message(f"Cleaned up temporary backup {backup_dir}")
-        
-        return True
-        
-    except Exception as e:
-        log_message(f"Error during Gogs installation: {str(e)}", "ERROR")
-        return False
 
 def verify_gogs_installation():
     """
@@ -313,40 +136,33 @@ def verify_gogs_installation():
         "binary_exists": False,
         "binary_executable": False,
         "version_readable": False,
-        "service_active": False,
-        "config_exists": False,
+        "config_dir_exists": False,
+        "data_dir_exists": False,
+        "install_dir_exists": False,
         "version": None,
         "paths": {}
     }
     
     try:
-        dirs_config = get_directories_config()
-        service_config = get_service_config()
-        
-        gogs_bin = dirs_config["gogs_bin"]
-        config_file = dirs_config["config_file"]
-        service_name = service_config["systemd_service"]
-        
-        verification_results["paths"]["binary"] = gogs_bin
-        verification_results["paths"]["config"] = config_file
-        
         # Check binary
-        if os.path.exists(gogs_bin):
+        bin_path = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+        verification_results["paths"]["binary"] = bin_path
+        
+        if os.path.exists(bin_path):
             verification_results["binary_exists"] = True
-            if os.access(gogs_bin, os.X_OK):
+            if os.access(bin_path, os.X_OK):
                 verification_results["binary_executable"] = True
                 
                 # Check version
-                version = get_current_version()
+                version = get_gogs_version()
                 if version:
                     verification_results["version_readable"] = True
                     verification_results["version"] = version
         
-        # Check config file
-        verification_results["config_exists"] = os.path.exists(config_file)
-        
-        # Check service status
-        verification_results["service_active"] = is_service_active(service_name)
+        # Check directories
+        for dir_key, dir_path in MODULE_CONFIG["config"]["directories"].items():
+            verification_results[f"{dir_key}_exists"] = os.path.exists(dir_path)
+            verification_results["paths"][dir_key] = dir_path
         
         # Log verification results
         for check, result in verification_results.items():
@@ -366,37 +182,38 @@ def main(args=None):
     """
     Main entry point for Gogs update module.
     Args:
-        args: List of arguments (supports '--check', '--verify', '--config')
+        args: List of arguments (supports '--version', '--check', '--verify', '--config')
     Returns:
         dict: Status and results of the update
     """
     if args is None:
         args = []
     
-    SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
-    service_config = get_service_config()
-    directories_config = get_directories_config()
+    # Handle command line arguments first
+    if args and len(args) > 0:
+        if args[0] == "--version":
+            version = get_gogs_version()
+            if version:
+                log_message(f"Detected Gogs version: {version}")
+                return {"success": True, "version": version}
+            else:
+                log_message("Could not detect Gogs version")
+                return {"success": False, "error": "Version detection failed"}
     
-    GOGS_BIN = directories_config["gogs_bin"]
-    SYSTEMD_SERVICE = service_config["systemd_service"]
-
+    log_message("Starting Gogs module update...")
+    
+    SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
+    
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Gogs module configuration:")
-        log_message(f"  Binary path: {GOGS_BIN}")
-        log_message(f"  Service name: {SYSTEMD_SERVICE}")
-        log_message(f"  Install dir: {directories_config['install_dir']}")
-        log_message(f"  Config file: {directories_config['config_file']}")
-        log_message(f"  Data dir: {directories_config['data_dir']}")
-        
-        backup_config = get_backup_config()
-        log_message(f"  Backup dir: {backup_config['backup_dir']}")
-        log_message(f"  Backup paths: {backup_config['include_paths']}")
+        for key, path in MODULE_CONFIG["config"]["directories"].items():
+            log_message(f"  {key}: {path}")
         
         return {
             "success": True,
             "config": MODULE_CONFIG,
-            "paths": directories_config
+            "paths": MODULE_CONFIG["config"]["directories"]
         }
 
     # --verify mode: comprehensive installation verification
@@ -419,23 +236,23 @@ def main(args=None):
 
     # --check mode: simple version check
     if len(args) > 0 and args[0] == "--check":
-        version = get_current_version()
+        version = get_gogs_version()
         if version:
             log_message(f"OK - Current version: {version}")
             return {"success": True, "version": version}
         else:
-            log_message(f"Gogs binary not found at {GOGS_BIN}", "ERROR")
+            log_message("Gogs binary not found", "ERROR")
             return {"success": False, "error": "Not found"}
 
     # Get current version
-    current_version = get_current_version()
+    current_version = get_gogs_version()
     if not current_version:
         log_message("Failed to get current version of Gogs", "ERROR")
         return {"success": False, "error": "No current version"}
     log_message(f"Current Gogs version: {current_version}")
 
     # Get latest version
-    latest_version = get_latest_version()
+    latest_version = get_latest_gogs_version()
     if not latest_version:
         log_message("Failed to get latest version information", "ERROR")
         return {"success": False, "error": "No latest version"}
@@ -445,78 +262,75 @@ def main(args=None):
     if current_version != latest_version:
         log_message("Update available. Creating comprehensive backup...")
         
-        # Initialize global rollback system with configured backup directory
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        # Initialize state manager
+        state_manager = StateManager()
         
-        # Get files to backup from configuration
-        files_to_backup = []
-        for path in backup_config["include_paths"]:
-            if os.path.exists(path):
-                files_to_backup.append(path)
-                log_message(f"Found Gogs file for backup: {path}")
-            else:
-                log_message(f"Gogs file not found (skipping): {path}", "DEBUG")
-        
-        # Create database dump and add to backup
-        db_config = get_database_config()
-        dump_path = db_config["dump_path"]
-        if dump_database():
-            files_to_backup.append(dump_path)
-            log_message(f"Added database dump to backup: {dump_path}")
+        # Get all Gogs-related paths for comprehensive backup
+        files_to_backup = get_gogs_paths()
         
         if not files_to_backup:
             log_message("No Gogs files found for backup", "WARNING")
             return {"success": False, "error": "No files to backup"}
         
-        log_message(f"Creating backup for {len(files_to_backup)} Gogs files...")
+        log_message(f"Creating backup for {len(files_to_backup)} Gogs paths...")
         
-        # Create rollback point
-        rollback_point = state_manager.create_rollback_point(
+        # Create backup using the simplified API
+        backup_success = state_manager.backup_module_state(
             module_name=SERVICE_NAME,
             description=f"pre_update_{current_version}_to_{latest_version}",
             files=files_to_backup
         )
         
-        if not rollback_point:
-            log_message("Failed to create rollback point", "ERROR")
+        if not backup_success:
+            log_message("Failed to create backup", "ERROR")
             return {"success": False, "error": "Backup failed"}
         
-        log_message(f"Rollback point created with {len(rollback_point)} backups")
-        
-        # Stop service before update
-        log_message("Stopping Gogs service...")
-        systemctl("stop", SYSTEMD_SERVICE)
+        log_message("Backup created successfully")
         
         # Perform the update
         log_message("Installing update...")
         try:
-            if not install_gogs(latest_version):
-                raise Exception("Gogs installation failed")
+            # Download and extract new version
+            download_url = MODULE_CONFIG["config"]["installation"]["download_url_template"].format(version=latest_version)
+            extract_path = MODULE_CONFIG["config"]["installation"]["extract_path"]
             
-            # Start service after update
-            log_message("Starting Gogs service...")
-            systemctl("start", SYSTEMD_SERVICE)
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
+                log_message(f"Downloading {download_url}...")
+                urllib.request.urlretrieve(download_url, temp_file.name)
+                
+                # Extract to temporary location first
+                temp_extract = tempfile.mkdtemp()
+                subprocess.run(["tar", "xzf", temp_file.name, "-C", temp_extract], check=True)
+                
+                # Move to final location
+                gogs_dir = os.path.join(temp_extract, "gogs")
+                if os.path.exists(extract_path):
+                    shutil.rmtree(extract_path)
+                shutil.move(gogs_dir, extract_path)
+                
+                # Clean up
+                os.unlink(temp_file.name)
+                shutil.rmtree(temp_extract)
             
-            # Wait for service to start
-            time.sleep(5)
+            # Set permissions
+            for path in files_to_backup:
+                if os.path.exists(path):
+                    shutil.chown(path, 
+                                MODULE_CONFIG["config"]["permissions"]["owner"],
+                                MODULE_CONFIG["config"]["permissions"]["group"])
+                    os.chmod(path, int(MODULE_CONFIG["config"]["permissions"]["mode"], 8))
             
             # Verify new installation
             log_message("Verifying new installation...")
             verification = verify_gogs_installation()
             new_version = verification.get("version")
             
-            if new_version == latest_version and verification["service_active"]:
+            if new_version == latest_version:
                 log_message(f"Successfully updated Gogs from {current_version} to {latest_version}")
                 
                 # Run post-update verification
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
-                
-                # Clean up database dump
-                if os.path.exists(dump_path):
-                    os.remove(dump_path)
-                    log_message(f"Cleaned up database dump: {dump_path}")
                 
                 return {
                     "success": True, 
@@ -524,45 +338,31 @@ def main(args=None):
                     "old_version": current_version, 
                     "new_version": new_version,
                     "verification": verification,
-                    "rollback_point": rollback_point,
                     "config": MODULE_CONFIG
                 }
             else:
-                if new_version != latest_version:
-                    raise Exception(f"Version mismatch after update. Expected: {latest_version}, Got: {new_version}")
-                else:
-                    raise Exception("Service failed to start after update")
+                raise Exception(f"Version mismatch after update. Expected: {latest_version}, Got: {new_version}")
                 
         except Exception as e:
             log_message(f"Update failed: {e}", "ERROR")
-            log_message("Restoring from rollback point...")
+            log_message("Restoring from backup...")
             
-            # Restore rollback point
-            rollback_success = state_manager.restore_rollback_point(rollback_point)
+            # Restore using simplified API
+            rollback_success = state_manager.restore_module_state(SERVICE_NAME)
             
             if rollback_success:
-                log_message("Successfully restored from rollback point")
-                
-                # Restore database if dump exists in rollback
-                backup_sql = f"{dump_path}.backup"
-                if os.path.exists(backup_sql):
-                    restore_database(backup_sql)
-                    log_message("Database restored from backup")
-                
-                # Start service after rollback
-                systemctl("start", SYSTEMD_SERVICE)
+                log_message("Successfully restored from backup")
                 # Verify rollback worked
-                restored_version = get_current_version()
+                restored_version = get_gogs_version()
                 log_message(f"Restored version: {restored_version}")
             else:
-                log_message("Failed to restore from rollback point", "ERROR")
+                log_message("Failed to restore from backup", "ERROR")
             
             return {
                 "success": False, 
                 "error": str(e),
                 "rollback_success": rollback_success,
-                "rollback_point": rollback_point,
-                "restored_version": get_current_version() if rollback_success else None,
+                "restored_version": get_gogs_version() if rollback_success else None,
                 "config": MODULE_CONFIG
             }
     else:
