@@ -17,33 +17,30 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 """
-Hotfix Module - Emergency Patch Management System
+Hotfix Module - Pool-Based Emergency Patch Management System
 
-This module provides comprehensive hotfix capabilities with advanced rollback
-and dependency management for critical system patches.
+This module provides a simplified, robust hotfix system with pool-based operations
+and StateManager integration for reliable backup and rollback capabilities.
 
 Key Features:
-- Phase-based operation execution with dependency resolution
-- Comprehensive rollback capabilities including one-way operations
-- State capture and restoration for complex system changes
-- Atomic operation groups with checkpoint recovery
+- Pool-based transactions: Related files grouped together with shared closure commands
+- StateManager integration: Leverages existing backup/restore infrastructure
+- Graceful failure handling: Failed pools don't break the system
+- Customer-first approach: Respects customer modifications through closure validation
+- finalClosure support: System-wide validation after all pools complete
 
 Components:
-- HotfixManager: Main orchestration and execution
-- RollbackManager: Advanced rollback and state restoration
-- StateCapture: System state snapshots and recovery points
+- HotfixManager: Main pool orchestration and execution
+- Pool-based operations: Atomic file replacement groups
+- StateManager integration: Reliable backup and restore
 """
 
 from .index import HotfixManager, HotfixOperationError, main
-from .rollback import RollbackManager, StateCapture, RollbackError
 
 __all__ = [
     'HotfixManager',
     'HotfixOperationError', 
-    'RollbackManager',
-    'StateCapture',
-    'RollbackError',
     'main'
 ]
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
