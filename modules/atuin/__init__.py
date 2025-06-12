@@ -25,7 +25,9 @@ Provides comprehensive backup and rollback capabilities.
 Uses configuration from index.json for all paths and settings.
 """
 # Import common functionality from parent package
+import os
 from initialization.files.user_local_lib.updates import log_message, run_update
+from ...utils.index import get_module_version
 from .index import (
     main, 
     verify_atuin_installation, 
@@ -259,6 +261,9 @@ __all__ = [
     'get_installation_config',
     'MODULE_CONFIG'
 ]
+
+# Get version from index.json
+__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 
 # This allows the module to be run directly
 if __name__ == "__main__":

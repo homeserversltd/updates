@@ -17,15 +17,15 @@ The adblock module manages network-level ad blocking for HOMESERVER by maintaini
 ```json
 {
     "metadata": {
-        "schema_version": "1.0.0",     // Update trigger
+        "schema_version": "1.1.0",     // Update trigger
         "unbound_version": "1.19.0",   // Target Unbound version
         "module_name": "adblock",      // Module identifier
+        "description": "Adblock module for Unbound DNS",
         "enabled": true                // Module status
     },
     "config": {
         "unbound_dir": "/etc/unbound",                    // Unbound config directory
         "blocklist_path": "/etc/unbound/blocklist.conf",  // Output blocklist file
-        "backup_path": "/etc/unbound/blocklist.conf.bak", // Backup location
         "sources": {
             "stevenblack": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
             "notracking": "https://raw.githubusercontent.com/notracking/hosts-blocklists/master/unbound/unbound.blacklist.conf"
@@ -38,7 +38,6 @@ The adblock module manages network-level ad blocking for HOMESERVER by maintaini
 
 - **`unbound_dir`**: Directory where Unbound configuration files are stored
 - **`blocklist_path`**: Final location for the generated blocklist configuration
-- **`backup_path`**: Backup location for existing blocklist before update
 - **`sources`**: Dictionary of blocklist sources with descriptive names and URLs
 
 ### Automatic Version Detection
@@ -90,7 +89,7 @@ config = load_config()  # Reads updated index.json
 - **Sorted Output**: Generates consistent, alphabetically sorted blocklist
 
 ### 6. Safe Installation
-- Backs up existing blocklist to `.bak` file
+- Creates backup using StateManager before changes
 - Installs new blocklist atomically
 - Restarts Unbound service if active
 
@@ -109,7 +108,7 @@ The module updates when:
 - **Missing Directories**: Validates paths before processing
 
 ### Backup Safety
-- Always backs up existing blocklist before changes
+- Uses StateManager for reliable state backup/restore
 - Atomic file operations prevent corruption
 - Service restart only if Unbound is already active
 
@@ -127,13 +126,17 @@ adblock/
 
 ### Orchestrator Interface
 - **Entry Point**: `main(args=None)` function
-- **Return Value**: `True` for success, `False` for failure
+- **Return Value**: 
+  - `True` for successful updates
+  - `False` for failed updates
+  - Dictionary with `{"success": bool, "version": str}` for version checks
 - **Logging**: Uses `[adblock]` prefix for all messages
 
 ### System Dependencies
 - **Unbound DNS**: Target service for blocklist configuration
 - **systemctl**: Service management for Unbound restarts
 - **Network Access**: Downloads blocklist sources via HTTPS
+- **StateManager**: For reliable state backup/restore
 
 ## Blocklist Sources
 
@@ -184,7 +187,7 @@ print(f"Adblock update: {'success' if result else 'failed'}")
 [adblock] Processing hosts file...
 [adblock] Combining blocklists...
 [adblock] Combined and deduplicated 525400 unique domains
-[adblock] Backed up existing blocklist to /etc/unbound/blocklist.conf.bak
+[adblock] Backed up state using StateManager
 [adblock] Installed new blocklist at /etc/unbound/blocklist.conf
 [adblock] Restarting unbound service...
 [adblock] Blocklist update completed
@@ -194,7 +197,7 @@ print(f"Adblock update: {'success' if result else 'failed'}")
 - Return value `True` from `main()` function
 - New blocklist file created at configured path
 - Unbound service restarted (if was active)
-- Backup created successfully
+- State backup created successfully via StateManager
 
 ## Troubleshooting
 

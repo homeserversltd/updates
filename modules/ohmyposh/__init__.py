@@ -16,10 +16,20 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-from .index import main
-from ...index import log_message
+"""
+Oh My Posh Update Module
 
-__all__ = ['main', 'log_message']
+Handles update logic specific to the Oh My Posh service.
+Implements a main(args) entrypoint for orchestrated updates.
+"""
+
+import os
+from ...utils.index import get_module_version
+from .index import main  # Expose main at package level
+
+__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
+
+__all__ = ['main']
 
 if __name__ == "__main__":
     import sys

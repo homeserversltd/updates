@@ -35,7 +35,7 @@ For each pool:
 
 After all pools complete:
 5. **Final Closure Phase**: Execute finalClosure commands for system-wide validation
-   - Only runs if all pools completed successfully
+   - Only runs if at least one pool completed successfully
    - Performs health checks, integration tests, or cleanup operations
    - Failure logs error but doesn't trigger pool rollbacks
 
@@ -44,13 +44,14 @@ After all pools complete:
 ```json
 {
   "metadata": {
-    "schema_version": "1.1.0",
-    "description": "Emergency hotfixes and critical patches"
+    "schema_version": "1.0.0",
+    "description": "Emergency hotfixes and critical patches for homeserver systems",
+    "enabled": true
   },
   "pools": [
     {
       "id": "website_security_patch",
-      "description": "Frontend security fixes for authentication components",
+      "description": "Frontend security fixes for CVE-2024-XXXX",
       "operations": [
         {
           "target": "src/auth.tsx",
@@ -68,7 +69,8 @@ After all pools complete:
       "closure": [
         "cd /var/www/homeserver",
         "npm build",
-        "systemctl restart homeserver"
+        "systemctl restart homeserver",
+        "systemctl is-active homeserver"
       ]
     },
     {
@@ -78,17 +80,19 @@ After all pools complete:
         {
           "target": "src/config.py",
           "destination": "/var/www/homeserver/backend/config.py"
+        },
+        {
+          "target": "src/database.py",
+          "destination": "/var/www/homeserver/backend/database.py"
         }
       ],
       "closure": [
-        "systemctl restart gunicorn"
+        "systemctl restart gunicorn",
+        "systemctl restart postgresql"
       ]
     }
   ],
-  "finalClosure": [
-    "curl -f http://localhost:5000/health",
-    "systemctl is-active homeserver"
-  ]
+  "finalClosure": []
 }
 ```
 
@@ -103,9 +107,9 @@ After all pools complete:
 
 ### Global Properties
 
-- **finalClosure**: Array of commands to run after ALL pools have been processed successfully
+- **finalClosure**: Array of commands to run after ALL pools have been processed
+  - Only executes if at least one pool completed successfully
   - Used for system-wide validation and health checks
-  - Only executes if all pools complete successfully
   - Failure in finalClosure logs error but doesn't rollback successful pools
 
 ## Source File Management
@@ -129,6 +133,7 @@ All hotfix files are stored in the `src/` directory within the module. When sche
 
 The hotfix module uses the existing StateManager system for backup and restore:
 
+- **Backup location**: `/var/backups/hotfix`
 - **Backup scope**: Per-pool (all destination files in a pool)
 - **Restore trigger**: Any closure command failure
 - **Rollback behavior**: Restore entire pool, re-run closure commands
@@ -179,7 +184,7 @@ version_control.checkout_module_version("hotfix", "1.0.9")
 - Update multiple React components for security vulnerability
 - Single pool ensures all related changes applied together
 - npm build validates changes work with existing codebase
-- Service restart confirms application runs correctly
+- Service restart and active check confirms application runs correctly
 
 ### Configuration File Updates
 - Update backend configuration files
@@ -202,6 +207,7 @@ version_control.checkout_module_version("hotfix", "1.0.9")
 - **Keep pools focused**: Group only truly related files together
 - **Make closure commands robust**: Ensure they can detect if changes work
 - **Test rollback paths**: Verify that closure commands work on restored files
+- **Include service checks**: Add `systemctl is-active` after service restarts
 
 ### Source File Management
 - **Single source of truth**: Each src file represents current correct version

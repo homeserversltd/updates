@@ -16,7 +16,18 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-from .index import main
+"""
+Virtual Environments Update Module
+
+Handles update logic specific to Python virtual environments.
+Implements a main(args) entrypoint for orchestrated updates.
+"""
+
+import os
+from ...utils.index import get_module_version
+from .index import main  # Expose main at package level
+
+__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 
 __all__ = ['main']
 

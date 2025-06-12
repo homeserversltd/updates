@@ -20,6 +20,8 @@ import datetime
 import sys
 import hashlib
 import os
+import json
+from pathlib import Path
 
 def log_message(message, level="INFO"):
     """
@@ -30,4 +32,23 @@ def log_message(message, level="INFO"):
     """
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] [{level}] {message}", file=sys.stdout)
+
+def get_module_version(module_path: str) -> str:
+    """
+    Get the schema version from a module's index.json file.
+    
+    Args:
+        module_path (str): Path to the module directory
+        
+    Returns:
+        str: The schema version from index.json, or "unknown" if not found
+    """
+    try:
+        index_path = Path(module_path) / "index.json"
+        with open(index_path, 'r') as f:
+            config = json.load(f)
+            return config.get("metadata", {}).get("schema_version", "unknown")
+    except Exception as e:
+        log_message(f"Failed to read module version from {module_path}: {e}", "ERROR")
+        return "unknown"
 
