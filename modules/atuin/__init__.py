@@ -37,8 +37,8 @@ from .index import (
     MODULE_CONFIG
 )
 
-# Import rollback utilities
-from ...utils.global_rollback import GlobalRollback
+# Import state management utilities
+from ...utils.state_manager import StateManager
 
 # Module integrity - no longer using checksums, relying on schema versioning
 

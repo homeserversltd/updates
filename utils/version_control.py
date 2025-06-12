@@ -17,9 +17,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 """
-Rollback utility for the update orchestration system.
+Version Control utility for the update orchestration system.
 
-This module provides functionality to roll back updates to previous versions
+This module provides functionality to checkout different versions of update modules
 using Git tags and the manifest version information.
 """
 
@@ -62,16 +62,16 @@ def get_module_tags(module_name: str) -> list[str]:
         log_message(f"Failed to get tags for {module_name}: {e}", "ERROR")
         return []
 
-def rollback_module(module_name: str, target_version: Optional[str] = None) -> bool:
+def checkout_module_version(module_name: str, target_version: Optional[str] = None) -> bool:
     """
-    Roll back a module to a specific version or its lastSafeVersion.
+    Checkout a module to a specific version or its lastSafeVersion.
     
     Args:
-        module_name: Name of the module to roll back
-        target_version: Specific version to roll back to. If None, uses lastSafeVersion from manifest
+        module_name: Name of the module to checkout
+        target_version: Specific version to checkout to. If None, uses lastSafeVersion from manifest
         
     Returns:
-        bool: True if rollback successful, False otherwise
+        bool: True if checkout successful, False otherwise
     """
     try:
         manifest = load_manifest()
@@ -110,14 +110,14 @@ def rollback_module(module_name: str, target_version: Optional[str] = None) -> b
             log_message(f"Failed to checkout {target_tag}: {result.stderr}", "ERROR")
             return False
             
-        log_message(f"Successfully rolled back {module_name} to version {version}")
+        log_message(f"Successfully checked out {module_name} to version {version}")
         return True
         
     except Exception as e:
-        log_message(f"Error during rollback of {module_name}: {e}", "ERROR")
+        log_message(f"Error during checkout of {module_name}: {e}", "ERROR")
         return False
 
-def list_available_versions(module_name: str) -> list[Dict[str, str]]:
+def list_module_versions(module_name: str) -> list[Dict[str, str]]:
     """
     List all available versions for a module.
     
@@ -139,8 +139,8 @@ def list_available_versions(module_name: str) -> list[Dict[str, str]]:
     
     return versions
 
-def rollback_to_last_safe(module_name: str) -> bool:
+def checkout_last_safe(module_name: str) -> bool:
     """
-    Convenience function to roll back to lastSafeVersion.
+    Convenience function to checkout lastSafeVersion.
     """
-    return rollback_module(module_name) 
+    return checkout_module_version(module_name) 

@@ -36,9 +36,9 @@ from typing import Dict, List, Optional, Tuple
 import requests
 import time
 
-# Add the parent directory to the path to import GlobalRollback
+# Add the parent directory to the path to import StateManager
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.GlobalRollback import GlobalRollback
+from utils.state_manager import StateManager
 
 class WebsiteUpdater:
     """Manages HOMESERVER website updates from GitHub repository."""
@@ -49,7 +49,7 @@ class WebsiteUpdater:
         self.config_path = config_path or self.module_dir / "index.json"
         self.config = self._load_config()
         self.logger = self._setup_logging()
-        self.rollback = GlobalRollback()
+        self.state_manager = StateManager()
         
     def _load_config(self) -> Dict:
         """Load configuration from index.json."""
@@ -137,14 +137,18 @@ class WebsiteUpdater:
         include_paths = backup_config['include_paths']
         
         try:
-            backup_id = self.rollback.create_backup(
+            backup_success = self.state_manager.backup_module_state(
                 module_name='website',
-                include_paths=include_paths,
-                exclude_patterns=backup_config['exclude_patterns']
+                description="pre_website_update",
+                files=include_paths
             )
             
-            self.logger.info(f"Created backup with ID: {backup_id}")
-            return True
+            if backup_success:
+                self.logger.info("Created backup successfully")
+                return True
+            else:
+                self.logger.error("Backup creation failed")
+                return False
             
         except Exception as e:
             self.logger.error(f"Backup failed: {e}")
@@ -275,7 +279,7 @@ class WebsiteUpdater:
                     self.logger.error(f"Failed to update component: {component_name}")
                     if self.config['config']['rollback'].get('automatic_on_failure', True):
                         self.logger.info("Attempting automatic rollback")
-                        self.rollback.rollback_module('website')
+                        self.state_manager.restore_module_state('website')
                     return False
             
             # Step 4: Run build process
@@ -283,7 +287,7 @@ class WebsiteUpdater:
                 self.logger.error("Build process failed")
                 if self.config['config']['rollback'].get('automatic_on_failure', True):
                     self.logger.info("Attempting automatic rollback")
-                    self.rollback.rollback_module('website')
+                    self.state_manager.restore_module_state('website')
                 return False
             
             # Step 5: Verify installation
@@ -291,7 +295,7 @@ class WebsiteUpdater:
                 self.logger.error("Installation verification failed")
                 if self.config['config']['rollback'].get('automatic_on_failure', True):
                     self.logger.info("Attempting automatic rollback")
-                    self.rollback.rollback_module('website')
+                    self.state_manager.restore_module_state('website')
                 return False
             
             self.logger.info("Website update completed successfully")
@@ -301,7 +305,7 @@ class WebsiteUpdater:
             self.logger.error(f"Update process failed: {e}")
             if self.config['config']['rollback'].get('automatic_on_failure', True):
                 self.logger.info("Attempting automatic rollback")
-                self.rollback.rollback_module('website')
+                self.state_manager.restore_module_state('website')
             return False
             
         finally:

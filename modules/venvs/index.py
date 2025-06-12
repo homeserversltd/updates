@@ -20,7 +20,7 @@ import os
 import subprocess
 import json
 from ...index import log_message
-from ...utils.global_rollback import GlobalRollback
+from ...utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():
@@ -351,7 +351,7 @@ def main(args=None):
     
     # Initialize global rollback system
     backup_config = get_backup_config()
-    rollback = GlobalRollback(backup_config["backup_dir"])
+    state_manager = StateManager(backup_config["backup_dir"])
     
     # Get all existing venv paths for backup
     files_to_backup = get_existing_backup_paths()

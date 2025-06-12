@@ -22,7 +22,7 @@ import json
 import time
 import urllib.request
 from ...index import log_message
-from ...utils.global_rollback import GlobalRollback
+from ...utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():
@@ -326,7 +326,7 @@ def main(args=None):
         
         # Initialize global rollback system with configured backup directory
         backup_config = get_backup_config()
-        rollback = GlobalRollback(backup_config["backup_dir"])
+        state_manager = StateManager(backup_config["backup_dir"])
         
         # Get files to backup from configuration
         files_to_backup = []
@@ -344,7 +344,7 @@ def main(args=None):
         log_message(f"Creating backup for {len(files_to_backup)} Filebrowser files...")
         
         # Create rollback point
-        rollback_point = rollback.create_rollback_point(
+        rollback_point = state_manager.create_rollback_point(
             module_name=SERVICE_NAME,
             description=f"pre_update_{current_version}_to_{latest_version}",
             files=files_to_backup
@@ -405,7 +405,7 @@ def main(args=None):
             log_message("Restoring from rollback point...")
             
             # Restore rollback point
-            rollback_success = rollback.restore_rollback_point(rollback_point)
+            rollback_success = state_manager.restore_rollback_point(rollback_point)
             
             if rollback_success:
                 log_message("Successfully restored from rollback point")

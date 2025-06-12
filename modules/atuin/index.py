@@ -24,7 +24,7 @@ import pwd
 import urllib.request
 import json
 from ...index import log_message
-from ...utils.global_rollback import GlobalRollback
+from ...utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():
@@ -407,8 +407,6 @@ def main(args=None):
         
         backup_config = get_backup_config()
         log_message(f"  Backup dir: {backup_config['backup_dir']}")
-        log_message(f"  Max age: {backup_config['max_age_days']} days")
-        log_message(f"  Keep minimum: {backup_config['keep_minimum']} backups")
         
         return {
             "success": True,
@@ -470,7 +468,7 @@ def main(args=None):
         
         # Initialize global rollback system with configured backup directory
         backup_config = get_backup_config()
-        rollback = GlobalRollback(backup_config["backup_dir"])
+        state_manager = StateManager(backup_config["backup_dir"])
         
         # Get all Atuin-related paths for comprehensive backup
         files_to_backup = get_all_atuin_paths(admin_user)
@@ -481,18 +479,18 @@ def main(args=None):
         
         log_message(f"Creating backup for {len(files_to_backup)} Atuin paths...")
         
-        # Create comprehensive rollback point for Atuin
-        rollback_point = rollback.create_rollback_point(
+        # Create backup using the simplified API
+        backup_success = state_manager.backup_module_state(
             module_name=SERVICE_NAME,
             description=f"pre_update_{current_version}_to_{latest_version}",
             files=files_to_backup
         )
         
-        if not rollback_point:
-            log_message("Failed to create rollback point", "ERROR")
+        if not backup_success:
+            log_message("Failed to create backup", "ERROR")
             return {"success": False, "error": "Backup failed"}
         
-        log_message(f"Rollback point created with {len(rollback_point)} backups")
+        log_message("Backup created successfully")
         
         # Perform the update
         log_message("Installing update...")
@@ -512,21 +510,12 @@ def main(args=None):
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
                 
-                # Clean up old backups using configured values
-                cleaned_count = rollback.cleanup_old_backups(
-                    max_age_days=backup_config["max_age_days"], 
-                    keep_minimum=backup_config["keep_minimum"]
-                )
-                log_message(f"Cleaned up {cleaned_count} old backups")
-                
                 return {
                     "success": True, 
                     "updated": True, 
                     "old_version": current_version, 
                     "new_version": new_version,
                     "verification": verification,
-                    "rollback_point": rollback_point,
-                    "backups_cleaned": cleaned_count,
                     "config": MODULE_CONFIG
                 }
             else:
@@ -534,24 +523,23 @@ def main(args=None):
                 
         except Exception as e:
             log_message(f"Update failed: {e}", "ERROR")
-            log_message("Restoring from rollback point...")
+            log_message("Restoring from backup...")
             
-            # Restore entire rollback point
-            rollback_success = rollback.restore_rollback_point(rollback_point)
+            # Restore using simplified API
+            rollback_success = state_manager.restore_module_state(SERVICE_NAME)
             
             if rollback_success:
-                log_message("Successfully restored from rollback point")
+                log_message("Successfully restored from backup")
                 # Verify rollback worked
                 restored_version = check_atuin_version(ATUIN_BIN)
                 log_message(f"Restored version: {restored_version}")
             else:
-                log_message("Failed to restore from rollback point", "ERROR")
+                log_message("Failed to restore from backup", "ERROR")
             
             return {
                 "success": False, 
                 "error": str(e),
                 "rollback_success": rollback_success,
-                "rollback_point": rollback_point,
                 "restored_version": check_atuin_version(ATUIN_BIN) if rollback_success else None,
                 "config": MODULE_CONFIG
             }

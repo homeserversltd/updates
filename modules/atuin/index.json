@@ -16,7 +16,6 @@
         },
         "backup": {
             "backup_dir": "/var/backups/updates",
-            "keep_minimum": 5,
             "include_paths": [
                 "{atuin_root}",
                 "{config_dir}",
