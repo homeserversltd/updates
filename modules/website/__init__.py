@@ -19,30 +19,39 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 HOMESERVER Website Update Module
 
-This module handles updating the HOMESERVER web interface from the GitHub repository.
-It supports selective component updates, automatic rollback on failure, and comprehensive
-backup management.
+This module handles updating the HOMESERVER web interface from the GitHub repository
+with StateManager integration for reliable backup and rollback capabilities.
 
 Key Features:
-- GitHub repository integration
-- Selective component updates (frontend, backend, premium, config, public)
-- Automatic backup and rollback capabilities
-- npm build process management
-- Service restart and health checking
-- Configurable update policies per component
+- GitHub repository integration with shallow cloning
+- Component-based updates (frontend, backend, premium, public, config)
+- StateManager integration for reliable backup and restore
+- Graceful failure handling with automatic rollback
+- npm build process management with service restart validation
+- Customer-first approach: failed updates don't break existing installations
+
+Components:
+- WebsiteUpdater: Main git-based updater with StateManager integration
+- Automatic backup before updates
+- Graceful rollback on any failure (clone, copy, build, or service restart)
+- Simple failure reporting for orchestrator
 
 Usage:
     from modules.website import WebsiteUpdater
     
     updater = WebsiteUpdater()
-    success = updater.update()
+    result = updater.update()
+    if result["success"]:
+        print("Website updated successfully")
+    else:
+        print(f"Update failed: {result['message']}")
 """
 
-from .index import WebsiteUpdater
+from .index import WebsiteUpdater, main
 
-__all__ = ['WebsiteUpdater']
+__all__ = ['WebsiteUpdater', 'main']
 
 # Module metadata
-__version__ = '1.0.0'
+__version__ = '2.0.0'
 __author__ = 'HOMESERVER Development Team'
-__description__ = 'Website update module for HOMESERVER platform'
+__description__ = 'Git-based website updater with StateManager integration and graceful failure handling'

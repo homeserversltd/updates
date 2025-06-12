@@ -8,8 +8,7 @@
     "config": {
         "repository": {
             "url": "https://github.com/homeserversltd/website.git",
-            "branch": "main",
-            "clone_method": "https",
+            "branch": "master",
             "temp_directory": "/tmp/homeserver-website-update"
         },
         "target_paths": {
@@ -38,55 +37,14 @@
                     "source_path": "public",
                     "target_path": "/var/www/homeserver/public",
                     "description": "Static public assets"
+                },
+                "config": {
+                    "enabled": true,
+                    "source_path": "package.json",
+                    "target_path": "/var/www/homeserver/package.json",
+                    "description": "NPM package configuration"
                 }
             }
-        },
-        "build_process": {
-            "pre_update_commands": [
-                "systemctl stop homeserver.service"
-            ],
-            "npm_install": true,
-            "npm_build": true,
-            "post_update_commands": [
-                "systemctl start homeserver.service",
-                "systemctl status homeserver.service --no-pager"
-            ]
-        },
-        "backup": {
-            "enabled": true,
-            "backup_directory": "/var/backups/homeserver/website",
-            "include_paths": [
-                "/var/www/homeserver/src",
-                "/var/www/homeserver/backend", 
-                "/var/www/homeserver/premium",
-                "/var/www/homeserver/public",
-                "/var/www/homeserver/package.json",
-                "/var/www/homeserver/package-lock.json"
-            ],
-            "exclude_patterns": [
-                "node_modules",
-                "*.pyc",
-                "__pycache__",
-                ".git",
-                "*.log"
-            ],
-            "retention": {
-                "max_age_days": 30,
-                "keep_minimum": 5
-            }
-        },
-        "verification": {
-            "check_git_clone": true,
-            "verify_npm_build": true,
-            "check_service_status": true,
-            "timeout_seconds": 600,
-            "health_check_url": "http://localhost:5000/health",
-            "health_check_timeout": 30
-        },
-        "rollback": {
-            "enabled": true,
-            "automatic_on_failure": true,
-            "preserve_user_data": true
         }
     }
 }

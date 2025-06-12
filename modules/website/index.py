@@ -35,50 +35,38 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import requests
 import time
+from initialization.files.user_local_lib.updates import log_message
+from initialization.files.user_local_lib.updates.utils.state_manager import StateManager
 
-# Add the parent directory to the path to import StateManager
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.state_manager import StateManager
+class WebsiteUpdateError(Exception):
+    """Custom exception for website update failures."""
+    pass
 
 class WebsiteUpdater:
-    """Manages HOMESERVER website updates from GitHub repository."""
+    """Git-based website updater with StateManager integration and graceful failure handling."""
     
-    def __init__(self, config_path: Optional[str] = None):
-        """Initialize the website updater with configuration."""
-        self.module_dir = Path(__file__).parent
-        self.config_path = config_path or self.module_dir / "index.json"
-        self.config = self._load_config()
-        self.logger = self._setup_logging()
-        self.state_manager = StateManager()
+    def __init__(self, module_path: str = None):
+        if module_path is None:
+            module_path = os.path.dirname(os.path.abspath(__file__))
         
-    def _load_config(self) -> Dict:
-        """Load configuration from index.json."""
+        self.module_path = Path(module_path)
+        self.index_file = self.module_path / "index.json"
+        self.config = self._load_config()
+        self.state_manager = StateManager("/var/backups/website")
+        
+    def _load_config(self) -> Dict[str, Any]:
+        """Load the website configuration from index.json."""
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.index_file, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            raise RuntimeError(f"Failed to load config from {self.config_path}: {e}")
+            log_message(f"Failed to load website config: {e}", "ERROR")
+            return {}
     
-    def _setup_logging(self) -> logging.Logger:
-        """Set up logging for the updater."""
-        logger = logging.getLogger('website_updater')
-        logger.setLevel(logging.INFO)
-        
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        
-        return logger
-    
-    def _run_command(self, command: List[str], cwd: Optional[str] = None, 
-                    timeout: int = 300) -> Tuple[bool, str, str]:
-        """Run a shell command and return success status and output."""
+    def _execute_command(self, command: List[str], cwd: str = None, timeout: int = 300) -> bool:
+        """Execute a command and return success status."""
         try:
-            self.logger.info(f"Running command: {' '.join(command)}")
+            log_message(f"Running: {' '.join(command)}")
             result = subprocess.run(
                 command,
                 cwd=cwd,
@@ -87,293 +75,339 @@ class WebsiteUpdater:
                 timeout=timeout
             )
             
-            success = result.returncode == 0
-            if not success:
-                self.logger.error(f"Command failed with code {result.returncode}")
-                self.logger.error(f"STDERR: {result.stderr}")
+            if result.returncode != 0:
+                log_message(f"Command failed: {' '.join(command)}", "ERROR")
+                log_message(f"Error output: {result.stderr}", "ERROR")
+                return False
             
-            return success, result.stdout, result.stderr
+            if result.stdout:
+                log_message(f"Command output: {result.stdout}")
+            
+            log_message(f"Command succeeded: {' '.join(command)}")
+            return True
             
         except subprocess.TimeoutExpired:
-            self.logger.error(f"Command timed out after {timeout} seconds")
-            return False, "", "Command timed out"
+            log_message(f"Command timed out: {' '.join(command)}", "ERROR")
+            return False
         except Exception as e:
-            self.logger.error(f"Command execution failed: {e}")
-            return False, "", str(e)
+            log_message(f"Command execution failed: {' '.join(command)} - {e}", "ERROR")
+            return False
     
     def _clone_repository(self) -> Optional[str]:
         """Clone the GitHub repository to temporary directory."""
         repo_config = self.config['config']['repository']
         temp_dir = repo_config['temp_directory']
         
-        # Clean up existing temp directory
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
-        
-        # Clone repository
-        clone_cmd = [
-            'git', 'clone', 
-            '--branch', repo_config['branch'],
-            '--depth', '1',  # Shallow clone for faster download
-            repo_config['url'],
-            temp_dir
-        ]
-        
-        success, stdout, stderr = self._run_command(clone_cmd)
-        if not success:
-            self.logger.error(f"Failed to clone repository: {stderr}")
+        try:
+            # Clean up existing temp directory
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                log_message(f"Cleaned up existing temp directory: {temp_dir}")
+            
+            # Clone repository
+            clone_success = self._execute_command([
+                'git', 'clone', 
+                '--branch', repo_config['branch'],
+                '--depth', '1',  # Shallow clone for faster download
+                repo_config['url'],
+                temp_dir
+            ])
+            
+            if not clone_success:
+                log_message("Failed to clone repository", "ERROR")
+                return None
+            
+            log_message(f"Successfully cloned repository to {temp_dir}")
+            return temp_dir
+            
+        except Exception as e:
+            log_message(f"Repository cloning failed: {e}", "ERROR")
             return None
-        
-        self.logger.info(f"Successfully cloned repository to {temp_dir}")
-        return temp_dir
     
     def _backup_current_installation(self) -> bool:
-        """Create backup of current installation."""
-        if not self.config['config']['backup']['enabled']:
-            self.logger.info("Backup disabled, skipping")
-            return True
-        
-        backup_config = self.config['config']['backup']
-        include_paths = backup_config['include_paths']
-        
+        """Create backup of current installation using StateManager."""
         try:
+            # Collect all target paths for backup
+            components = self.config['config']['target_paths']['components']
+            backup_files = []
+            
+            for component_name, component_config in components.items():
+                if component_config.get('enabled', False):
+                    target_path = component_config['target_path']
+                    if os.path.exists(target_path):
+                        backup_files.append(target_path)
+            
+            # Also backup package-lock.json if it exists
+            package_lock = "/var/www/homeserver/package-lock.json"
+            if os.path.exists(package_lock):
+                backup_files.append(package_lock)
+            
+            if not backup_files:
+                log_message("No files to backup")
+                return True
+            
+            log_message(f"Backing up {len(backup_files)} website components")
             backup_success = self.state_manager.backup_module_state(
-                module_name='website',
-                description="pre_website_update",
-                files=include_paths
+                module_name="website",
+                description="Pre-website-update backup",
+                files=backup_files
             )
             
             if backup_success:
-                self.logger.info("Created backup successfully")
+                log_message("Website backup created successfully")
                 return True
             else:
-                self.logger.error("Backup creation failed")
+                log_message("Website backup creation failed", "ERROR")
                 return False
-            
+                
         except Exception as e:
-            self.logger.error(f"Backup failed: {e}")
+            log_message(f"Backup failed: {e}", "ERROR")
             return False
     
-    def _update_component(self, component_name: str, component_config: Dict, 
-                         source_dir: str) -> bool:
-        """Update a specific component (frontend, backend, premium, etc.)."""
-        if not component_config.get('enabled', False):
-            self.logger.info(f"Component {component_name} is disabled, skipping")
-            return True
+    def _update_components(self, source_dir: str) -> bool:
+        """Update all enabled components from the cloned repository."""
+        components = self.config['config']['target_paths']['components']
         
-        source_path = os.path.join(source_dir, component_config['source_path'])
-        target_path = component_config['target_path']
-        
-        if not os.path.exists(source_path):
-            self.logger.warning(f"Source path {source_path} does not exist, skipping {component_name}")
-            return True
-        
-        try:
-            # Remove existing target directory
-            if os.path.exists(target_path):
-                shutil.rmtree(target_path)
+        for component_name, component_config in components.items():
+            if not component_config.get('enabled', False):
+                log_message(f"Component {component_name} is disabled, skipping")
+                continue
             
-            # Copy new content
-            shutil.copytree(source_path, target_path)
-            self.logger.info(f"Updated {component_name}: {source_path} -> {target_path}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to update {component_name}: {e}")
-            return False
+            try:
+                source_path = os.path.join(source_dir, component_config['source_path'])
+                target_path = component_config['target_path']
+                
+                if not os.path.exists(source_path):
+                    log_message(f"Source path {source_path} does not exist, skipping {component_name}", "WARNING")
+                    continue
+                
+                # Remove existing target if it's a directory
+                if os.path.exists(target_path) and os.path.isdir(target_path):
+                    shutil.rmtree(target_path)
+                elif os.path.exists(target_path):
+                    os.remove(target_path)
+                
+                # Ensure parent directory exists
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                
+                # Copy new content
+                if os.path.isdir(source_path):
+                    shutil.copytree(source_path, target_path)
+                else:
+                    shutil.copy2(source_path, target_path)
+                
+                log_message(f"Updated {component_name}: {source_path} → {target_path}")
+                
+            except Exception as e:
+                log_message(f"Failed to update component {component_name}: {e}", "ERROR")
+                return False
+        
+        log_message("All enabled components updated successfully")
+        return True
     
     def _run_build_process(self) -> bool:
-        """Run the npm build process."""
-        build_config = self.config['config']['build_process']
+        """Run the npm build process and restart services."""
         base_dir = self.config['config']['target_paths']['base_directory']
         
-        # Run pre-update commands
-        for cmd in build_config.get('pre_update_commands', []):
-            success, stdout, stderr = self._run_command(cmd.split(), cwd=base_dir)
-            if not success:
-                self.logger.error(f"Pre-update command failed: {cmd}")
+        try:
+            # Stop homeserver service
+            log_message("Stopping homeserver service")
+            if not self._execute_command(['systemctl', 'stop', 'homeserver.service']):
+                log_message("Failed to stop homeserver service", "WARNING")
+            
+            # Run npm install
+            log_message("Running npm install")
+            if not self._execute_command(['npm', 'install'], cwd=base_dir, timeout=600):
+                log_message("npm install failed", "ERROR")
                 return False
-        
-        # Run npm install if enabled
-        if build_config.get('npm_install', False):
-            success, stdout, stderr = self._run_command(['npm', 'install'], cwd=base_dir)
-            if not success:
-                self.logger.error("npm install failed")
+            
+            # Run npm build
+            log_message("Running npm build")
+            if not self._execute_command(['npm', 'run', 'build'], cwd=base_dir, timeout=600):
+                log_message("npm build failed", "ERROR")
                 return False
-        
-        # Run npm build if enabled
-        if build_config.get('npm_build', False):
-            success, stdout, stderr = self._run_command(['npm', 'run', 'build'], cwd=base_dir)
-            if not success:
-                self.logger.error("npm build failed")
+            
+            # Start homeserver service
+            log_message("Starting homeserver service")
+            if not self._execute_command(['systemctl', 'start', 'homeserver.service']):
+                log_message("Failed to start homeserver service", "ERROR")
                 return False
-        
-        # Run post-update commands
-        for cmd in build_config.get('post_update_commands', []):
-            success, stdout, stderr = self._run_command(cmd.split(), cwd=base_dir)
-            if not success:
-                self.logger.error(f"Post-update command failed: {cmd}")
+            
+            # Check if homeserver is active
+            log_message("Checking homeserver service status")
+            if not self._execute_command(['systemctl', 'is-active', 'homeserver.service']):
+                log_message("homeserver service is not active after restart", "ERROR")
                 return False
-        
-        return True
+            
+            # Restart gunicorn service
+            log_message("Restarting gunicorn service")
+            if not self._execute_command(['systemctl', 'restart', 'gunicorn.service']):
+                log_message("Failed to restart gunicorn service", "ERROR")
+                return False
+            
+            # Check if gunicorn is active
+            log_message("Checking gunicorn service status")
+            if not self._execute_command(['systemctl', 'is-active', 'gunicorn.service']):
+                log_message("gunicorn service is not active after restart", "ERROR")
+                return False
+            
+            log_message("Build process and service restarts completed successfully")
+            return True
+            
+        except Exception as e:
+            log_message(f"Build process failed: {e}", "ERROR")
+            return False
     
-    def _verify_installation(self) -> bool:
-        """Verify the installation was successful."""
-        verification_config = self.config['config']['verification']
+    def _rollback_installation(self) -> None:
+        """Rollback installation using StateManager."""
+        log_message("Rolling back website installation")
         
-        # Check service status if enabled
-        if verification_config.get('check_service_status', False):
-            success, stdout, stderr = self._run_command(['systemctl', 'is-active', 'homeserver.service'])
-            if not success:
-                self.logger.error("homeserver.service is not active")
-                return False
-        
-        # Health check if URL provided
-        health_url = verification_config.get('health_check_url')
-        if health_url:
-            timeout = verification_config.get('health_check_timeout', 30)
-            try:
-                response = requests.get(health_url, timeout=timeout)
-                if response.status_code != 200:
-                    self.logger.error(f"Health check failed: HTTP {response.status_code}")
-                    return False
-                self.logger.info("Health check passed")
-            except Exception as e:
-                self.logger.error(f"Health check failed: {e}")
-                return False
-        
-        return True
+        try:
+            restore_success = self.state_manager.restore_module_state("website")
+            if restore_success:
+                log_message("Website rollback completed successfully")
+                
+                # Restart services after rollback
+                base_dir = self.config['config']['target_paths']['base_directory']
+                log_message("Restarting services after rollback")
+                
+                self._execute_command(['systemctl', 'restart', 'homeserver.service'])
+                self._execute_command(['systemctl', 'restart', 'gunicorn.service'])
+                
+            else:
+                log_message("Website rollback failed", "ERROR")
+        except Exception as e:
+            log_message(f"Error during rollback: {e}", "ERROR")
     
-    def _cleanup_temp_directory(self, temp_dir: str):
+    def _cleanup_temp_directory(self, temp_dir: str) -> None:
         """Clean up temporary directory."""
         try:
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
-                self.logger.info(f"Cleaned up temporary directory: {temp_dir}")
+                log_message(f"Cleaned up temporary directory: {temp_dir}")
         except Exception as e:
-            self.logger.warning(f"Failed to clean up temp directory: {e}")
+            log_message(f"Failed to clean up temp directory: {e}", "WARNING")
     
-    def update(self) -> bool:
+    def update(self) -> Dict[str, Any]:
         """Perform the complete website update process."""
         if not self.config['metadata'].get('enabled', True):
-            self.logger.info("Website updater is disabled")
-            return True
+            log_message("Website updater is disabled")
+            return {"success": True, "message": "Website updater disabled"}
         
-        self.logger.info("Starting website update process")
+        log_message("Starting website update process")
         temp_dir = None
         
         try:
             # Step 1: Create backup
             if not self._backup_current_installation():
-                return False
+                return {
+                    "success": False,
+                    "error": "Backup creation failed",
+                    "message": "Failed to create backup of current installation"
+                }
             
             # Step 2: Clone repository
             temp_dir = self._clone_repository()
             if not temp_dir:
-                return False
+                return {
+                    "success": False,
+                    "error": "Repository clone failed",
+                    "message": "Failed to clone GitHub repository"
+                }
             
             # Step 3: Update components
-            components = self.config['config']['target_paths']['components']
-            for component_name, component_config in components.items():
-                if not self._update_component(component_name, component_config, temp_dir):
-                    self.logger.error(f"Failed to update component: {component_name}")
-                    if self.config['config']['rollback'].get('automatic_on_failure', True):
-                        self.logger.info("Attempting automatic rollback")
-                        self.state_manager.restore_module_state('website')
-                    return False
+            if not self._update_components(temp_dir):
+                log_message("Component update failed, rolling back", "ERROR")
+                self._rollback_installation()
+                return {
+                    "success": False,
+                    "error": "Component update failed",
+                    "message": "Failed to update website components, rolled back to previous version"
+                }
             
-            # Step 4: Run build process
+            # Step 4: Run build process and restart services
             if not self._run_build_process():
-                self.logger.error("Build process failed")
-                if self.config['config']['rollback'].get('automatic_on_failure', True):
-                    self.logger.info("Attempting automatic rollback")
-                    self.state_manager.restore_module_state('website')
-                return False
+                log_message("Build process failed, rolling back", "ERROR")
+                self._rollback_installation()
+                return {
+                    "success": False,
+                    "error": "Build process failed",
+                    "message": "npm build or service restart failed, rolled back to previous version"
+                }
             
-            # Step 5: Verify installation
-            if not self._verify_installation():
-                self.logger.error("Installation verification failed")
-                if self.config['config']['rollback'].get('automatic_on_failure', True):
-                    self.logger.info("Attempting automatic rollback")
-                    self.state_manager.restore_module_state('website')
-                return False
-            
-            self.logger.info("Website update completed successfully")
-            return True
+            log_message("Website update completed successfully")
+            return {
+                "success": True,
+                "message": "Website updated successfully",
+                "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)])
+            }
             
         except Exception as e:
-            self.logger.error(f"Update process failed: {e}")
-            if self.config['config']['rollback'].get('automatic_on_failure', True):
-                self.logger.info("Attempting automatic rollback")
-                self.state_manager.restore_module_state('website')
-            return False
+            log_message(f"Website update failed: {e}", "ERROR")
+            self._rollback_installation()
+            return {
+                "success": False,
+                "error": str(e),
+                "message": "Website update encountered an unexpected error, rolled back to previous version"
+            }
             
         finally:
             # Always cleanup temp directory
             if temp_dir:
                 self._cleanup_temp_directory(temp_dir)
-    
-    def check_status(self) -> Dict:
-        """Check the current status of the website installation."""
-        status = {
-            'module_enabled': self.config['metadata'].get('enabled', True),
-            'components': {},
-            'service_status': None,
-            'last_update': None
-        }
-        
-        # Check component status
-        components = self.config['config']['target_paths']['components']
-        for component_name, component_config in components.items():
-            target_path = component_config['target_path']
-            status['components'][component_name] = {
-                'enabled': component_config.get('enabled', False),
-                'exists': os.path.exists(target_path),
-                'path': target_path
-            }
-        
-        # Check service status
-        try:
-            success, stdout, stderr = self._run_command(['systemctl', 'is-active', 'homeserver.service'])
-            status['service_status'] = 'active' if success else 'inactive'
-        except:
-            status['service_status'] = 'unknown'
-        
-        return status
 
-
-def main():
-    """Main entry point for the website updater."""
-    import argparse
+def main(args=None):
+    """
+    Main entry point for website module.
     
-    parser = argparse.ArgumentParser(description='HOMESERVER Website Updater')
-    parser.add_argument('--config', help='Path to configuration file')
-    parser.add_argument('--update', action='store_true', help='Perform update')
-    parser.add_argument('--status', action='store_true', help='Check status')
-    parser.add_argument('--verify', action='store_true', help='Verify installation')
+    Args:
+        args: List of arguments (supports '--check', '--version')
+        
+    Returns:
+        dict: Status and results of the website update operation
+    """
+    if args is None:
+        args = []
     
-    args = parser.parse_args()
+    # Get module path
+    module_path = os.path.dirname(os.path.abspath(__file__))
     
     try:
-        updater = WebsiteUpdater(args.config)
+        updater = WebsiteUpdater(module_path)
         
-        if args.update:
-            success = updater.update()
-            sys.exit(0 if success else 1)
-        elif args.status:
-            status = updater.check_status()
-            print(json.dumps(status, indent=2))
-        elif args.verify:
-            success = updater._verify_installation()
-            print(f"Verification: {'PASSED' if success else 'FAILED'}")
-            sys.exit(0 if success else 1)
+        if "--check" in args:
+            config = updater.config
+            components = config.get('config', {}).get('target_paths', {}).get('components', {})
+            enabled_components = [name for name, comp in components.items() if comp.get('enabled', False)]
+            
+            log_message(f"Website module status: {len(enabled_components)} enabled components")
+            return {
+                "success": True,
+                "enabled_components": enabled_components,
+                "total_components": len(components),
+                "schema_version": config.get("metadata", {}).get("schema_version", "unknown")
+            }
+        
+        elif "--version" in args:
+            config = updater.config
+            schema_version = config.get("metadata", {}).get("schema_version", "unknown")
+            log_message(f"Website module version: {schema_version}")
+            return {
+                "success": True,
+                "schema_version": schema_version,
+                "module": "website"
+            }
+        
         else:
-            parser.print_help()
+            # Perform website update
+            return updater.update()
             
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+        log_message(f"Website module failed: {e}", "ERROR")
+        return {"success": False, "error": str(e)}
+
+if __name__ == "__main__":
+    import sys
+    result = main(sys.argv[1:])
+    if not result.get("success", False):
         sys.exit(1)
-
-
-if __name__ == '__main__':
-    main()
