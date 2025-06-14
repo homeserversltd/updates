@@ -471,7 +471,7 @@ def main(args=None):
     if current_version != latest_version:
         log_message("Update available. Creating comprehensive backup...")
         
-        # Initialize global rollback system
+        # Initialize StateManager with backup directory
         backup_config = get_backup_config()
         state_manager = StateManager(backup_config["backup_dir"])
         
@@ -488,19 +488,20 @@ def main(args=None):
         log_message(f"Stopping {SERVICE_NAME} service...")
         systemctl("stop", SERVICE_NAME)
         
-        # Create comprehensive rollback point
-        rollback_point = rollback.create_rollback_point(
+        # Create comprehensive backup using StateManager
+        backup_success = state_manager.backup_module_state(
             module_name=SERVICE_NAME,
             description=f"pre_update_{current_version}_to_{latest_version}",
-            files=files_to_backup
+            files=files_to_backup,
+            services=[SERVICE_NAME]
         )
         
-        if not rollback_point:
-            log_message("Failed to create rollback point", "ERROR")
+        if not backup_success:
+            log_message("Failed to create backup", "ERROR")
             systemctl("start", SERVICE_NAME)  # Restart service on backup failure
             return {"success": False, "error": "Backup failed"}
         
-        log_message(f"Rollback point created with {len(rollback_point)} backups")
+        log_message("Backup created successfully")
         
         # Perform the update
         log_message("Installing update...")
@@ -526,21 +527,13 @@ def main(args=None):
             if new_version == latest_version and verification["service_active"]:
                 log_message(f"Successfully updated Vaultwarden from {current_version} to {latest_version}")
                 
-                # Clean up old backups
-                cleaned_count = rollback.cleanup_old_backups(
-                    max_age_days=backup_config["max_age_days"], 
-                    keep_minimum=backup_config["keep_minimum"]
-                )
-                log_message(f"Cleaned up {cleaned_count} old backups")
-                
                 return {
                     "success": True, 
                     "updated": True, 
                     "old_version": current_version, 
                     "new_version": new_version,
                     "verification": verification,
-                    "rollback_point": rollback_point,
-                    "backups_cleaned": cleaned_count,
+                    "backup_created": True,
                     "config": MODULE_CONFIG
                 }
             else:
@@ -548,31 +541,30 @@ def main(args=None):
                 
         except Exception as e:
             log_message(f"Update failed: {e}", "ERROR")
-            log_message("Restoring from rollback point...")
+            log_message("Restoring from backup...")
             
-            # Stop service before rollback
+            # Stop service before restore
             systemctl("stop", SERVICE_NAME)
             
-            # Restore entire rollback point
-            rollback_success = rollback.restore_rollback_point(rollback_point)
+            # Restore using StateManager
+            restore_success = state_manager.restore_module_state(SERVICE_NAME)
             
-            # Start service after rollback
+            # Start service after restore
             systemctl("start", SERVICE_NAME)
             
-            if rollback_success:
-                log_message("Successfully restored from rollback point")
-                # Verify rollback worked
+            if restore_success:
+                log_message("Successfully restored from backup")
+                # Verify restore worked
                 restored_version = get_current_version()
                 log_message(f"Restored version: {restored_version}")
             else:
-                log_message("Failed to restore from rollback point", "ERROR")
+                log_message("Failed to restore from backup", "ERROR")
             
             return {
                 "success": False, 
                 "error": str(e),
-                "rollback_success": rollback_success,
-                "rollback_point": rollback_point,
-                "restored_version": get_current_version() if rollback_success else None,
+                "restore_success": restore_success,
+                "restored_version": get_current_version() if restore_success else None,
                 "config": MODULE_CONFIG
             }
     else:

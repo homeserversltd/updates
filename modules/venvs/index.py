@@ -42,12 +42,6 @@ def load_module_config():
                 "module_name": "venvs"
             },
             "config": {
-                "backup": {
-                    "backup_dir": "/var/backups/updates",
-                    "max_age_days": 30,
-                    "keep_minimum": 5,
-                    "include_paths": []
-                },
                 "virtual_environments": {},
                 "verification": {
                     "check_activation_script": True,
@@ -60,10 +54,6 @@ def load_module_config():
 # Global configuration
 MODULE_CONFIG = load_module_config()
 
-def get_backup_config():
-    """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"]["backup"]
-
 def get_venvs_config():
     """Get virtual environments configuration from module config."""
     return MODULE_CONFIG["config"]["virtual_environments"]
@@ -72,28 +62,59 @@ def get_verification_config():
     """Get verification configuration from module config."""
     return MODULE_CONFIG["config"]["verification"]
 
-def get_existing_backup_paths():
+def get_existing_venv_paths():
     """
     Get all virtual environment paths that exist and should be backed up.
     Returns:
         list: List of existing venv paths to backup
     """
-    backup_config = get_backup_config()
-    include_paths = backup_config["include_paths"]
-    
+    venvs_config = get_venvs_config()
     existing_paths = []
-    for path in include_paths:
-        if os.path.exists(path):
-            existing_paths.append(path)
-            log_message(f"Found venv path for backup: {path}")
+    
+    for venv_name, venv_cfg in venvs_config.items():
+        venv_path = venv_cfg["path"]
+        if os.path.exists(venv_path):
+            existing_paths.append(venv_path)
+            log_message(f"Found venv path for backup: {venv_path}")
         else:
-            log_message(f"Venv path not found (skipping): {path}", "DEBUG")
+            log_message(f"Venv path not found (skipping): {venv_path}", "DEBUG")
     
     return existing_paths
 
+def load_requirements_from_source(requirements_source):
+    """
+    Load requirements from a source file in the src/ directory.
+    Args:
+        requirements_source: Filename of requirements file in src/
+    Returns:
+        list: List of package requirements, or empty list if file not found
+    """
+    try:
+        module_dir = os.path.dirname(__file__)
+        src_dir = os.path.join(module_dir, "src")
+        requirements_path = os.path.join(src_dir, requirements_source)
+        
+        if not os.path.exists(requirements_path):
+            log_message(f"Requirements file not found: {requirements_path}", "WARNING")
+            return []
+        
+        with open(requirements_path, 'r') as f:
+            requirements = []
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    requirements.append(line)
+            
+        log_message(f"Loaded {len(requirements)} requirements from {requirements_source}")
+        return requirements
+        
+    except Exception as e:
+        log_message(f"Failed to load requirements from {requirements_source}: {e}", "ERROR")
+        return []
+
 def update_venv(venv_name, venv_cfg):
     """
-    Update a single virtual environment with configured packages.
+    Update a single virtual environment with packages from source requirements file.
     Args:
         venv_name: Name of the virtual environment
         venv_cfg: Configuration dictionary for the venv
@@ -101,7 +122,7 @@ def update_venv(venv_name, venv_cfg):
         bool: True if update succeeded, False otherwise
     """
     venv_path = venv_cfg["path"]
-    packages = venv_cfg["packages"]
+    requirements_source = venv_cfg.get("requirements_source")
     upgrade_pip = venv_cfg.get("upgrade_pip", False)
     system_packages = venv_cfg.get("system_packages", False)
     description = venv_cfg.get("description", "")
@@ -110,6 +131,16 @@ def update_venv(venv_name, venv_cfg):
     if description:
         log_message(f"  Description: {description}")
     log_message(f"  Path: {venv_path}")
+    log_message(f"  Requirements source: {requirements_source}")
+
+    # Load packages from source file
+    if requirements_source:
+        packages = load_requirements_from_source(requirements_source)
+        if not packages:
+            log_message(f"No packages loaded from {requirements_source}", "WARNING")
+    else:
+        packages = []
+        log_message("No requirements source specified", "WARNING")
 
     # Create venv if missing
     if not os.path.isdir(venv_path):
@@ -286,13 +317,9 @@ def main(args=None):
         
         for venv_name, venv_cfg in venvs_config.items():
             log_message(f"    {venv_name}: {venv_cfg['path']}")
-            log_message(f"      Packages: {len(venv_cfg['packages'])}")
+            requirements_source = venv_cfg.get('requirements_source', 'N/A')
+            log_message(f"      Requirements source: {requirements_source}")
             log_message(f"      Description: {venv_cfg.get('description', 'N/A')}")
-        
-        backup_config = get_backup_config()
-        log_message(f"  Backup dir: {backup_config['backup_dir']}")
-        log_message(f"  Max age: {backup_config['max_age_days']} days")
-        log_message(f"  Keep minimum: {backup_config['keep_minimum']} backups")
         
         return {
             "success": True,
@@ -349,31 +376,30 @@ def main(args=None):
 
     log_message(f"Starting virtual environment updates for {len(venvs_config)} environments...")
     
-    # Initialize global rollback system
-    backup_config = get_backup_config()
-    state_manager = StateManager(backup_config["backup_dir"])
+    # Initialize StateManager for backups
+    state_manager = StateManager("/var/backups/venvs")
     
     # Get all existing venv paths for backup
-    files_to_backup = get_existing_backup_paths()
+    files_to_backup = get_existing_venv_paths()
     
     if files_to_backup:
         log_message(f"Creating backup for {len(files_to_backup)} virtual environments...")
         
-        # Create comprehensive rollback point
-        rollback_point = rollback.create_rollback_point(
+        # Create comprehensive backup using StateManager
+        backup_success = state_manager.backup_module_state(
             module_name=SERVICE_NAME,
             description="pre_venv_updates",
             files=files_to_backup
         )
         
-        if not rollback_point:
-            log_message("Failed to create rollback point", "ERROR")
+        if not backup_success:
+            log_message("Failed to create backup", "ERROR")
             return {"success": False, "error": "Backup failed"}
         
-        log_message(f"Rollback point created with {len(rollback_point)} backups")
+        log_message("Backup created successfully")
     else:
         log_message("No existing virtual environments found for backup", "WARNING")
-        rollback_point = None
+        backup_success = None
 
     # Update all virtual environments
     results = {}
@@ -401,10 +427,10 @@ def main(args=None):
         verification = verify_all_venvs()
         
         # Clean up old backups if we created any
-        if rollback_point:
-            cleaned_count = rollback.cleanup_old_backups(
-                max_age_days=backup_config["max_age_days"], 
-                keep_minimum=backup_config["keep_minimum"]
+        if backup_success:
+            cleaned_count = state_manager.cleanup_old_backups(
+                max_age_days=30, 
+                keep_minimum=5
             )
             log_message(f"Cleaned up {cleaned_count} old backups")
         else:
@@ -415,7 +441,7 @@ def main(args=None):
             "updated": True, 
             "results": results,
             "verification": verification,
-            "rollback_point": rollback_point,
+            "backup_created": backup_success,
             "backups_cleaned": cleaned_count,
             "venv_count": len(venvs_config),
             "config": MODULE_CONFIG
@@ -424,24 +450,24 @@ def main(args=None):
     except Exception as e:
         log_message(f"Virtual environment updates failed: {e}", "ERROR")
         
-        if rollback_point:
-            log_message("Restoring from rollback point...")
-            rollback_success = rollback.restore_rollback_point(rollback_point)
+        if backup_success:
+            log_message("Restoring from backup...")
+            restore_success = state_manager.restore_module_state(SERVICE_NAME)
             
-            if rollback_success:
-                log_message("Successfully restored from rollback point")
+            if restore_success:
+                log_message("Successfully restored from backup")
             else:
-                log_message("Failed to restore from rollback point", "ERROR")
+                log_message("Failed to restore from backup", "ERROR")
         else:
-            rollback_success = None
+            restore_success = None
         
         return {
             "success": False, 
             "error": str(e),
             "results": results,
             "failed_venvs": failed_venvs,
-            "rollback_success": rollback_success,
-            "rollback_point": rollback_point,
+            "restore_success": restore_success,
+            "backup_created": backup_success,
             "config": MODULE_CONFIG
         }
 
