@@ -443,6 +443,20 @@ def install_atuin(admin_user):
     """
     log_message("Installing Atuin...", "INFO")
     try:
+        # Remove existing binary to prevent permission conflicts during update
+        bin_path = get_atuin_bin_path(admin_user)
+        if os.path.exists(bin_path):
+            log_message(f"Removing existing binary: {bin_path}", "DEBUG")
+            try:
+                os.remove(bin_path)
+            except OSError as e:
+                log_message(f"Warning: Could not remove existing binary: {e}", "WARNING")
+                # Try with elevated permissions if needed
+                try:
+                    subprocess.run(f"rm -f {bin_path}", shell=True, check=True)
+                except subprocess.CalledProcessError:
+                    log_message("Failed to remove existing binary, continuing anyway", "WARNING")
+        
         install_url = get_installation_config()["install_script_url"]
         # Use proper shell command construction for process substitution
         shell_command = f"su - {admin_user} -c 'bash <(curl --proto \"=https\" --tlsv1.2 -sSf {install_url})'"
