@@ -80,23 +80,46 @@ MODULE_CONFIG = load_module_config()
 
 def get_backup_config():
     """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"]["backup"]
+    return MODULE_CONFIG["config"].get("backup", {
+        "backup_dir": "/var/backups/updates",
+        "include_paths": [
+            "/opt/navidrome/navidrome",
+            "/var/lib/navidrome"
+        ]
+    })
 
 def get_installation_config():
     """Get installation configuration from module config."""
-    return MODULE_CONFIG["config"]["installation"]
+    return MODULE_CONFIG["config"].get("installation", {
+        "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest",
+        "download_url_template": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_amd64.tar.gz",
+        "extract_path": "/opt/navidrome/"
+    })
 
 def get_service_config():
     """Get service configuration from module config."""
-    return MODULE_CONFIG["config"]["service"]
+    return MODULE_CONFIG["config"].get("service", {
+        "name": "navidrome",
+        "systemd_service": "navidrome"
+    })
 
 def get_directories_config():
     """Get directories configuration from module config."""
-    return MODULE_CONFIG["config"]["directories"]
+    return MODULE_CONFIG["config"].get("directories", {
+        "install_dir": "/opt/navidrome",
+        "data_dir": "/var/lib/navidrome",
+        "navidrome_bin": "/opt/navidrome/navidrome",
+        "config_dir": "/etc/navidrome",
+        "config_file": "/var/lib/navidrome/navidrome.toml"
+    })
 
 def get_permissions_config():
     """Get permissions configuration from module config."""
-    return MODULE_CONFIG["config"]["permissions"]
+    return MODULE_CONFIG["config"].get("permissions", {
+        "owner": "navidrome",
+        "group": "navidrome",
+        "mode": "755"
+    })
 
 # --- Service management ---
 def systemctl(action, service):
@@ -313,7 +336,7 @@ def main(args=None):
     if args is None:
         args = []
     
-    SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
+    SERVICE_NAME = MODULE_CONFIG.get("metadata", {}).get("module_name", "navidrome")
     service_config = get_service_config()
     directories_config = get_directories_config()
     
@@ -403,18 +426,18 @@ def main(args=None):
         
         log_message(f"Creating backup for {len(files_to_backup)} Navidrome files...")
         
-        # Create rollback point
-        rollback_point = rollback.create_rollback_point(
+        # Create backup using StateManager
+        backup_success = state_manager.backup_module_state(
             module_name=SERVICE_NAME,
             description=f"pre_update_{current_version}_to_{latest_version}",
             files=files_to_backup
         )
         
-        if not rollback_point:
-            log_message("Failed to create rollback point", "ERROR")
+        if not backup_success:
+            log_message("Failed to create backup", "ERROR")
             return {"success": False, "error": "Backup failed"}
         
-        log_message(f"Rollback point created with {len(rollback_point)} backups")
+        log_message("Backup created successfully")
         
         # Stop service before update
         log_message("Stopping Navidrome service...")
@@ -451,7 +474,6 @@ def main(args=None):
                     "old_version": current_version, 
                     "new_version": new_version,
                     "verification": verification,
-                    "rollback_point": rollback_point,
                     "config": MODULE_CONFIG
                 }
             else:
@@ -462,26 +484,25 @@ def main(args=None):
                 
         except Exception as e:
             log_message(f"Update failed: {e}", "ERROR")
-            log_message("Restoring from rollback point...")
+            log_message("Restoring from backup...")
             
-            # Restore rollback point
-            rollback_success = rollback.restore_rollback_point(rollback_point)
+            # Restore using StateManager
+            rollback_success = state_manager.restore_module_state(SERVICE_NAME)
             
             if rollback_success:
-                log_message("Successfully restored from rollback point")
+                log_message("Successfully restored from backup")
                 # Start service after rollback
                 systemctl("start", SYSTEMD_SERVICE)
                 # Verify rollback worked
                 restored_version = get_current_version()
                 log_message(f"Restored version: {restored_version}")
             else:
-                log_message("Failed to restore from rollback point", "ERROR")
+                log_message("Failed to restore from backup", "ERROR")
             
             return {
                 "success": False, 
                 "error": str(e),
                 "rollback_success": rollback_success,
-                "rollback_point": rollback_point,
                 "restored_version": get_current_version() if rollback_success else None,
                 "config": MODULE_CONFIG
             }

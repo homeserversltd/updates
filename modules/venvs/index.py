@@ -306,7 +306,7 @@ def main(args=None):
     if args is None:
         args = []
     
-    SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
+    SERVICE_NAME = MODULE_CONFIG.get("metadata", {}).get("module_name", "venvs")
     venvs_config = get_venvs_config()
 
     # --config mode: show current configuration
@@ -426,15 +426,8 @@ def main(args=None):
         log_message("Running post-update verification...")
         verification = verify_all_venvs()
         
-        # Clean up old backups if we created any
-        if backup_success:
-            cleaned_count = state_manager.cleanup_old_backups(
-                max_age_days=30, 
-                keep_minimum=5
-            )
-            log_message(f"Cleaned up {cleaned_count} old backups")
-        else:
-            cleaned_count = 0
+        # Note: Backup cleanup is handled automatically by StateManager
+        cleaned_count = 0
         
         return {
             "success": True, 

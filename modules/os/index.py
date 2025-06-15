@@ -28,21 +28,60 @@ import sys
 import json
 import subprocess
 from typing import Dict, Any, List, Optional
-from updates.utils.index import get_module_version
-from updates.utils.logger import log_message
-from updates.utils.config import get_module_config
+from updates.index import log_message
 
-__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
+__version__ = "1.0.0"
+
+def load_module_config():
+    """
+    Load configuration from the module's index.json file.
+    Returns:
+        dict: Configuration data or default values if loading fails
+    """
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "index.json")
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        log_message(f"Failed to load module config: {e}", "WARNING")
+        # Return default configuration
+        return {
+            "metadata": {
+                "schema_version": "1.0.0",
+                "module_name": "os"
+            },
+            "config": {
+                "package_manager": {
+                    "update_command": ["apt", "update"],
+                    "upgrade_command": ["apt", "upgrade", "-y"],
+                    "autoremove_command": ["apt", "autoremove", "-y"],
+                    "clean_command": ["apt", "autoclean"],
+                    "list_upgradable_command": ["apt", "list", "--upgradable"]
+                },
+                "safety": {
+                    "max_upgrade_count": 100
+                }
+            }
+        }
+
+# Global configuration
+MODULE_CONFIG = load_module_config()
 
 def get_package_manager_config() -> Dict[str, Any]:
     """Get package manager configuration from index.json"""
-    config = get_module_config()
-    return config["config"]["package_manager"]
+    return MODULE_CONFIG["config"].get("package_manager", {
+        "update_command": ["apt", "update"],
+        "upgrade_command": ["apt", "upgrade", "-y"],
+        "autoremove_command": ["apt", "autoremove", "-y"],
+        "clean_command": ["apt", "autoclean"],
+        "list_upgradable_command": ["apt", "list", "--upgradable"]
+    })
 
 def get_safety_config() -> Dict[str, Any]:
     """Get safety configuration from index.json"""
-    config = get_module_config()
-    return config["config"]["safety"]
+    return MODULE_CONFIG["config"].get("safety", {
+        "max_upgrade_count": 100
+    })
 
 def run_command(command: List[str], check: bool = True) -> subprocess.CompletedProcess:
     """Run a command and return the result"""
@@ -119,7 +158,7 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
     elif "--config" in args:
         return {
             "success": True,
-            "config": get_module_config()
+            "config": MODULE_CONFIG
         }
     
     # Get configurations
@@ -132,7 +171,7 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
         "updated": False,
         "upgradable": 0,
         "verification": {},
-        "config": get_module_config()
+        "config": MODULE_CONFIG
     }
     
     try:

@@ -98,23 +98,62 @@ MODULE_CONFIG = load_module_config()
 
 def get_service_config():
     """Get service configuration from module config."""
-    return MODULE_CONFIG["config"]["service"]
+    return MODULE_CONFIG["config"].get("service", {
+        "name": "vaultwarden",
+        "user": "vaultwarden",
+        "group": "vaultwarden"
+    })
 
 def get_directories_config():
     """Get directories configuration from module config."""
-    return MODULE_CONFIG["config"]["directories"]
+    return MODULE_CONFIG["config"].get("directories", {
+        "binary_path": "/opt/vaultwarden/vaultwarden",
+        "web_vault_dir": "/opt/vaultwarden/web-vault",
+        "data_dir": "/var/lib/vaultwarden",
+        "log_dir": "/var/log/vaultwarden",
+        "attachments_dir": "/mnt/nas/vaultwarden/attachments",
+        "config_file": "/etc/vaultwarden.env",
+        "cargo_home": "/usr/local/cargo",
+        "cargo_bin": "~/.cargo/bin/vaultwarden"
+    })
 
 def get_backup_config():
     """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"]["backup"]
+    return MODULE_CONFIG["config"].get("backup", {
+        "backup_dir": "/var/backups/updates",
+        "max_age_days": 30,
+        "keep_minimum": 5,
+        "include_paths": [
+            "/opt/vaultwarden/vaultwarden",
+            "/opt/vaultwarden/web-vault",
+            "/var/lib/vaultwarden",
+            "/etc/vaultwarden.env",
+            "/var/log/vaultwarden",
+            "/mnt/nas/vaultwarden/attachments"
+        ]
+    })
 
 def get_installation_config():
     """Get installation configuration from module config."""
-    return MODULE_CONFIG["config"]["installation"]
+    return MODULE_CONFIG["config"].get("installation", {
+        "main_repo": {
+            "github_api_url": "https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest",
+            "cargo_package": "vaultwarden",
+            "cargo_features": ["postgresql"]
+        },
+        "web_vault": {
+            "github_api_url": "https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest",
+            "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/{version}/bw_web_{version}.tar.gz"
+        },
+        "temp_dir": "/tmp"
+    })
 
 def get_verification_config():
     """Get verification configuration from module config."""
-    return MODULE_CONFIG["config"]["verification"]
+    return MODULE_CONFIG["config"].get("verification", {
+        "startup_wait_seconds": 5,
+        "version_check_retries": 3
+    })
 
 def get_existing_backup_paths():
     """

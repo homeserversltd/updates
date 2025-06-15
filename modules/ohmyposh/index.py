@@ -74,19 +74,37 @@ MODULE_CONFIG = load_module_config()
 
 def get_backup_config():
     """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"]["backup"]
+    return MODULE_CONFIG["config"].get("backup", {
+        "backup_dir": "/var/backups/updates",
+        "include_paths": [
+            "/usr/local/bin/oh-my-posh",
+            "/etc/ohmyposh"
+        ]
+    })
 
 def get_installation_config():
     """Get installation configuration from module config."""
-    return MODULE_CONFIG["config"]["installation"]
+    return MODULE_CONFIG["config"].get("installation", {
+        "github_api_url": "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest",
+        "download_url_template": "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/v{version}/posh-linux-amd64",
+        "themes_url": "https://github.com/JanDeDobbeleer/oh-my-posh/archive/main.zip"
+    })
 
 def get_directories_config():
     """Get directories configuration from module config."""
-    return MODULE_CONFIG["config"]["directories"]
+    return MODULE_CONFIG["config"].get("directories", {
+        "install_dir": "/usr/local/bin",
+        "config_dir": "/etc/ohmyposh",
+        "oh_my_posh_bin": "/usr/local/bin/oh-my-posh",
+        "themes_dir": "/etc/ohmyposh/themes"
+    })
 
 def get_permissions_config():
     """Get permissions configuration from module config."""
-    return MODULE_CONFIG["config"]["permissions"]
+    return MODULE_CONFIG["config"].get("permissions", {
+        "binary_mode": "755",
+        "themes_mode": "644"
+    })
 
 # --- Version helpers ---
 def get_current_version():
@@ -328,7 +346,7 @@ def main(args=None):
     if args is None:
         args = []
     
-    SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
+    SERVICE_NAME = MODULE_CONFIG.get("metadata", {}).get("module_name", "ohmyposh")
     directories_config = get_directories_config()
     
     OH_MY_POSH_BIN = directories_config["oh_my_posh_bin"]
