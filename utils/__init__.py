@@ -22,12 +22,13 @@ Utilities for the updates orchestration system.
 This module provides common utilities used by various update modules.
 """
 
-from .index import log_message
+from .index import log_message, get_module_version
 from .version_control import checkout_module_version, list_module_versions, checkout_last_safe
 from .state_manager import StateManager
 
 __all__ = [
     'log_message',
+    'get_module_version',
     'checkout_module_version',
     'list_module_versions', 
     'checkout_last_safe',
