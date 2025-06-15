@@ -96,9 +96,8 @@ def get_filebrowser_version():
             if match:
                 return match.group(1)
             
-            # Fallback: return the full output for debugging
             log_message(f"Could not parse version from output: '{output}'", "WARNING")
-            return output
+            return None
         return None
     except Exception as e:
         log_message(f"Warning: Failed to detect Filebrowser version: {e}")
