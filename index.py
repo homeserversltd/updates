@@ -37,9 +37,9 @@ from . import (
 )
 
 # Configuration
-DEFAULT_REPO_URL = "https://github.com/homeserverltd/updates.git"
+DEFAULT_REPO_URL = "https://github.com/homeserversltd/updates.git"
 DEFAULT_LOCAL_PATH = "/tmp/homeserver-updates-repo"
-DEFAULT_MODULES_PATH = "/var/local/lib/updates"
+DEFAULT_MODULES_PATH = "/usr/local/lib/updates"
 
 def load_global_index(modules_path: str) -> dict:
     """Load the global index.json that tracks current module versions."""
@@ -323,14 +323,16 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     return results
 
 async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = None, 
-                                 modules_path: str = None, branch: str = "main") -> dict:
+                                 modules_path: str = None, branch: str = "master") -> dict:
     """
     Main orchestrator for schema-version based updates.
     
-    This function implements the two-phase update process:
-    1. Schema Updates: Compare schema versions and clobber modules that need updating
-    2. Module Execution: Run ALL enabled modules (regardless of whether they were updated)
+    This function implements a bootstrapping-aware update process:
+    1. Orchestrator Check: If orchestrator needs updating, update it FIRST and restart
+    2. Schema Updates: Compare schema versions and clobber modules that need updating  
+    3. Module Execution: Run ALL enabled modules (regardless of whether they were updated)
     
+    The orchestrator update phase ensures we're always running the latest orchestrator logic.
     The schema update phase keeps the infrastructure current, while the execution phase
     ensures all enabled services/components are properly configured and running.
     
@@ -377,10 +379,43 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         log_message("Step 1.5: Checking orchestrator schema version...")
         orchestrator_needs_update = check_orchestrator_update(modules_path, local_repo_path)
         if orchestrator_needs_update:
-            log_message("CRITICAL: Orchestrator update detected - system will restart after module updates")
-            results["orchestrator_updated"] = True
+            log_message("CRITICAL: Orchestrator update detected - updating orchestrator first")
+            
+            # Update orchestrator IMMEDIATELY and restart with new version
+            log_message("Step 1.6: Updating orchestrator system...")
+            orchestrator_success = update_orchestrator(modules_path, local_repo_path)
+            if orchestrator_success:
+                log_message("Orchestrator updated successfully - restarting with new version")
+                
+                # Update global index with new orchestrator version
+                update_global_index(modules_path, [], True)
+                
+                # Re-exec with the updated orchestrator
+                log_message("RESTART: Re-executing with updated orchestrator...")
+                import subprocess
+                import sys
+                
+                # Get the current script path and arguments
+                script_path = os.path.abspath(__file__)
+                current_args = sys.argv[1:]  # Skip script name
+                
+                # Re-execute the updated orchestrator
+                try:
+                    result = subprocess.run([sys.executable, script_path] + current_args, 
+                                          check=True, capture_output=False)
+                    # If we get here, the new orchestrator completed successfully
+                    results["orchestrator_updated"] = True
+                    results["orchestrator_restarted"] = True
+                    return results
+                except subprocess.CalledProcessError as e:
+                    log_message(f"Failed to restart with updated orchestrator: {e}", "ERROR")
+                    results["errors"].append("Failed to restart with updated orchestrator")
+                    return results
+            else:
+                results["errors"].append("Failed to update orchestrator")
+                return results
         
-        # Step 2: Detect modules that need updates
+        # Step 2: Detect modules that need updates (only reached if orchestrator didn't need updating)
         log_message("Step 2: Detecting module updates...")
         repo_modules_path = os.path.join(local_repo_path, "modules")  # Look for modules subdirectory
         if not os.path.exists(repo_modules_path):
@@ -394,9 +429,6 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         modules_to_update = detect_module_updates(modules_path, repo_modules_path)
         results["modules_detected"] = modules_to_update
         
-        # Always continue to run enabled modules, even if no schema updates needed
-        log_message(f"Schema updates needed: {len(modules_to_update)} modules, orchestrator: {orchestrator_needs_update}")
-        
         if modules_to_update:
             log_message(f"Found {len(modules_to_update)} modules to update: {', '.join(modules_to_update)}")
         
@@ -406,34 +438,24 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
             update_results = update_modules(modules_to_update, modules_path, repo_modules_path)
             results["modules_updated"] = update_results
         
-        # Step 4: Update orchestrator if needed (AFTER modules)
-        if orchestrator_needs_update:
-            log_message("Step 4: Updating orchestrator system...")
-            orchestrator_success = update_orchestrator(modules_path, local_repo_path)
-            if orchestrator_success:
-                log_message("Orchestrator updated successfully - restart required")
-                results["orchestrator_restart_required"] = True
-            else:
-                results["errors"].append("Failed to update orchestrator")
-        
-        # Step 5: Get all enabled modules and run them
-        log_message("Step 5: Getting enabled modules...")
+        # Step 4: Get all enabled modules and run them
+        log_message("Step 4: Getting enabled modules...")
         enabled_modules = get_enabled_modules(modules_path)
         results["enabled_modules"] = enabled_modules
         
         if enabled_modules:
-            log_message("Step 6: Running all enabled modules...")
+            log_message("Step 5: Running all enabled modules...")
             module_execution_results = run_enabled_modules(modules_path, enabled_modules)
             results["modules_executed"] = module_execution_results
         else:
             log_message("No enabled modules found to execute")
             results["modules_executed"] = {}
         
-        # Step 7: Update global index
-        log_message("Step 7: Updating global index...")
+        # Step 6: Update global index
+        log_message("Step 6: Updating global index...")
         successful_updates = [module for module, success in results["modules_updated"].items() if success] if results["modules_updated"] else []
-        if successful_updates or orchestrator_needs_update:
-            results["global_index_updated"] = update_global_index(modules_path, successful_updates, orchestrator_needs_update)
+        if successful_updates:
+            results["global_index_updated"] = update_global_index(modules_path, successful_updates, False)
         
         # Summary
         schema_updated_count = sum(1 for success in results["modules_updated"].values() if success) if results["modules_updated"] else 0
@@ -449,7 +471,6 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         log_message(f"  - Enabled modules found: {len(enabled_modules)}")
         log_message(f"  - Successfully executed: {executed_count}")
         log_message(f"  - Failed executions: {execution_failed_count}")
-        log_message(f"  - Orchestrator updated: {orchestrator_needs_update}")
         
         if schema_failed_count > 0:
             failed_modules = [module for module, success in results["modules_updated"].items() if not success]
@@ -777,7 +798,7 @@ def main():
                        help="Local path to sync repository")
     parser.add_argument("--modules-path", default=DEFAULT_MODULES_PATH,
                        help="Path to local modules directory")
-    parser.add_argument("--branch", default="main",
+    parser.add_argument("--branch", default="master",
                        help="Git branch to sync from")
     parser.add_argument("--legacy", action="store_true",
                        help="Use legacy manifest-based updates")
@@ -866,6 +887,11 @@ def main():
                     results = loop.run_until_complete(run_schema_based_updates(
                         args.repo_url, args.local_repo, args.modules_path, args.branch
                     ))
+                
+                # Check if orchestrator was restarted (successful completion)
+                if results.get("orchestrator_restarted"):
+                    log_message("Orchestrator was updated and restarted successfully")
+                    sys.exit(0)
                 
                 # Exit with error code if critical failures occurred
                 has_errors = bool(results.get("errors"))

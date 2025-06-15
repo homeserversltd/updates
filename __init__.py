@@ -128,27 +128,20 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
         bool: True if sync successful, False otherwise
     """
     try:
+        # Always remove existing directory and clone fresh to avoid ownership/permission issues
         if os.path.exists(local_path):
-            # Pull latest changes
-            log_message(f"Pulling latest changes from {repo_url}")
-            result = subprocess.run(
-                ["git", "pull", "origin", branch],
-                cwd=local_path,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            log_message(f"Git pull completed: {result.stdout.strip()}")
-        else:
-            # Clone repository
-            log_message(f"Cloning repository {repo_url} to {local_path}")
-            result = subprocess.run(
-                ["git", "clone", "-b", branch, repo_url, local_path],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            log_message(f"Git clone completed")
+            log_message(f"Removing existing repository at {local_path}")
+            shutil.rmtree(local_path)
+        
+        # Clone repository fresh
+        log_message(f"Cloning repository {repo_url} to {local_path}")
+        result = subprocess.run(
+            ["git", "clone", "-b", branch, repo_url, local_path],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        log_message(f"Git clone completed")
         
         return True
     except subprocess.CalledProcessError as e:
