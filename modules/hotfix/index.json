@@ -1,52 +1,28 @@
 {
     "metadata": {
-        "schema_version": "1.0.0",
+        "schema_version": "1.0.1",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
-        "enabled": false
+        "enabled": true
     },
-      "pools": [
+    "pools": [
         {
-          "id": "website_security_patch",
-          "description": "Frontend security fixes for CVE-2024-XXXX",
-          "operations": [
-            {
-              "target": "src/auth.tsx",
-              "destination": "/var/www/homeserver/src/components/auth.tsx"
-            },
-            {
-              "target": "src/header.tsx", 
-              "destination": "/var/www/homeserver/src/components/header.tsx"
-            },
-            {
-              "target": "src/login.tsx",
-              "destination": "/var/www/homeserver/src/components/login.tsx"
-            }
-          ],
-          "closure": [
-            "cd /var/www/homeserver",
-            "npm build",
-            "systemctl restart homeserver",
-            "systemctl is-active homeserver"
-          ]
-        },
-        {
-          "id": "backend_config_fix",
-          "description": "Update backend configuration files",
-          "operations": [
-            {
-              "target": "src/config.py",
-              "destination": "/var/www/homeserver/backend/config.py"
-            },
-            {
-              "target": "src/database.py",
-              "destination": "/var/www/homeserver/backend/database.py"
-            }
-          ],
-          "closure": [
-            "systemctl restart gunicorn",
-            "systemctl restart postgresql"
-          ]
+            "id": "test_hotfix_pool",
+            "description": "Simple test hotfix that always passes",
+            "operations": [
+                {
+                    "target": "example.sh",
+                    "destination": "/tmp/hotfix_test_example.sh"
+                }
+            ],
+            "closure": [
+                "echo 'Hotfix test pool completed successfully'",
+                "ls -la /tmp/hotfix_test_example.sh",
+                "echo 'All systems operational'"
+            ]
         }
-      ],
-      "finalClosure": []
+    ],
+    "finalClosure": [
+        "echo 'Final hotfix validation completed'",
+        "echo 'System ready'"
+    ]
 }

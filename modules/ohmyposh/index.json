@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.2",
+        "schema_version": "1.0.3",
         "module_name": "ohmyposh",
         "description": "Oh My Posh shell prompt",
         "enabled": true
@@ -8,10 +8,14 @@
     "config": {
         "directories": {
             "install_dir": "/usr/local/bin",
-            "config_dir": "/etc/ohmyposh"
+            "config_dir": "/etc/ohmyposh",
+            "oh_my_posh_bin": "/usr/local/bin/oh-my-posh",
+            "themes_dir": "/etc/ohmyposh/themes"
         },
         "installation": {
-            "github_api_url": "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest"
+            "github_api_url": "https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest",
+            "download_url_template": "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/v{version}/posh-linux-amd64",
+            "themes_url": "https://github.com/JanDeDobbeleer/oh-my-posh/archive/refs/heads/main.zip"
         }
     }
 } 

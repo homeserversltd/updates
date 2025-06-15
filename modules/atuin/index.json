@@ -4,7 +4,7 @@
         "atuin_version": "1.19.0",
         "module_name": "atuin",
         "description": "Atuin shell history management tool",
-        "enabled": true
+        "enabled": false
     },
     "config": {
         "directories": {

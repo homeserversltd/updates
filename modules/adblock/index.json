@@ -4,7 +4,7 @@
         "unbound_version": "1.19.0",
         "module_name": "adblock",
         "description": "Adblock module for Unbound DNS",
-        "enabled": true
+        "enabled": false
     },
     "config": {
         "unbound_dir": "/etc/unbound",
