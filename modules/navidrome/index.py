@@ -340,8 +340,8 @@ def main(args=None):
     service_config = get_service_config()
     directories_config = get_directories_config()
     
-    NAVIDROME_BIN = directories_config["navidrome_bin"]
-    SYSTEMD_SERVICE = service_config["systemd_service"]
+    NAVIDROME_BIN = directories_config.get("navidrome_bin", "/opt/navidrome/navidrome")
+    SYSTEMD_SERVICE = service_config.get("systemd_service", "navidrome")
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":

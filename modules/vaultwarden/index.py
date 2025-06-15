@@ -440,8 +440,8 @@ def main(args=None):
     
     service_config = get_service_config()
     directories = get_directories_config()
-    SERVICE_NAME = service_config["name"]
-    VAULTWARDEN_BIN = directories["binary_path"]
+    SERVICE_NAME = service_config.get("name", "vaultwarden")
+    VAULTWARDEN_BIN = directories.get("binary_path", "/opt/vaultwarden/vaultwarden")
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":

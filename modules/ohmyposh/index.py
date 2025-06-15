@@ -349,7 +349,7 @@ def main(args=None):
     SERVICE_NAME = MODULE_CONFIG.get("metadata", {}).get("module_name", "ohmyposh")
     directories_config = get_directories_config()
     
-    OH_MY_POSH_BIN = directories_config["oh_my_posh_bin"]
+    OH_MY_POSH_BIN = directories_config.get("oh_my_posh_bin", "/usr/local/bin/oh-my-posh")
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
