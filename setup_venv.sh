@@ -9,6 +9,8 @@ VENV_DIR="$UPDATES_DIR/venv"
 REQUIREMENTS_FILE="$UPDATES_DIR/requirements.txt"
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
+UPDATE_MANAGER_SCRIPT="$UPDATES_DIR/updateManager.sh"
+SBIN_SYMLINK="/usr/local/sbin/updateManager"
 
 echo "Setting up virtual environment for updates system..."
 
@@ -93,8 +95,37 @@ else
     exit 1
 fi
 
+# Create symlink for updateManager.sh in /usr/local/sbin
+echo "Setting up updateManager symlink..."
+if [ -f "$UPDATE_MANAGER_SCRIPT" ]; then
+    # Remove existing symlink if it exists
+    if [ -L "$SBIN_SYMLINK" ]; then
+        echo "Removing existing symlink at $SBIN_SYMLINK"
+        rm "$SBIN_SYMLINK"
+    elif [ -f "$SBIN_SYMLINK" ]; then
+        echo "Warning: File exists at $SBIN_SYMLINK (not a symlink), backing up..."
+        mv "$SBIN_SYMLINK" "${SBIN_SYMLINK}.backup.$(date +%s)"
+    fi
+    
+    # Create the symlink
+    echo "Creating symlink: $SBIN_SYMLINK -> $UPDATE_MANAGER_SCRIPT"
+    ln -s "$UPDATE_MANAGER_SCRIPT" "$SBIN_SYMLINK"
+    
+    # Verify symlink was created successfully
+    if [ -L "$SBIN_SYMLINK" ] && [ -x "$SBIN_SYMLINK" ]; then
+        echo "✓ updateManager symlink created successfully"
+    else
+        echo "✗ Failed to create updateManager symlink"
+        exit 1
+    fi
+else
+    echo "Warning: updateManager.sh not found at $UPDATE_MANAGER_SCRIPT"
+    echo "Skipping symlink creation"
+fi
+
 echo ""
 echo "Usage information:"
 echo "  To activate: source $VENV_DIR/bin/activate"
 echo "  To run updates: $VENV_PYTHON $UPDATES_DIR/index.py"
-echo "  Direct execution: $VENV_DIR/bin/python $UPDATES_DIR/index.py" 
+echo "  Direct execution: $VENV_DIR/bin/python $UPDATES_DIR/index.py"
+echo "  System command: updateManager [--check|--legacy|--help]" 

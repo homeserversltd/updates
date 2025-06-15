@@ -6,16 +6,24 @@ This directory implements a **schema-version driven** Python update orchestratio
 
 ## Architecture
 
-The update system follows a Git-based approach:
+The update system follows a two-phase Git-based approach:
 
+### Phase 1: Schema Updates (Infrastructure Maintenance)
 1. **Git Repository Sync**: Clone/pull from a GitHub repository containing the latest module definitions
 2. **Schema Version Comparison**: Compare `schema_version` in each module's `index.json` (local vs repository)
 3. **Atomic Module Updates**: Completely replace local module directories when repository has newer schema version
-4. **Module Execution**: Run each module's update scripts which handle their own configuration changes
-5. **Global Index Tracking**: Maintain a global index tracking current versions of all modules
-6. **Self-Updating Orchestrator**: The system can update its own orchestrator code when repository contains newer versions
+4. **Self-Updating Orchestrator**: The system can update its own orchestrator code when repository contains newer versions
 
-Each module is self-contained and version-independent, enabling safe atomic updates with automatic rollback on failure.
+### Phase 2: Module Execution (Service Management)
+5. **Enabled Module Detection**: Identify all modules marked as enabled in their `index.json`
+6. **Universal Module Execution**: Run ALL enabled modules (regardless of whether they were schema-updated)
+7. **Service Configuration**: Each module handles its own configuration changes, service restarts, and validation
+8. **Global Index Tracking**: Maintain a global index tracking current versions of all modules
+
+This two-phase approach ensures that:
+- **Infrastructure stays current** through schema-based updates when code changes
+- **All services remain properly configured** through universal execution of enabled modules
+- **Each module is self-contained** and version-independent, enabling safe atomic updates with automatic rollback on failure
 
 ## Key Features
 
@@ -119,7 +127,8 @@ Each module directory must contain:
     "metadata": {
         "schema_version": "1.2.0",
         "name": "adblock",
-        "description": "Network-level ad blocking service"
+        "description": "Network-level ad blocking service",
+        "enabled": true
     },
     "configuration": {
         "service_name": "adblock",
@@ -132,27 +141,38 @@ Each module directory must contain:
 }
 ```
 
+**Important**: The `enabled` field in metadata determines whether a module will be executed during the universal execution phase. Modules default to `enabled: true` if not specified.
+
 ### Example Module index.py
 
 ```python
 def main(args=None):
     """
-    Main entry point for module update.
+    Main entry point for module execution.
+    
+    This function is called during the universal execution phase for all enabled modules.
+    It should be idempotent and handle both initial setup and ongoing maintenance.
     
     Args:
         args: Optional command line arguments
     """
-    print("Updating adblock module...")
+    print("Executing adblock module...")
     
-    # Module-specific update logic
-    # - Update configuration files
-    # - Restart services
-    # - Verify functionality
+    # Module-specific execution logic (runs every update cycle)
+    # - Verify configuration files are current
+    # - Ensure services are running with correct settings
+    # - Update any dynamic configurations
+    # - Restart services if needed
+    # - Validate functionality
     
-    print("Adblock module update completed")
+    print("Adblock module execution completed")
 ```
 
-## How Schema Updates Work
+**Note**: The `main()` function runs during every update cycle for enabled modules, not just when the module code is updated. Design your modules to be idempotent and handle both initial setup and ongoing maintenance.
+
+## How the Two-Phase Update Process Works
+
+### Phase 1: Schema-Based Infrastructure Updates
 
 1. **Repository Sync**: Git clone/pull latest module definitions from repository
 2. **Orchestrator Check**: Determine if the orchestrator system itself needs updating
@@ -160,10 +180,22 @@ def main(args=None):
 4. **Update Selection**: Identify modules where repository version > local version
 5. **Backup Creation**: Create `.backup` copy of existing module directory
 6. **Atomic Replacement**: Copy entire module directory from repository to local
-7. **Module Execution**: Run the module's `main()` function to apply changes
-8. **Index Update**: Update global `index.json` with new version numbers
-9. **Orchestrator Update**: If needed, update orchestrator system files after modules are updated
-10. **Rollback on Failure**: Restore from backup if any step fails
+7. **Orchestrator Update**: If needed, update orchestrator system files after modules are updated
+
+### Phase 2: Universal Module Execution
+
+8. **Enabled Module Discovery**: Scan all modules and identify those marked as `enabled: true`
+9. **Universal Execution**: Run ALL enabled modules' `main()` functions (not just updated ones)
+10. **Service Management**: Each module handles its own configuration, service restarts, and validation
+11. **Index Update**: Update global `index.json` with new version numbers
+12. **Rollback on Failure**: Restore from backup if any step fails
+
+### Key Differences from Single-Phase Systems
+
+- **Schema updates** only happen when code/infrastructure changes (version mismatches)
+- **Module execution** happens for ALL enabled modules on every update cycle
+- **Services stay configured** even when no schema updates are needed
+- **Infrastructure stays current** through selective schema-based updates
 
 ## Self-Updating Orchestrator
 
@@ -243,14 +275,25 @@ The `__init__.py` module provides utility functions for module development:
 
 ## Update Process Flow
 
+### Phase 1: Schema Updates
 1. **Initialization**: Parse command line arguments and set configuration
 2. **Repository Sync**: Clone/pull from Git repository
 3. **Orchestrator Check**: Determine if orchestrator needs updating
-4. **Module Detection**: Find modules with newer versions in repository
-5. **Module Updates**: Update each module with newer version available
-6. **Global Index Update**: Update index.json with new module versions
-7. **Orchestrator Update**: If needed, update orchestrator system itself
-8. **Summary**: Log summary of update process results
+4. **Module Detection**: Find modules with newer schema versions in repository
+5. **Schema Updates**: Update modules that have newer versions available
+6. **Orchestrator Update**: If needed, update orchestrator system itself
+
+### Phase 2: Module Execution
+7. **Enabled Module Discovery**: Scan for all modules marked as enabled
+8. **Universal Execution**: Run ALL enabled modules (regardless of schema updates)
+9. **Service Management**: Each module configures services, restarts processes, validates functionality
+10. **Global Index Update**: Update index.json with current module versions
+11. **Summary**: Log summary of both schema updates and module executions
+
+### Execution Logic
+- **Always runs enabled modules**: Even if no schema updates are needed, all enabled modules execute
+- **Schema updates are selective**: Only modules with version mismatches get their code updated
+- **Service management is universal**: All enabled services get configured/validated on every run
 
 ## Legacy Support
 
@@ -265,12 +308,23 @@ This fallback ensures existing manifest-based modules continue to function durin
 
 ## Best Practices
 
-- **Idempotent Updates**: Modules should be safe to run multiple times
+### Module Design
+- **Idempotent Execution**: Modules must be safe to run multiple times (they execute every update cycle)
 - **Self-Contained Logic**: Each module handles its own dependencies and configuration
 - **Proper Error Handling**: Use try/catch blocks and meaningful error messages
-- **Schema Versioning**: Increment schema version for any breaking changes
+- **State Validation**: Always verify current state before making changes
+- **Service Management**: Handle service restarts gracefully and verify functionality
+
+### Schema Management
+- **Schema Versioning**: Increment schema version only for code/infrastructure changes
+- **Enabled Flag**: Use `enabled: false` to disable modules without removing them
 - **Configuration Validation**: Verify configuration files and service states
 - **Atomic Operations**: Group related changes to enable clean rollback
+
+### Execution Patterns
+- **Universal Execution**: Design modules knowing they run every cycle, not just on updates
+- **Conditional Logic**: Check current state before applying changes
+- **Resource Management**: Handle file locks, service states, and dependencies properly
 
 ## Dependencies
 
@@ -299,9 +353,24 @@ All operations are logged with timestamps and appropriate log levels:
 ```
 [2024-12-08 10:30:15] Starting schema-based update orchestration
 [2024-12-08 10:30:16] Repository: https://github.com/homeserverltd/updates.git
-[2024-12-08 10:30:17] Module adblock needs update: 1.0.0 → 1.1.0
-[2024-12-08 10:30:18] Updated module adblock
-[2024-12-08 10:30:19] Update orchestration completed: 1 successful, 0 failed
+[2024-12-08 10:30:17] Schema updates needed: 1 modules, orchestrator: False
+[2024-12-08 10:30:18] Module adblock needs update: 1.0.0 → 1.1.0
+[2024-12-08 10:30:19] Updated module adblock
+[2024-12-08 10:30:20] Getting enabled modules...
+[2024-12-08 10:30:21] Found enabled module: adblock
+[2024-12-08 10:30:21] Found enabled module: vaultwarden
+[2024-12-08 10:30:21] Total enabled modules: 2
+[2024-12-08 10:30:22] Running 2 enabled modules...
+[2024-12-08 10:30:23] Executing module: adblock
+[2024-12-08 10:30:24] ✓ Module 'adblock' executed successfully
+[2024-12-08 10:30:25] Executing module: vaultwarden
+[2024-12-08 10:30:26] ✓ Module 'vaultwarden' executed successfully
+[2024-12-08 10:30:27] Module execution completed: 2 successful, 0 failed
+[2024-12-08 10:30:28] Update orchestration completed:
+[2024-12-08 10:30:28]   - Schema updates detected: 1
+[2024-12-08 10:30:28]   - Successfully schema updated: 1
+[2024-12-08 10:30:28]   - Enabled modules found: 2
+[2024-12-08 10:30:28]   - Successfully executed: 2
 ```
 
-Log output can be redirected or parsed for monitoring system integration.
+Log output can be redirected or parsed for monitoring system integration. The two-phase logging clearly distinguishes between schema updates and module executions.
