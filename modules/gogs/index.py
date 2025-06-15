@@ -178,6 +178,119 @@ def verify_gogs_installation():
     
     return verification_results
 
+def install_gogs_binary(version):
+    """
+    Install Gogs from pre-compiled binary.
+    Args:
+        version: Version to install
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        download_url = MODULE_CONFIG["config"]["installation"]["binary_download_url_template"].format(version=version)
+        extract_path = MODULE_CONFIG["config"]["installation"]["extract_path"]
+        
+        log_message(f"Attempting binary installation from {download_url}")
+        
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
+            log_message(f"Downloading {download_url}...")
+            urllib.request.urlretrieve(download_url, temp_file.name)
+            
+            # Extract to temporary location first
+            temp_extract = tempfile.mkdtemp()
+            subprocess.run(["tar", "xzf", temp_file.name, "-C", temp_extract], check=True)
+            
+            # Move to final location
+            gogs_dir = os.path.join(temp_extract, "gogs")
+            install_dir = MODULE_CONFIG["config"]["directories"]["install_dir"]
+            
+            if os.path.exists(install_dir):
+                shutil.rmtree(install_dir)
+            shutil.move(gogs_dir, install_dir)
+            
+            # Clean up
+            os.unlink(temp_file.name)
+            shutil.rmtree(temp_extract)
+            
+            log_message("Binary installation completed successfully")
+            return True
+            
+    except Exception as e:
+        log_message(f"Binary installation failed: {e}", "WARNING")
+        return False
+
+def install_gogs_from_source(version):
+    """
+    Install Gogs by building from source.
+    Args:
+        version: Version to build
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        source_config = MODULE_CONFIG["config"]["source_build"]
+        repo_url = MODULE_CONFIG["config"]["installation"]["source_repo_url"]
+        build_dir = source_config["build_dir"]
+        install_dir = MODULE_CONFIG["config"]["directories"]["install_dir"]
+        
+        log_message(f"Attempting source build for version {version}")
+        
+        # Clean up any existing build directory
+        if os.path.exists(build_dir):
+            shutil.rmtree(build_dir)
+        
+        # Clone the repository
+        log_message(f"Cloning repository {repo_url}")
+        subprocess.run([
+            "git", "clone", "--depth", "1", "--branch", f"v{version}",
+            repo_url, build_dir
+        ], check=True, timeout=120)
+        
+        # Change to build directory
+        original_cwd = os.getcwd()
+        os.chdir(build_dir)
+        
+        try:
+            # Check Go version
+            go_version_result = subprocess.run(["go", "version"], capture_output=True, text=True, check=True)
+            log_message(f"Using Go: {go_version_result.stdout.strip()}")
+            
+            # Build Gogs
+            log_message("Building Gogs from source...")
+            build_cmd = source_config["build_command"]
+            subprocess.run(build_cmd, check=True, timeout=source_config["build_timeout"])
+            
+            # Install the built binary
+            if os.path.exists(install_dir):
+                shutil.rmtree(install_dir)
+            os.makedirs(install_dir, exist_ok=True)
+            
+            # Copy built binary and other necessary files
+            built_binary = os.path.join(build_dir, "gogs")
+            target_binary = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+            
+            if os.path.exists(built_binary):
+                shutil.copy2(built_binary, target_binary)
+                os.chmod(target_binary, 0o755)
+                log_message("Source build completed successfully")
+                return True
+            else:
+                log_message("Built binary not found", "ERROR")
+                return False
+                
+        finally:
+            os.chdir(original_cwd)
+            # Clean up build directory
+            if os.path.exists(build_dir):
+                shutil.rmtree(build_dir)
+                
+    except subprocess.TimeoutExpired:
+        log_message("Source build timed out", "ERROR")
+        return False
+    except Exception as e:
+        log_message(f"Source build failed: {e}", "WARNING")
+        return False
+
 def main(args=None):
     """
     Main entry point for Gogs update module.
@@ -290,27 +403,16 @@ def main(args=None):
         # Perform the update
         log_message("Installing update...")
         try:
-            # Download and extract new version
-            download_url = MODULE_CONFIG["config"]["installation"]["download_url_template"].format(version=latest_version)
-            extract_path = MODULE_CONFIG["config"]["installation"]["extract_path"]
+            # Try binary installation first
+            success = install_gogs_binary(latest_version)
             
-            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
-                log_message(f"Downloading {download_url}...")
-                urllib.request.urlretrieve(download_url, temp_file.name)
-                
-                # Extract to temporary location first
-                temp_extract = tempfile.mkdtemp()
-                subprocess.run(["tar", "xzf", temp_file.name, "-C", temp_extract], check=True)
-                
-                # Move to final location
-                gogs_dir = os.path.join(temp_extract, "gogs")
-                if os.path.exists(extract_path):
-                    shutil.rmtree(extract_path)
-                shutil.move(gogs_dir, extract_path)
-                
-                # Clean up
-                os.unlink(temp_file.name)
-                shutil.rmtree(temp_extract)
+            # If binary installation fails and fallback is enabled, try source build
+            if not success and MODULE_CONFIG["config"]["installation"].get("fallback_to_source", False):
+                log_message("Binary installation failed, attempting source build...")
+                success = install_gogs_from_source(latest_version)
+            
+            if not success:
+                raise Exception("Both binary and source installation methods failed")
             
             # Set permissions
             for path in files_to_backup:

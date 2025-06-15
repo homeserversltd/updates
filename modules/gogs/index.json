@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.0",
+        "schema_version": "1.0.2",
         "module_name": "gogs",
         "description": "Gogs Git server",
         "enabled": true
@@ -16,8 +16,16 @@
         },
         "installation": {
             "github_api_url": "https://api.github.com/repos/gogs/gogs/releases/latest",
-            "download_url_template": "https://dl.gogs.io/{version}/gogs_{version}_linux_amd64.tar.gz",
-            "extract_path": "/opt/"
+            "binary_download_url_template": "https://github.com/gogs/gogs/releases/download/v{version}/gogs_{version}_linux_amd64.tar.gz",
+            "source_repo_url": "https://github.com/gogs/gogs.git",
+            "extract_path": "/opt/",
+            "fallback_to_source": true
+        },
+        "source_build": {
+            "build_command": ["make", "build"],
+            "build_dir": "/tmp/gogs_build",
+            "go_version_required": "1.19",
+            "build_timeout": 600
         },
         "permissions": {
             "owner": "git",
