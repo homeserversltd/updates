@@ -1,14 +1,15 @@
 {
     "metadata": {
-        "schema_version": "1.0.3",
+        "schema_version": "1.0.4",
         "module_name": "navidrome",
         "description": "Navidrome music server",
         "enabled": true
     },
     "config": {
         "directories": {
+            "install_dir": "/opt/navidrome",
             "data_dir": "/var/lib/navidrome",
-            "config_dir": "/etc/navidrome"
+            "navidrome_bin": "/opt/navidrome/navidrome"
         },
         "installation": {
             "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest"

@@ -45,32 +45,13 @@ def load_module_config():
                 "module_name": "navidrome"
             },
             "config": {
-                "service": {
-                    "name": "navidrome",
-                    "systemd_service": "navidrome"
-                },
                 "directories": {
                     "install_dir": "/opt/navidrome",
                     "data_dir": "/var/lib/navidrome",
-                    "navidrome_bin": "/opt/navidrome/navidrome",
-                    "config_file": "/var/lib/navidrome/navidrome.toml"
-                },
-                "backup": {
-                    "backup_dir": "/var/backups/updates",
-                    "include_paths": [
-                        "/opt/navidrome/navidrome",
-                        "/var/lib/navidrome"
-                    ]
+                    "navidrome_bin": "/opt/navidrome/navidrome"
                 },
                 "installation": {
-                    "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest",
-                    "download_url_template": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_amd64.tar.gz",
-                    "extract_path": "/opt/navidrome/"
-                },
-                "permissions": {
-                    "owner": "navidrome",
-                    "group": "navidrome",
-                    "mode": "755"
+                    "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest"
                 }
             }
         }
@@ -78,51 +59,37 @@ def load_module_config():
 # Global configuration
 MODULE_CONFIG = load_module_config()
 
-def get_backup_config():
-    """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"].get("backup", {
-        "backup_dir": "/var/backups/updates",
-        "include_paths": [
-            "/opt/navidrome/navidrome",
-            "/var/lib/navidrome"
-        ]
-    })
+def get_navidrome_paths():
+    """
+    Get all Navidrome-related paths that should be backed up.
+    Returns:
+        list: List of paths that exist and should be backed up
+    """
+    config = MODULE_CONFIG["config"]["directories"]
+    potential_paths = [
+        config.get("install_dir", "/opt/navidrome"),
+        config.get("data_dir", "/var/lib/navidrome")
+    ]
+    
+    # Only return paths that actually exist
+    existing_paths = []
+    for path in potential_paths:
+        if os.path.exists(path):
+            existing_paths.append(path)
+            log_message(f"Found Navidrome path for backup: {path}")
+        else:
+            log_message(f"Navidrome path not found (skipping): {path}", "DEBUG")
+    
+    return existing_paths
 
 def get_installation_config():
     """Get installation configuration from module config."""
     return MODULE_CONFIG["config"].get("installation", {
-        "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest",
-        "download_url_template": "https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_amd64.tar.gz",
-        "extract_path": "/opt/navidrome/"
-    })
-
-def get_service_config():
-    """Get service configuration from module config."""
-    return MODULE_CONFIG["config"].get("service", {
-        "name": "navidrome",
-        "systemd_service": "navidrome"
-    })
-
-def get_directories_config():
-    """Get directories configuration from module config."""
-    return MODULE_CONFIG["config"].get("directories", {
-        "install_dir": "/opt/navidrome",
-        "data_dir": "/var/lib/navidrome",
-        "navidrome_bin": "/opt/navidrome/navidrome",
-        "config_dir": "/etc/navidrome",
-        "config_file": "/var/lib/navidrome/navidrome.toml"
-    })
-
-def get_permissions_config():
-    """Get permissions configuration from module config."""
-    return MODULE_CONFIG["config"].get("permissions", {
-        "owner": "navidrome",
-        "group": "navidrome",
-        "mode": "755"
+        "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest"
     })
 
 # --- Service management ---
-def systemctl(action, service):
+def systemctl(action, service="navidrome"):
     """Execute systemctl command for a service."""
     try:
         result = subprocess.run(["systemctl", action, service], capture_output=True, text=True)
@@ -134,7 +101,7 @@ def systemctl(action, service):
         log_message(f"systemctl {action} {service} error: {e}", "ERROR")
         return False
 
-def is_service_active(service):
+def is_service_active(service="navidrome"):
     """Check if a systemd service is active."""
     try:
         result = subprocess.run(["systemctl", "is-active", "--quiet", service])
@@ -150,7 +117,7 @@ def get_current_version():
         str: Version string or None if not installed
     """
     try:
-        navidrome_bin = get_directories_config()["navidrome_bin"]
+        navidrome_bin = MODULE_CONFIG["config"]["directories"].get("navidrome_bin", "/opt/navidrome/navidrome")
         if not os.path.isfile(navidrome_bin):
             log_message(f"Navidrome binary not found at {navidrome_bin}", "DEBUG")
             return None
@@ -173,20 +140,12 @@ def get_current_version():
             log_message("Navidrome version command returned empty output", "DEBUG")
             return None
         
-        # Try multiple parsing strategies
-        # Strategy 1: Look for version pattern like "v0.49.3" or "0.49.3"
+        # Parse version from output like "0.53.3 (13af8ed4)"
         import re
-        version_pattern = r'v?(\d+\.\d+\.\d+)'
+        version_pattern = r'(\d+\.\d+\.\d+)'
         match = re.search(version_pattern, output)
         if match:
             return match.group(1)
-        
-        # Strategy 2: Split and look for version-like strings
-        for line in output.splitlines():
-            parts = line.strip().split()
-            for part in parts:
-                if re.match(r'v?\d+\.\d+\.\d+', part):
-                    return part.lstrip('v')
         
         log_message(f"Could not parse version from output: '{output}'", "WARNING")
         return None
@@ -200,7 +159,7 @@ def get_current_version():
 
 def get_latest_version():
     """
-    Get the latest Navidrome version from GitHub releases using configured URL.
+    Get the latest Navidrome version from GitHub releases.
     Returns:
         str: Latest version string or None
     """
@@ -216,43 +175,9 @@ def get_latest_version():
         log_message(f"Failed to get latest version info: {e}", "ERROR")
         return None
 
-def set_permissions():
-    """Set proper ownership and permissions for Navidrome installation."""
-    try:
-        dirs_config = get_directories_config()
-        perms_config = get_permissions_config()
-        install_dir = dirs_config["install_dir"]
-        data_dir = dirs_config["data_dir"]
-        
-        # Set ownership for install directory
-        subprocess.run([
-            "chown", "-R", 
-            f"{perms_config['owner']}:{perms_config['group']}", 
-            install_dir
-        ], check=True)
-        
-        # Set ownership for data directory
-        subprocess.run([
-            "chown", "-R", 
-            f"{perms_config['owner']}:{perms_config['group']}", 
-            data_dir
-        ], check=True)
-        
-        # Set permissions for binary
-        navidrome_bin = dirs_config["navidrome_bin"]
-        subprocess.run([
-            "chmod", perms_config["mode"], navidrome_bin
-        ], check=True)
-        
-        log_message(f"Set permissions on {install_dir} and {data_dir}")
-        return True
-    except Exception as e:
-        log_message(f"Failed to set permissions: {e}", "WARNING")
-        return False
-
 def install_navidrome(version):
     """
-    Download and install Navidrome using configured settings.
+    Download and install Navidrome.
     Args:
         version: Version to install
     Returns:
@@ -260,11 +185,11 @@ def install_navidrome(version):
     """
     log_message(f"Installing Navidrome {version}...", "INFO")
     try:
-        install_config = get_installation_config()
-        dirs_config = get_directories_config()
+        config = MODULE_CONFIG["config"]["directories"]
+        install_dir = config.get("install_dir", "/opt/navidrome")
         
         # Build download URL
-        download_url = install_config["download_url_template"].format(version=version)
+        download_url = f"https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_amd64.tar.gz"
         tarball_path = "/tmp/navidrome.tar.gz"
         
         # Download
@@ -275,18 +200,19 @@ def install_navidrome(version):
             return False
         
         # Create install directory if it doesn't exist
-        install_dir = dirs_config["install_dir"]
         os.makedirs(install_dir, exist_ok=True)
         
         # Extract new version (overwrites existing binary)
         with tarfile.open(tarball_path, "r:gz") as tar:
-            tar.extractall(install_config["extract_path"])
+            tar.extractall(install_dir)
         
         os.remove(tarball_path)
         log_message("Extracted new version")
         
-        # Set permissions
-        set_permissions()
+        # Set basic permissions
+        navidrome_bin = os.path.join(install_dir, "navidrome")
+        subprocess.run(["chmod", "755", navidrome_bin], check=True)
+        subprocess.run(["chown", "-R", "navidrome:navidrome", install_dir], check=False)  # Don't fail if user doesn't exist
         
         return True
         
@@ -306,20 +232,13 @@ def verify_navidrome_installation():
         "version_readable": False,
         "service_active": False,
         "data_dir_exists": False,
-        "version": None,
-        "paths": {}
+        "version": None
     }
     
     try:
-        dirs_config = get_directories_config()
-        service_config = get_service_config()
-        
-        navidrome_bin = dirs_config["navidrome_bin"]
-        data_dir = dirs_config["data_dir"]
-        service_name = service_config["systemd_service"]
-        
-        verification_results["paths"]["binary"] = navidrome_bin
-        verification_results["paths"]["data_dir"] = data_dir
+        config = MODULE_CONFIG["config"]["directories"]
+        navidrome_bin = config.get("navidrome_bin", "/opt/navidrome/navidrome")
+        data_dir = config.get("data_dir", "/var/lib/navidrome")
         
         # Check binary
         if os.path.exists(navidrome_bin):
@@ -337,11 +256,11 @@ def verify_navidrome_installation():
         verification_results["data_dir_exists"] = os.path.exists(data_dir)
         
         # Check service status
-        verification_results["service_active"] = is_service_active(service_name)
+        verification_results["service_active"] = is_service_active()
         
         # Log verification results
         for check, result in verification_results.items():
-            if check not in ["version", "paths"]:
+            if check != "version":
                 status = "✓" if result else "✗"
                 log_message(f"Navidrome verification - {check}: {status}")
         
@@ -364,29 +283,25 @@ def main(args=None):
     if args is None:
         args = []
     
-    SERVICE_NAME = MODULE_CONFIG.get("metadata", {}).get("module_name", "navidrome")
-    service_config = get_service_config()
-    directories_config = get_directories_config()
+    log_message("Starting Navidrome module update...")
     
-    NAVIDROME_BIN = directories_config.get("navidrome_bin", "/opt/navidrome/navidrome")
-    SYSTEMD_SERVICE = service_config.get("systemd_service", "navidrome")
+    SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
+    config = MODULE_CONFIG["config"]["directories"]
+    NAVIDROME_BIN = config.get("navidrome_bin", "/opt/navidrome/navidrome")
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Navidrome module configuration:")
         log_message(f"  Binary path: {NAVIDROME_BIN}")
-        log_message(f"  Service name: {SYSTEMD_SERVICE}")
-        log_message(f"  Install dir: {directories_config['install_dir']}")
-        log_message(f"  Data dir: {directories_config['data_dir']}")
+        log_message(f"  Install dir: {config.get('install_dir', '/opt/navidrome')}")
+        log_message(f"  Data dir: {config.get('data_dir', '/var/lib/navidrome')}")
         
-        backup_config = get_backup_config()
-        log_message(f"  Backup dir: {backup_config['backup_dir']}")
-        log_message(f"  Backup paths: {backup_config['include_paths']}")
+        state_manager = StateManager()
+        log_message(f"  Backup dir: {state_manager.backup_root}")
         
         return {
             "success": True,
-            "config": MODULE_CONFIG,
-            "paths": directories_config
+            "config": MODULE_CONFIG
         }
 
     # --verify mode: comprehensive installation verification
@@ -433,26 +348,19 @@ def main(args=None):
 
     # Compare and update if needed
     if current_version != latest_version:
-        log_message("Update available. Creating backup...")
+        log_message("Update available. Creating comprehensive backup...")
         
-        # Initialize global rollback system with configured backup directory
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        # Initialize StateManager with default backup directory
+        state_manager = StateManager()
         
-        # Get files to backup from configuration
-        files_to_backup = []
-        for path in backup_config["include_paths"]:
-            if os.path.exists(path):
-                files_to_backup.append(path)
-                log_message(f"Found Navidrome file for backup: {path}")
-            else:
-                log_message(f"Navidrome file not found (skipping): {path}", "DEBUG")
+        # Get all Navidrome-related paths for comprehensive backup
+        files_to_backup = get_navidrome_paths()
         
         if not files_to_backup:
             log_message("No Navidrome files found for backup", "WARNING")
             return {"success": False, "error": "No files to backup"}
         
-        log_message(f"Creating backup for {len(files_to_backup)} Navidrome files...")
+        log_message(f"Creating backup for {len(files_to_backup)} Navidrome paths...")
         
         # Create backup using StateManager
         backup_success = state_manager.backup_module_state(
@@ -469,7 +377,7 @@ def main(args=None):
         
         # Stop service before update
         log_message("Stopping Navidrome service...")
-        systemctl("stop", SYSTEMD_SERVICE)
+        systemctl("stop")
         
         # Perform the update
         log_message("Installing update...")
@@ -479,7 +387,7 @@ def main(args=None):
             
             # Start service after update
             log_message("Starting Navidrome service...")
-            systemctl("start", SYSTEMD_SERVICE)
+            systemctl("start")
             
             # Wait for service to start
             time.sleep(5)
@@ -491,10 +399,6 @@ def main(args=None):
             
             if new_version == latest_version and verification["service_active"]:
                 log_message(f"Successfully updated Navidrome from {current_version} to {latest_version}")
-                
-                # Run post-update verification
-                if not verification["binary_executable"] or not verification["version_readable"]:
-                    raise Exception("Post-update verification failed - installation appears incomplete")
                 
                 return {
                     "success": True, 
@@ -520,7 +424,7 @@ def main(args=None):
             if rollback_success:
                 log_message("Successfully restored from backup")
                 # Start service after rollback
-                systemctl("start", SYSTEMD_SERVICE)
+                systemctl("start")
                 # Verify rollback worked
                 restored_version = get_current_version()
                 log_message(f"Restored version: {restored_version}")

@@ -24,13 +24,14 @@ Implements a main(args) entrypoint for orchestrated updates.
 """
 
 import os
-from updates.utils import get_module_version
-from .index import main  # Expose main at package level
+from updates.utils.index import get_module_version
+from .index import (
+    main
+)
 
 __version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 
-__all__ = ['main']
-
+# This allows the module to be run directly
 if __name__ == "__main__":
     import sys
     main(sys.argv[1:] if len(sys.argv) > 1 else [])
