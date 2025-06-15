@@ -279,8 +279,7 @@ def cleanup_atuin_backups():
         bool: True if cleanup successful
     """
     try:
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        state_manager = StateManager()
         return state_manager.remove_module_backup(MODULE_CONFIG["metadata"]["module_name"])
     except Exception as e:
         log_message(f"Failed to cleanup Atuin backups: {e}", "ERROR")
@@ -571,8 +570,8 @@ def main(args=None):
         log_message(f"  Data dir: {get_atuin_data_dir(admin_user)}")
         log_message(f"  Root dir: {get_atuin_root_dir(admin_user)}")
         
-        backup_config = get_backup_config()
-        log_message(f"  Backup dir: {backup_config['backup_dir']}")
+        state_manager = StateManager()
+        log_message(f"  Backup dir: {state_manager.backup_root}")
         
         return {
             "success": True,
@@ -632,9 +631,8 @@ def main(args=None):
     if current_version != latest_version:
         log_message("Update available. Creating comprehensive backup...")
         
-        # Initialize global rollback system with configured backup directory
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        # Initialize StateManager with default backup directory
+        state_manager = StateManager()
         
         # Get all Atuin-related paths for comprehensive backup
         files_to_backup = get_all_atuin_paths()
