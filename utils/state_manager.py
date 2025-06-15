@@ -49,6 +49,9 @@ import subprocess
 import time
 import hashlib
 import tempfile
+import stat
+import pwd
+import grp
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Tuple
 from dataclasses import dataclass, asdict
@@ -57,6 +60,23 @@ from .index import log_message
 class StateManagerError(Exception):
     """Custom exception for state manager operation failures."""
     pass
+
+@dataclass
+class FilePermissionInfo:
+    """Information about file permissions and ownership."""
+    path: str
+    mode: int
+    uid: int
+    gid: int
+    owner: str
+    group: str
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'FilePermissionInfo':
+        return cls(**data)
 
 @dataclass
 class ModuleBackupInfo:
@@ -69,12 +89,16 @@ class ModuleBackupInfo:
     services: List[str]  
     databases: List[Dict[str, str]]
     checksum: str
+    file_permissions: List[Dict[str, Any]]  # Store permission info
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ModuleBackupInfo':
+        # Handle backward compatibility for existing backups without file_permissions
+        if 'file_permissions' not in data:
+            data['file_permissions'] = []
         return cls(**data)
 
 class StateManager:
@@ -93,6 +117,104 @@ class StateManager:
     def _get_module_backup_dir(self, module_name: str) -> Path:
         """Get the backup directory for a specific module."""
         return self.backup_root / f"{module_name}_backup"
+    
+    def _get_file_permissions(self, file_path: str) -> Optional[FilePermissionInfo]:
+        """Get file permissions and ownership information."""
+        try:
+            if not os.path.exists(file_path):
+                return None
+            
+            stat_info = os.stat(file_path)
+            
+            # Get owner and group names
+            try:
+                owner = pwd.getpwuid(stat_info.st_uid).pw_name
+            except KeyError:
+                owner = str(stat_info.st_uid)
+            
+            try:
+                group = grp.getgrgid(stat_info.st_gid).gr_name
+            except KeyError:
+                group = str(stat_info.st_gid)
+            
+            return FilePermissionInfo(
+                path=file_path,
+                mode=stat_info.st_mode,
+                uid=stat_info.st_uid,
+                gid=stat_info.st_gid,
+                owner=owner,
+                group=group
+            )
+        except Exception as e:
+            log_message(f"Failed to get permissions for {file_path}: {e}", "WARNING")
+            return None
+    
+    def _capture_permissions(self, files: List[str]) -> List[Dict[str, Any]]:
+        """Capture permissions for all files and directories."""
+        permissions = []
+        
+        for file_path in files:
+            if not os.path.exists(file_path):
+                continue
+            
+            # Get permissions for the main path
+            perm_info = self._get_file_permissions(file_path)
+            if perm_info:
+                permissions.append(perm_info.to_dict())
+            
+            # If it's a directory, capture permissions for all contents recursively
+            if os.path.isdir(file_path):
+                for root, dirs, files_in_dir in os.walk(file_path):
+                    # Capture directory permissions
+                    if root != file_path:  # Don't duplicate the main directory
+                        perm_info = self._get_file_permissions(root)
+                        if perm_info:
+                            permissions.append(perm_info.to_dict())
+                    
+                    # Capture file permissions
+                    for file_name in files_in_dir:
+                        full_path = os.path.join(root, file_name)
+                        perm_info = self._get_file_permissions(full_path)
+                        if perm_info:
+                            permissions.append(perm_info.to_dict())
+        
+        log_message(f"Captured permissions for {len(permissions)} files/directories")
+        return permissions
+    
+    def _restore_permissions(self, permissions: List[Dict[str, Any]]) -> bool:
+        """Restore file permissions and ownership."""
+        if not permissions:
+            return True
+        
+        success_count = 0
+        
+        for perm_data in permissions:
+            try:
+                perm_info = FilePermissionInfo.from_dict(perm_data)
+                
+                if not os.path.exists(perm_info.path):
+                    log_message(f"Cannot restore permissions for non-existent path: {perm_info.path}", "WARNING")
+                    continue
+                
+                # Restore ownership
+                try:
+                    os.chown(perm_info.path, perm_info.uid, perm_info.gid)
+                except OSError as e:
+                    log_message(f"Failed to restore ownership for {perm_info.path}: {e}", "WARNING")
+                
+                # Restore permissions
+                try:
+                    os.chmod(perm_info.path, stat.S_IMODE(perm_info.mode))
+                except OSError as e:
+                    log_message(f"Failed to restore permissions for {perm_info.path}: {e}", "WARNING")
+                
+                success_count += 1
+                
+            except Exception as e:
+                log_message(f"Failed to restore permissions for entry: {e}", "WARNING")
+        
+        log_message(f"Restored permissions for {success_count}/{len(permissions)} files/directories")
+        return success_count > 0
     
     def _calculate_checksum(self, file_path: str) -> str:
         """Calculate SHA-256 checksum of a file or directory."""
@@ -335,6 +457,10 @@ class StateManager:
             if not (files_success and services_success and databases_success):
                 log_message(f"Some backup operations failed for module {module_name}", "WARNING")
             
+            # Capture file permissions
+            log_message("Capturing file permissions...")
+            file_permissions = self._capture_permissions(files)
+            
             # Calculate checksum of entire backup directory
             checksum = self._calculate_checksum(str(module_backup_dir))
             
@@ -347,7 +473,8 @@ class StateManager:
                 files=files,
                 services=services,
                 databases=databases,
-                checksum=checksum
+                checksum=checksum,
+                file_permissions=file_permissions
             )
             
             # Update index
@@ -601,11 +728,19 @@ class StateManager:
             files_success = self._restore_files(module_backup_dir, backup_info.files)
             databases_success = self._restore_databases(module_backup_dir, backup_info.databases)
             
+            # Restore file permissions after files are restored
+            permissions_success = True
+            if hasattr(backup_info, 'file_permissions') and backup_info.file_permissions:
+                log_message("Restoring file permissions...")
+                permissions_success = self._restore_permissions(backup_info.file_permissions)
+            else:
+                log_message("No file permissions to restore (legacy backup or no permissions captured)")
+            
             # Restore services last
             if backup_info.services:
                 services_success = self._restore_services(module_backup_dir, backup_info.services)
             
-            overall_success = files_success and services_success and databases_success
+            overall_success = files_success and services_success and databases_success and permissions_success
             
             if overall_success:
                 log_message(f"Successfully restored module: {module_name}")
