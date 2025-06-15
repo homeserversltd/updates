@@ -444,13 +444,11 @@ def install_atuin(admin_user):
     log_message("Installing Atuin...", "INFO")
     try:
         install_url = get_installation_config()["install_script_url"]
-        # Use 'su - <user> -c ...' to run as admin user
-        cmd = [
-            "su", "-", admin_user, "-c",
-            f"bash <(curl --proto '=https' --tlsv1.2 -sSf {install_url})"
-        ]
+        # Use proper shell command construction for process substitution
+        shell_command = f"su - {admin_user} -c 'bash <(curl --proto \"=https\" --tlsv1.2 -sSf {install_url})'"
+        
         result = subprocess.run(
-            " ".join(cmd), shell=True, capture_output=True, text=True, check=False
+            shell_command, shell=True, capture_output=True, text=True, check=False
         )
         if result.returncode == 0:
             log_message("Atuin installation successful", "INFO")

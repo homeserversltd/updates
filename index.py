@@ -305,25 +305,82 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
             
             # Run the module's main function
             result = run_update(f"modules.{module_name}")
-            results[module_name] = result is not None
             
-            if results[module_name]:
+            # Enhanced result interpretation
+            module_result = {
+                "executed": result is not None,
+                "system_success": False,
+                "updated": False,
+                "error": None,
+                "rollback_success": None,
+                "details": result if isinstance(result, dict) else {}
+            }
+            
+            if isinstance(result, dict):
+                # Module returned detailed status dictionary
+                module_result["system_success"] = result.get("success", False)
+                module_result["updated"] = result.get("updated", False)
+                module_result["error"] = result.get("error")
+                module_result["rollback_success"] = result.get("rollback_success")
+                
+                # Determine overall status message
+                if module_result["system_success"]:
+                    if module_result["updated"]:
+                        log_message(f"✓ Module '{module_name}' executed successfully and updated")
+                    else:
+                        log_message(f"✓ Module '{module_name}' executed successfully (no update needed)")
+                else:
+                    if module_result["rollback_success"]:
+                        log_message(f"⚠ Module '{module_name}' update failed but system restored successfully", "WARNING")
+                    else:
+                        log_message(f"✗ Module '{module_name}' execution failed", "ERROR")
+            elif result is not None:
+                # Module returned something but not a dict - assume success
+                module_result["system_success"] = True
                 log_message(f"✓ Module '{module_name}' executed successfully")
             else:
+                # Module returned None - assume failure
+                module_result["system_success"] = False
                 log_message(f"✗ Module '{module_name}' execution failed", "ERROR")
+            
+            results[module_name] = module_result
                 
         except Exception as e:
             log_message(f"Failed to execute module '{module_name}': {e}", "ERROR")
-            results[module_name] = False
+            results[module_name] = {
+                "executed": False,
+                "system_success": False,
+                "updated": False,
+                "error": str(e),
+                "rollback_success": None,
+                "details": {}
+            }
     
-    successful_count = sum(1 for success in results.values() if success)
-    failed_count = len(results) - successful_count
+    # Enhanced summary reporting
+    total_modules = len(results)
+    system_successful = sum(1 for r in results.values() if r["system_success"])
+    system_failed = total_modules - system_successful
+    modules_updated = sum(1 for r in results.values() if r["updated"])
+    modules_restored = sum(1 for r in results.values() if r["rollback_success"])
     
-    log_message(f"Module execution completed: {successful_count} successful, {failed_count} failed")
+    log_message(f"Module execution completed:")
+    log_message(f"  - Total modules: {total_modules}")
+    log_message(f"  - System successful: {system_successful}")
+    log_message(f"  - System failed: {system_failed}")
+    log_message(f"  - Actually updated: {modules_updated}")
+    log_message(f"  - Failed but restored: {modules_restored}")
     
-    if failed_count > 0:
-        failed_modules = [module for module, success in results.items() if not success]
-        log_message(f"Failed modules: {', '.join(failed_modules)}")
+    if system_failed > 0:
+        failed_modules = [module for module, result in results.items() if not result["system_success"]]
+        restored_modules = [module for module, result in results.items() if result["rollback_success"]]
+        
+        log_message(f"  - Failed modules: {', '.join(failed_modules)}")
+        if restored_modules:
+            log_message(f"  - Successfully restored: {', '.join(restored_modules)}")
+    
+    if modules_updated > 0:
+        updated_modules = [module for module, result in results.items() if result["updated"]]
+        log_message(f"  - Updated modules: {', '.join(updated_modules)}")
     
     return results
 
@@ -481,28 +538,42 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         if successful_updates:
             results["global_index_updated"] = update_global_index(modules_path, successful_updates, False)
         
-        # Summary
+        # Enhanced Summary with detailed module status reporting
         schema_updated_count = sum(1 for success in results["modules_updated"].values() if success) if results["modules_updated"] else 0
         schema_failed_count = len(results["modules_updated"]) - schema_updated_count if results["modules_updated"] else 0
         
-        executed_count = sum(1 for success in results["modules_executed"].values() if success) if results["modules_executed"] else 0
-        execution_failed_count = len(results["modules_executed"]) - executed_count if results["modules_executed"] else 0
+        # Enhanced execution result analysis
+        execution_results = results["modules_executed"]
+        total_executed = len(execution_results)
+        system_successful = sum(1 for r in execution_results.values() if r["system_success"]) if execution_results else 0
+        system_failed = total_executed - system_successful
+        modules_actually_updated = sum(1 for r in execution_results.values() if r["updated"]) if execution_results else 0
+        modules_restored = sum(1 for r in execution_results.values() if r["rollback_success"]) if execution_results else 0
         
         log_message(f"Update orchestration completed:")
         log_message(f"  - Schema updates detected: {len(modules_to_update)}")
         log_message(f"  - Successfully schema updated: {schema_updated_count}")
         log_message(f"  - Failed schema updates: {schema_failed_count}")
         log_message(f"  - Enabled modules found: {len(enabled_modules)}")
-        log_message(f"  - Successfully executed: {executed_count}")
-        log_message(f"  - Failed executions: {execution_failed_count}")
+        log_message(f"  - System successful: {system_successful}")
+        log_message(f"  - System failed: {system_failed}")
+        log_message(f"  - Actually updated: {modules_actually_updated}")
+        log_message(f"  - Failed but restored: {modules_restored}")
         
         if schema_failed_count > 0:
             failed_modules = [module for module, success in results["modules_updated"].items() if not success]
             log_message(f"  - Failed schema updates: {', '.join(failed_modules)}")
         
-        if execution_failed_count > 0:
-            failed_executions = [module for module, success in results["modules_executed"].items() if not success]
+        if system_failed > 0:
+            failed_executions = [module for module, result in execution_results.items() if not result["system_success"]]
+            restored_executions = [module for module, result in execution_results.items() if result["rollback_success"]]
             log_message(f"  - Failed executions: {', '.join(failed_executions)}")
+            if restored_executions:
+                log_message(f"  - Successfully restored: {', '.join(restored_executions)}")
+        
+        if modules_actually_updated > 0:
+            updated_executions = [module for module, result in execution_results.items() if result["updated"]]
+            log_message(f"  - Successfully updated: {', '.join(updated_executions)}")
         
     except Exception as e:
         error_msg = f"Unhandled error in update orchestration: {e}"
@@ -917,20 +988,32 @@ def main():
                     log_message("Orchestrator was updated and restarted successfully")
                     sys.exit(0)
                 
-                # Exit with error code if critical failures occurred
+                # Enhanced exit logic with better failure classification
                 has_errors = bool(results.get("errors"))
                 sync_failed = not results.get("sync_success")
-                execution_failures = results.get("modules_executed", {})
-                critical_execution_failures = sum(1 for success in execution_failures.values() if not success) > 0
+                execution_results = results.get("modules_executed", {})
                 
-                if has_errors or sync_failed or critical_execution_failures:
+                # Count different types of failures
+                system_failures = sum(1 for r in execution_results.values() if not r["system_success"]) if execution_results else 0
+                unrestored_failures = sum(1 for r in execution_results.values() if not r["system_success"] and not r["rollback_success"]) if execution_results else 0
+                
+                # Only exit with error if there are critical system failures
+                critical_failures = has_errors or sync_failed or unrestored_failures > 0
+                
+                if critical_failures:
                     if has_errors:
                         log_message("Exiting due to system errors", "ERROR")
                     if sync_failed:
                         log_message("Exiting due to sync failure", "ERROR") 
-                    if critical_execution_failures:
-                        log_message("Exiting due to module execution failures", "ERROR")
+                    if unrestored_failures > 0:
+                        log_message("Exiting due to unrecoverable module failures", "ERROR")
                     sys.exit(1)
+                else:
+                    # System is stable - modules that failed were restored successfully
+                    if system_failures > 0:
+                        log_message("Some modules failed to update but system is stable (all failures restored)", "WARNING")
+                    log_message("Update orchestration completed successfully")
+                    sys.exit(0)
                     
     except KeyboardInterrupt:
         log_message("Update process interrupted by user", "WARNING")
