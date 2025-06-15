@@ -206,10 +206,16 @@ def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> Li
         
         # Load local module index (if exists)
         local_schema_version = "0.0.0"  # Default for new modules
+        local_index = None
         if os.path.exists(local_module_path):
             local_index = load_module_index(local_module_path)
             if local_index:
                 local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
+        
+        # Check if local module is disabled - skip entirely if so
+        if local_index and not local_index.get("metadata", {}).get("enabled", True):
+            log_message(f"Module {module_name} is disabled, skipping update check")
+            continue
         
         # Compare versions
         if compare_schema_versions(repo_schema_version, local_schema_version) > 0:

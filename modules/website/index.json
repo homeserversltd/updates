@@ -3,7 +3,7 @@
         "schema_version": "1.0.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub",
-        "enabled": true
+        "enabled": false
     },
     "config": {
         "repository": {
