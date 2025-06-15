@@ -258,6 +258,11 @@ def get_enabled_modules(modules_path: str) -> list:
         for item in os.listdir(modules_search_path):
             item_path = os.path.join(modules_search_path, item)
             if os.path.isdir(item_path):
+                # Skip backup directories created by StateManager
+                if item.endswith('.backup'):
+                    log_message(f"Skipping backup directory: {item}")
+                    continue
+                
                 index_file = os.path.join(item_path, "index.json")
                 if os.path.exists(index_file):
                     try:

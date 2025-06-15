@@ -1,78 +1,72 @@
+#!/usr/bin/env python3
 """
-HOMESERVER Update Management System
-Copyright (C) 2024 HOMESERVER LLC
+Vaultwarden Update Module for HOMESERVER
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This module handles updating Vaultwarden password manager.
+Vaultwarden is typically built from source using Cargo.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+Features:
+- Multi-method version detection (web vault files, git, Cargo.toml, binary)
+- Comprehensive backup and restore using StateManager
+- Service management integration
+- Installation verification
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
+Author: HOMESERVER Development Team
+License: BSL -> GPL (3-year grace period)
 """
 
 import os
-import subprocess
-import shutil
-import tarfile
-import urllib.request
+import sys
 import json
+import subprocess
 import time
-from updates.index import log_message
-from updates.utils.state_manager import StateManager
+import urllib.request
+import shutil
+import tempfile
+import tarfile
+import re
 
-# Load module configuration from index.json
+# Add the parent directory to the path to import StateManager
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.state_manager import StateManager
+
+def log_message(message, level="INFO"):
+    """Log a message with timestamp and level."""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}")
+
 def load_module_config():
-    """
-    Load configuration from the module's index.json file.
-    Returns:
-        dict: Configuration data or default values if loading fails
-    """
+    """Load module configuration from index.json."""
     try:
         config_path = os.path.join(os.path.dirname(__file__), "index.json")
         with open(config_path, 'r') as f:
             return json.load(f)
     except Exception as e:
-        log_message(f"Failed to load module config: {e}", "WARNING")
-        # Return default configuration
+        log_message(f"Failed to load module config: {e}", "ERROR")
         return {
             "metadata": {
-                "schema_version": "1.0.0",
-                "module_name": "vaultwarden"
+                "schema_version": "1.0.3",
+                "module_name": "vaultwarden",
+                "description": "Vaultwarden password manager",
+                "enabled": True
             },
             "config": {
-                "service": {
-                    "name": "vaultwarden",
-                    "user": "vaultwarden",
-                    "group": "vaultwarden"
-                },
                 "directories": {
+                    "install_dir": "/opt/vaultwarden",
                     "binary_path": "/opt/vaultwarden/vaultwarden",
                     "web_vault_dir": "/opt/vaultwarden/web-vault",
+                    "src_dir": "/opt/vaultwarden/src",
                     "data_dir": "/var/lib/vaultwarden",
+                    "config_dir": "/etc/vaultwarden",
                     "log_dir": "/var/log/vaultwarden",
-                    "attachments_dir": "/mnt/nas/vaultwarden/attachments",
-                    "config_file": "/etc/vaultwarden.env",
                     "cargo_home": "/usr/local/cargo",
                     "cargo_bin": "~/.cargo/bin/vaultwarden"
                 },
-                "backup": {
-                    "backup_dir": "/var/backups/updates",
-                    "max_age_days": 30,
-                    "keep_minimum": 5,
-                    "include_paths": [
-                        "/opt/vaultwarden/vaultwarden",
-                        "/opt/vaultwarden/web-vault",
-                        "/var/lib/vaultwarden",
-                        "/etc/vaultwarden.env",
-                        "/var/log/vaultwarden",
-                        "/mnt/nas/vaultwarden/attachments"
-                    ]
+                "service": {
+                    "name": "vaultwarden",
+                    "systemd_service": "vaultwarden",
+                    "user": "vaultwarden",
+                    "group": "vaultwarden"
                 },
                 "installation": {
                     "main_repo": {
@@ -85,52 +79,29 @@ def load_module_config():
                         "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/{version}/bw_web_{version}.tar.gz"
                     },
                     "temp_dir": "/tmp"
-                },
-                "verification": {
-                    "startup_wait_seconds": 5,
-                    "version_check_retries": 3
                 }
             }
         }
 
-# Global configuration
+# Load configuration
 MODULE_CONFIG = load_module_config()
 
-def get_service_config():
-    """Get service configuration from module config."""
-    return MODULE_CONFIG["config"].get("service", {
-        "name": "vaultwarden",
-        "user": "vaultwarden",
-        "group": "vaultwarden"
-    })
+def get_service_name():
+    """Get service name from module metadata."""
+    return MODULE_CONFIG["metadata"]["module_name"]
 
 def get_directories_config():
     """Get directories configuration from module config."""
     return MODULE_CONFIG["config"].get("directories", {
+        "install_dir": "/opt/vaultwarden",
         "binary_path": "/opt/vaultwarden/vaultwarden",
         "web_vault_dir": "/opt/vaultwarden/web-vault",
+        "src_dir": "/opt/vaultwarden/src",
         "data_dir": "/var/lib/vaultwarden",
+        "config_dir": "/etc/vaultwarden",
         "log_dir": "/var/log/vaultwarden",
-        "attachments_dir": "/mnt/nas/vaultwarden/attachments",
-        "config_file": "/etc/vaultwarden.env",
         "cargo_home": "/usr/local/cargo",
         "cargo_bin": "~/.cargo/bin/vaultwarden"
-    })
-
-def get_backup_config():
-    """Get backup configuration from module config."""
-    return MODULE_CONFIG["config"].get("backup", {
-        "backup_dir": "/var/backups/updates",
-        "max_age_days": 30,
-        "keep_minimum": 5,
-        "include_paths": [
-            "/opt/vaultwarden/vaultwarden",
-            "/opt/vaultwarden/web-vault",
-            "/var/lib/vaultwarden",
-            "/etc/vaultwarden.env",
-            "/var/log/vaultwarden",
-            "/mnt/nas/vaultwarden/attachments"
-        ]
     })
 
 def get_installation_config():
@@ -148,24 +119,29 @@ def get_installation_config():
         "temp_dir": "/tmp"
     })
 
-def get_verification_config():
-    """Get verification configuration from module config."""
-    return MODULE_CONFIG["config"].get("verification", {
-        "startup_wait_seconds": 5,
-        "version_check_retries": 3
-    })
 
-def get_existing_backup_paths():
+
+def get_all_vaultwarden_paths():
     """
     Get all Vaultwarden-related paths that exist and should be backed up.
     Returns:
         list: List of existing paths to backup
     """
-    backup_config = get_backup_config()
-    include_paths = backup_config["include_paths"]
+    directories = get_directories_config()
+    
+    # Standard paths that should be backed up if they exist
+    potential_paths = [
+        directories["binary_path"],
+        directories["web_vault_dir"],
+        directories["data_dir"],
+        directories["config_dir"],
+        directories["log_dir"],
+        "/etc/vaultwarden.env",  # Common config file location
+        "/mnt/nas/vaultwarden/attachments"  # NAS attachments if configured
+    ]
     
     existing_paths = []
-    for path in include_paths:
+    for path in potential_paths:
         if os.path.exists(path):
             existing_paths.append(path)
             log_message(f"Found Vaultwarden path for backup: {path}")
@@ -199,6 +175,7 @@ def is_service_active(service):
 def get_current_version():
     """
     Get the current version of Vaultwarden if installed.
+    Uses multiple detection methods based on how vaultwarden is installed.
     Returns:
         str: Version string or None if not installed
     """
@@ -206,23 +183,101 @@ def get_current_version():
         directories = get_directories_config()
         binary_path = directories["binary_path"]
         
-        if not os.path.isfile(binary_path) or not os.access(binary_path, os.X_OK):
+        if not os.path.isfile(binary_path):
+            log_message(f"Vaultwarden binary not found at {binary_path}", "DEBUG")
             return None
-            
-        result = subprocess.run([binary_path, "--version"], capture_output=True, text=True)
-        if result.returncode == 0:
-            # Parse version from output
-            for line in result.stdout.splitlines():
-                parts = line.strip().split()
-                for part in parts:
-                    if part[0].isdigit() and part.count('.') == 2:
-                        return part
-            # Fallback parsing
-            parts = result.stdout.strip().split()
-            if len(parts) >= 2:
-                return parts[1].lstrip("v")
-        return None
-    except Exception:
+        
+        # Method 1: Check web vault version files (most reliable)
+        web_vault_dir = directories.get("web_vault_dir", "/opt/vaultwarden/web-vault")
+        
+        # Try vw-version.json first (vaultwarden-specific version)
+        vw_version_file = os.path.join(web_vault_dir, "vw-version.json")
+        if os.path.exists(vw_version_file):
+            try:
+                import json
+                with open(vw_version_file, 'r') as f:
+                    data = json.load(f)
+                    version = data.get("version", "").strip()
+                    if version:
+                        log_message(f"Found vaultwarden version from vw-version.json: {version}", "DEBUG")
+                        return version
+            except Exception as e:
+                log_message(f"Failed to read vw-version.json: {e}", "DEBUG")
+        
+        # Try version.json (bitwarden web vault version)
+        version_file = os.path.join(web_vault_dir, "version.json")
+        if os.path.exists(version_file):
+            try:
+                import json
+                with open(version_file, 'r') as f:
+                    data = json.load(f)
+                    version = data.get("version", "").strip()
+                    if version:
+                        log_message(f"Found web vault version from version.json: {version}", "DEBUG")
+                        return version
+            except Exception as e:
+                log_message(f"Failed to read version.json: {e}", "DEBUG")
+        
+        # Method 2: Check git repository if it still exists
+        src_dir = "/opt/vaultwarden/src"
+        if os.path.exists(os.path.join(src_dir, ".git")):
+            try:
+                result = subprocess.run(
+                    ["git", "describe", "--tags", "--always"],
+                    cwd=src_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    git_version = result.stdout.strip()
+                    if git_version:
+                        log_message(f"Found git version: {git_version}", "DEBUG")
+                        return git_version
+            except Exception as e:
+                log_message(f"Failed to get git version: {e}", "DEBUG")
+        
+        # Method 3: Check Cargo.toml version (fallback)
+        cargo_toml = os.path.join(src_dir, "Cargo.toml")
+        if os.path.exists(cargo_toml):
+            try:
+                with open(cargo_toml, 'r') as f:
+                    for line in f:
+                        if line.strip().startswith('version = '):
+                            version = line.split('=')[1].strip().strip('"')
+                            if version and version != "1.0.0":  # Skip placeholder version
+                                log_message(f"Found Cargo.toml version: {version}", "DEBUG")
+                                return version
+            except Exception as e:
+                log_message(f"Failed to read Cargo.toml: {e}", "DEBUG")
+        
+        # Method 4: Try binary version command (last resort)
+        try:
+            result = subprocess.run([binary_path, "--version"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                log_message(f"Binary version output: '{output}'", "DEBUG")
+                
+                # Handle case where version info is not present
+                if "Version info from Git not present" in output:
+                    log_message("Binary version info not available from Git", "DEBUG")
+                    return "unknown"
+                
+                # Try to parse version from output
+                import re
+                version_pattern = r'v?(\d+\.\d+\.\d+)'
+                match = re.search(version_pattern, output)
+                if match:
+                    return match.group(1)
+        except Exception as e:
+            log_message(f"Failed to get binary version: {e}", "DEBUG")
+        
+        # If we get here, vaultwarden is installed but version is unclear
+        log_message("Vaultwarden is installed but version could not be determined", "WARNING")
+        return "unknown"
+        
+    except Exception as e:
+        log_message(f"Error getting Vaultwarden version: {e}", "WARNING")
         return None
 
 def get_latest_version():
@@ -238,11 +293,10 @@ def get_latest_version():
         with urllib.request.urlopen(api_url) as resp:
             data = json.load(resp)
             tag = data.get("tag_name", "")
-            if tag.startswith("v"):
-                return tag[1:]
-            return tag
+            # Remove 'v' prefix if present
+            return tag.lstrip('v') if tag else None
     except Exception as e:
-        log_message(f"Failed to get latest version info: {e}", "ERROR")
+        log_message(f"Failed to get latest Vaultwarden version: {e}", "ERROR")
         return None
 
 def get_latest_web_version():
@@ -258,169 +312,158 @@ def get_latest_web_version():
         with urllib.request.urlopen(api_url) as resp:
             data = json.load(resp)
             tag = data.get("tag_name", "")
-            return tag
+            # Remove 'v' prefix if present
+            return tag.lstrip('v') if tag else None
     except Exception as e:
-        log_message(f"Failed to get latest web vault version info: {e}", "ERROR")
+        log_message(f"Failed to get latest web vault version: {e}", "ERROR")
         return None
 
-# --- Update logic ---
 def update_vaultwarden():
     """
-    Update Vaultwarden binary and web vault using configured settings.
+    Update Vaultwarden by building from source and updating web vault.
     Returns:
-        bool: True if update succeeded, False otherwise
+        bool: True if update successful
     """
-    directories = get_directories_config()
-    installation_config = get_installation_config()
-    service_config = get_service_config()
-    
-    # Install new version using cargo
-    log_message("Installing new version with Cargo...")
     try:
-        env = os.environ.copy()
-        env["CARGO_HOME"] = directories["cargo_home"]
-        env["PATH"] = f"{directories['cargo_home']}/bin:" + env.get("PATH", "")
+        directories = get_directories_config()
+        installation_config = get_installation_config()
         
-        cargo_features = installation_config["main_repo"]["cargo_features"]
-        cargo_package = installation_config["main_repo"]["cargo_package"]
+        # Get latest versions
+        latest_version = get_latest_version()
+        latest_web_version = get_latest_web_version()
         
-        cmd = ["cargo", "install", cargo_package, "--features", ",".join(cargo_features)]
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            log_message(f"Failed to build/install vaultwarden: {result.stderr}", "ERROR")
+        if not latest_version or not latest_web_version:
+            log_message("Failed to get latest version information", "ERROR")
             return False
+        
+        log_message(f"Updating to Vaultwarden {latest_version} with web vault {latest_web_version}")
+        
+        # Create temporary directory
+        temp_dir = tempfile.mkdtemp(prefix="vaultwarden_update_")
+        
+        try:
+            # Clone or update source repository
+            src_dir = os.path.join(temp_dir, "vaultwarden")
+            log_message("Cloning Vaultwarden repository...")
+            
+            result = subprocess.run([
+                "git", "clone", "--depth", "1", "--branch", f"v{latest_version}",
+                "https://github.com/dani-garcia/vaultwarden.git", src_dir
+            ], capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                log_message(f"Failed to clone repository: {result.stderr}", "ERROR")
+                return False
+            
+            # Build Vaultwarden
+            log_message("Building Vaultwarden...")
+            cargo_features = installation_config["main_repo"]["cargo_features"]
+            features_arg = f"--features={','.join(cargo_features)}" if cargo_features else ""
+            
+            build_cmd = ["cargo", "build", "--release"]
+            if features_arg:
+                build_cmd.append(features_arg)
+            
+            result = subprocess.run(build_cmd, cwd=src_dir, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                log_message(f"Failed to build Vaultwarden: {result.stderr}", "ERROR")
+                return False
+            
+            # Install new binary
+            built_binary = os.path.join(src_dir, "target", "release", "vaultwarden")
+            target_binary = directories["binary_path"]
+            
+            if not os.path.exists(built_binary):
+                log_message(f"Built binary not found at {built_binary}", "ERROR")
+                return False
+            
+            log_message("Installing new binary...")
+            shutil.copy2(built_binary, target_binary)
+            os.chmod(target_binary, 0o755)
+            
+            # Download and install web vault
+            log_message("Downloading web vault...")
+            web_vault_url = installation_config["web_vault"]["download_template"].format(version=latest_web_version)
+            web_vault_archive = os.path.join(temp_dir, f"bw_web_{latest_web_version}.tar.gz")
+            
+            with urllib.request.urlopen(web_vault_url) as resp:
+                with open(web_vault_archive, 'wb') as f:
+                    shutil.copyfileobj(resp, f)
+            
+            # Extract web vault
+            log_message("Installing web vault...")
+            web_vault_dir = directories["web_vault_dir"]
+            
+            # Remove old web vault
+            if os.path.exists(web_vault_dir):
+                shutil.rmtree(web_vault_dir)
+            
+            # Extract new web vault
+            with tarfile.open(web_vault_archive, 'r:gz') as tar:
+                tar.extractall(path=os.path.dirname(web_vault_dir))
+            
+            # The extracted directory might have a different name
+            extracted_dir = os.path.join(os.path.dirname(web_vault_dir), "web-vault")
+            if os.path.exists(extracted_dir):
+                shutil.move(extracted_dir, web_vault_dir)
+            
+            log_message("Vaultwarden update completed successfully")
+            return True
+            
+        finally:
+            # Clean up temporary directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
             
     except Exception as e:
-        log_message(f"Error during cargo install: {e}", "ERROR")
+        log_message(f"Error during Vaultwarden update: {e}", "ERROR")
         return False
-    
-    # Copy binary to system location
-    try:
-        cargo_bin_path = os.path.expanduser(directories["cargo_bin"])
-        system_bin_path = directories["binary_path"]
-        
-        shutil.copy2(cargo_bin_path, system_bin_path)
-        os.chmod(system_bin_path, 0o755)
-        
-        # Set ownership
-        user = service_config["user"]
-        group = service_config["group"]
-        subprocess.run(["chown", f"{user}:{group}", system_bin_path])
-        
-        log_message(f"Binary copied to {system_bin_path}")
-        
-    except Exception as e:
-        log_message(f"Failed to copy binary to system location: {e}", "ERROR")
-        return False
-    
-    # Update web vault
-    log_message("Updating web vault...")
-    latest_web_version = get_latest_web_version()
-    if not latest_web_version:
-        log_message("Failed to get latest web vault version", "ERROR")
-        return False
-    
-    try:
-        web_vault_dir = directories["web_vault_dir"]
-        temp_dir = installation_config["temp_dir"]
-        download_template = installation_config["web_vault"]["download_template"]
-        
-        # Remove existing web vault
-        if os.path.exists(web_vault_dir):
-            shutil.rmtree(web_vault_dir)
-        os.makedirs(web_vault_dir, exist_ok=True)
-        
-        # Download and extract web vault
-        tarball_url = download_template.format(version=latest_web_version)
-        tarball_path = os.path.join(temp_dir, "web_vault.tar.gz")
-        
-        result = subprocess.run(["curl", "-L", tarball_url, "-o", tarball_path])
-        if result.returncode != 0:
-            log_message("Failed to download web vault", "ERROR")
-            return False
-        
-        with tarfile.open(tarball_path, "r:gz") as tar:
-            tar.extractall(web_vault_dir)
-        
-        # Cleanup temp file
-        os.remove(tarball_path)
-        
-        # Set ownership
-        user = service_config["user"]
-        group = service_config["group"]
-        subprocess.run(["chown", "-R", f"{user}:{group}", web_vault_dir])
-        
-        log_message(f"Web vault updated to version {latest_web_version}")
-        
-    except Exception as e:
-        log_message(f"Failed to update web vault: {e}", "ERROR")
-        return False
-    
-    return True
 
 def verify_vaultwarden_installation():
     """
-    Verify that Vaultwarden is properly installed and functional.
+    Verify Vaultwarden installation is working correctly.
     Returns:
-        dict: Verification results with status and details
+        dict: Verification results
     """
     verification_results = {
         "binary_exists": False,
         "binary_executable": False,
         "version_readable": False,
         "web_vault_exists": False,
-        "data_dir_exists": False,
-        "config_file_exists": False,
         "service_active": False,
-        "version": None,
-        "paths": {}
+        "version": None
     }
     
     try:
         directories = get_directories_config()
-        service_config = get_service_config()
         
-        # Check binary
         binary_path = directories["binary_path"]
-        verification_results["paths"]["binary"] = binary_path
-        
-        if os.path.exists(binary_path):
-            verification_results["binary_exists"] = True
-            if os.access(binary_path, os.X_OK):
-                verification_results["binary_executable"] = True
-                
-                # Check version
-                version = get_current_version()
-                if version:
-                    verification_results["version_readable"] = True
-                    verification_results["version"] = version
-        
-        # Check other components
         web_vault_dir = directories["web_vault_dir"]
-        data_dir = directories["data_dir"]
-        config_file = directories["config_file"]
+        service_name = get_service_name()
         
-        verification_results["paths"]["web_vault_dir"] = web_vault_dir
-        verification_results["paths"]["data_dir"] = data_dir
-        verification_results["paths"]["config_file"] = config_file
+        # Check binary exists
+        verification_results["binary_exists"] = os.path.isfile(binary_path)
+        log_message(f"Binary exists: {verification_results['binary_exists']}")
         
-        verification_results["web_vault_exists"] = os.path.exists(web_vault_dir)
-        verification_results["data_dir_exists"] = os.path.exists(data_dir)
-        verification_results["config_file_exists"] = os.path.exists(config_file)
+        # Check binary is executable
+        if verification_results["binary_exists"]:
+            verification_results["binary_executable"] = os.access(binary_path, os.X_OK)
+            log_message(f"Binary executable: {verification_results['binary_executable']}")
         
-        # Check service status
-        service_name = service_config["name"]
+        # Check version is readable
+        if verification_results["binary_executable"]:
+            version = get_current_version()
+            verification_results["version_readable"] = version is not None
+            verification_results["version"] = version
+            log_message(f"Version readable: {verification_results['version_readable']} (version: {version})")
+        
+        # Check web vault exists
+        verification_results["web_vault_exists"] = os.path.isdir(web_vault_dir)
+        log_message(f"Web vault exists: {verification_results['web_vault_exists']}")
+        
+        # Check service is active
         verification_results["service_active"] = is_service_active(service_name)
-        
-        # Log verification results
-        for check, result in verification_results.items():
-            if check not in ["version", "paths"]:
-                status = "✓" if result else "✗"
-                log_message(f"Vaultwarden verification - {check}: {status}")
-        
-        if verification_results["version"]:
-            log_message(f"Vaultwarden verification - version: {verification_results['version']}")
+        log_message(f"Service active: {verification_results['service_active']}")
         
     except Exception as e:
         log_message(f"Error during Vaultwarden verification: {e}", "ERROR")
@@ -438,9 +481,8 @@ def main(args=None):
     if args is None:
         args = []
     
-    service_config = get_service_config()
     directories = get_directories_config()
-    SERVICE_NAME = service_config.get("name", "vaultwarden")
+    SERVICE_NAME = get_service_name()
     VAULTWARDEN_BIN = directories.get("binary_path", "/opt/vaultwarden/vaultwarden")
 
     # --config mode: show current configuration
@@ -450,12 +492,7 @@ def main(args=None):
         log_message(f"  Binary path: {VAULTWARDEN_BIN}")
         log_message(f"  Web vault dir: {directories['web_vault_dir']}")
         log_message(f"  Data dir: {directories['data_dir']}")
-        log_message(f"  Config file: {directories['config_file']}")
-        
-        backup_config = get_backup_config()
-        log_message(f"  Backup dir: {backup_config['backup_dir']}")
-        log_message(f"  Max age: {backup_config['max_age_days']} days")
-        log_message(f"  Keep minimum: {backup_config['keep_minimum']} backups")
+        log_message(f"  Config dir: {directories['config_dir']}")
         
         return {
             "success": True,
@@ -510,12 +547,11 @@ def main(args=None):
     if current_version != latest_version:
         log_message("Update available. Creating comprehensive backup...")
         
-        # Initialize StateManager with backup directory
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        # Initialize StateManager with default backup directory
+        state_manager = StateManager()  # Use default backup directory
         
         # Get all existing Vaultwarden paths for backup
-        files_to_backup = get_existing_backup_paths()
+        files_to_backup = get_all_vaultwarden_paths()
         
         if not files_to_backup:
             log_message("No Vaultwarden files found for backup", "WARNING")
@@ -553,8 +589,7 @@ def main(args=None):
             systemctl("start", SERVICE_NAME)
             
             # Wait for service to start
-            verification_config = get_verification_config()
-            wait_time = verification_config["startup_wait_seconds"]
+            wait_time = 5  # Reasonable default wait time
             log_message(f"Waiting {wait_time} seconds for service to start...")
             time.sleep(wait_time)
             
@@ -572,7 +607,6 @@ def main(args=None):
                     "old_version": current_version, 
                     "new_version": new_version,
                     "verification": verification,
-                    "backup_created": True,
                     "config": MODULE_CONFIG
                 }
             else:

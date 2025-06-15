@@ -115,17 +115,47 @@ def get_current_version():
     """
     try:
         oh_my_posh_bin = get_directories_config()["oh_my_posh_bin"]
-        if not os.path.isfile(oh_my_posh_bin) or not os.access(oh_my_posh_bin, os.X_OK):
+        if not os.path.isfile(oh_my_posh_bin):
+            log_message(f"Oh My Posh binary not found at {oh_my_posh_bin}", "DEBUG")
             return None
         
-        result = subprocess.run([oh_my_posh_bin, "version"], capture_output=True, text=True)
-        if result.returncode == 0:
-            # Output: '16.7.0' or similar
-            version = result.stdout.strip()
-            if version and version[0].isdigit():
-                return version
+        if not os.access(oh_my_posh_bin, os.X_OK):
+            log_message(f"Oh My Posh binary not executable at {oh_my_posh_bin}", "DEBUG")
+            return None
+        
+        result = subprocess.run([oh_my_posh_bin, "--version"], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            log_message(f"Oh My Posh version command failed with return code {result.returncode}", "DEBUG")
+            log_message(f"stderr: {result.stderr}", "DEBUG")
+            return None
+        
+        output = result.stdout.strip()
+        log_message(f"Oh My Posh version output: '{output}'", "DEBUG")
+        
+        if not output:
+            log_message("Oh My Posh version command returned empty output", "DEBUG")
+            return None
+        
+        # Parse version - output should be just "24.16.1" or similar
+        import re
+        version_pattern = r'v?(\d+\.\d+\.\d+)'
+        match = re.search(version_pattern, output)
+        if match:
+            return match.group(1)
+        
+        # If it's already a clean version number, return as-is
+        if re.match(r'^\d+\.\d+\.\d+$', output):
+            return output
+        
+        log_message(f"Could not parse version from output: '{output}'", "WARNING")
         return None
-    except Exception:
+        
+    except subprocess.TimeoutExpired:
+        log_message("Oh My Posh version command timed out", "WARNING")
+        return None
+    except Exception as e:
+        log_message(f"Error getting Oh My Posh version: {e}", "WARNING")
         return None
 
 def get_latest_version():

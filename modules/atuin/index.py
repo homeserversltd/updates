@@ -77,13 +77,34 @@ MODULE_CONFIG = load_module_config()
 # --- Helpers for user management ---
 def get_admin_user():
     """
-    Get the username for the configured admin user UID.
+    Get the admin username by checking common locations and patterns.
     Returns:
         str: Username or None if not found
     """
     try:
-        admin_uid = MODULE_CONFIG["config"]["admin_user_uid"]
-        return pwd.getpwuid(admin_uid).pw_name
+        # Try to find atuin installations in common user directories
+        for user_dir in os.listdir("/home"):
+            user_path = f"/home/{user_dir}"
+            if os.path.isdir(user_path):
+                # Check if this user has atuin installed
+                atuin_paths = [
+                    f"{user_path}/.atuin",
+                    f"{user_path}/.atuin/bin/atuin",
+                    f"{user_path}/.config/atuin"
+                ]
+                if any(os.path.exists(path) for path in atuin_paths):
+                    log_message(f"Found atuin installation for user: {user_dir}", "DEBUG")
+                    return user_dir
+        
+        # Fallback: try to get the first non-system user (UID >= 1000)
+        for user in pwd.getpwall():
+            if user.pw_uid >= 1000 and user.pw_uid < 65534:  # Skip nobody user
+                log_message(f"Using fallback admin user: {user.pw_name}", "DEBUG")
+                return user.pw_name
+        
+        log_message("Could not determine admin user from system", "ERROR")
+        return None
+        
     except Exception as e:
         log_message(f"Failed to get admin user: {e}", "ERROR")
         return None
@@ -134,27 +155,22 @@ def get_atuin_root_dir(admin_user):
     path_template = MODULE_CONFIG["config"]["directories"]["atuin_root"]
     return format_path(path_template, admin_user)
 
-def get_all_atuin_paths(admin_user):
+def get_all_atuin_paths():
     """
-    Get all Atuin-related paths that should be backed up based on configuration.
+    Get all Atuin-related paths that should be backed up.
     Returns:
         list: List of paths that exist and should be backed up
     """
-    # Get paths from configuration
-    include_paths = MODULE_CONFIG["config"]["backup"]["include_paths"]
+    admin_user = get_admin_user()
+    if not admin_user:
+        return []
     
-    # Format paths with admin user
-    potential_paths = []
-    for path_template in include_paths:
-        if path_template == "{atuin_root}":
-            potential_paths.append(get_atuin_root_dir(admin_user))
-        elif path_template == "{config_dir}":
-            potential_paths.append(get_atuin_config_dir(admin_user))
-        elif path_template == "{data_dir}":
-            potential_paths.append(get_atuin_data_dir(admin_user))
-        else:
-            # Direct path template
-            potential_paths.append(format_path(path_template, admin_user))
+    # Common atuin paths for the detected user
+    potential_paths = [
+        f"/home/{admin_user}/.atuin",
+        f"/home/{admin_user}/.config/atuin", 
+        f"/home/{admin_user}/.local/share/atuin"
+    ]
     
     # Only return paths that actually exist
     existing_paths = []
@@ -167,14 +183,6 @@ def get_all_atuin_paths(admin_user):
     
     return existing_paths
 
-def get_backup_config():
-    """
-    Get backup configuration from module config.
-    Returns:
-        dict: Backup configuration
-    """
-    return MODULE_CONFIG["config"]["backup"]
-
 def get_installation_config():
     """
     Get installation configuration from module config.
@@ -186,7 +194,7 @@ def get_installation_config():
 # --- Backup and State Management ---
 def create_atuin_backup(description="manual_backup"):
     """
-    Create a comprehensive backup of all Atuin files using configuration.
+    Create a comprehensive backup of all Atuin files using StateManager.
     
     Args:
         description: Description for the backup
@@ -194,14 +202,9 @@ def create_atuin_backup(description="manual_backup"):
     Returns:
         dict: Backup information with rollback point details
     """
-    admin_user = get_admin_user()
-    if not admin_user:
-        return {"success": False, "error": "No admin user found"}
-    
     try:
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
-        files_to_backup = get_all_atuin_paths(admin_user)
+        state_manager = StateManager()  # Use default backup directory
+        files_to_backup = get_all_atuin_paths()
         
         if not files_to_backup:
             return {"success": False, "error": "No Atuin files found"}
@@ -221,8 +224,7 @@ def create_atuin_backup(description="manual_backup"):
             "success": True,
             "backup_info": backup_info,
             "files_backed_up": len(files_to_backup),
-            "backup_paths": files_to_backup,
-            "backup_config": backup_config
+            "backup_paths": files_to_backup
         }
         
     except Exception as e:
@@ -230,14 +232,13 @@ def create_atuin_backup(description="manual_backup"):
 
 def restore_atuin_backup():
     """
-    Restore Atuin from its backup using configuration.
+    Restore Atuin from its backup using StateManager.
     
     Returns:
         dict: Restoration results
     """
     try:
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        state_manager = StateManager()  # Use default backup directory
         success = state_manager.restore_module_state(MODULE_CONFIG["metadata"]["module_name"])
         
         # Verify restoration if successful
@@ -249,8 +250,7 @@ def restore_atuin_backup():
         
         return {
             "success": success,
-            "verification": verification,
-            "backup_config": backup_config
+            "verification": verification
         }
         
     except Exception as e:
@@ -258,14 +258,13 @@ def restore_atuin_backup():
 
 def list_atuin_backups():
     """
-    List all available Atuin backups using configuration.
+    List all available Atuin backups using StateManager.
     
     Returns:
         list: List of BackupInfo objects for Atuin module
     """
     try:
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        state_manager = StateManager()  # Use default backup directory
         backup_info = state_manager.get_backup_info(MODULE_CONFIG["metadata"]["module_name"])
         return [backup_info] if backup_info else []
     except Exception as e:
@@ -331,21 +330,10 @@ def validate_atuin_config():
         
         if "config" in config:
             # Check required config subsections
-            required_config_sections = ["admin_user_uid", "directories", "backup", "installation"]
+            required_config_sections = ["directories", "installation"]
             for section in required_config_sections:
                 if section not in config["config"]:
                     validation_results["errors"].append(f"Missing required config section: {section}")
-                    validation_results["valid"] = False
-            
-            # Check admin user UID
-            if "admin_user_uid" in config["config"]:
-                try:
-                    uid = config["config"]["admin_user_uid"]
-                    if not isinstance(uid, int) or uid < 0:
-                        validation_results["errors"].append("admin_user_uid must be a positive integer")
-                        validation_results["valid"] = False
-                except Exception:
-                    validation_results["errors"].append("Invalid admin_user_uid format")
                     validation_results["valid"] = False
             
             # Check directories section
@@ -354,22 +342,6 @@ def validate_atuin_config():
                 for dir_key in required_dirs:
                     if dir_key not in config["config"]["directories"]:
                         validation_results["warnings"].append(f"Missing directory config: {dir_key}")
-            
-            # Check backup section
-            if "backup" in config["config"]:
-                backup_config = config["config"]["backup"]
-                if "include_paths" not in backup_config:
-                    validation_results["warnings"].append("No backup include_paths specified")
-                
-                # Check numeric values
-                for key in ["max_age_days", "keep_minimum"]:
-                    if key in backup_config:
-                        try:
-                            val = backup_config[key]
-                            if not isinstance(val, int) or val < 0:
-                                validation_results["warnings"].append(f"backup.{key} should be a positive integer")
-                        except Exception:
-                            validation_results["warnings"].append(f"Invalid backup.{key} format")
         
     except Exception as e:
         validation_results["errors"].append(f"Configuration validation error: {e}")
@@ -665,7 +637,7 @@ def main(args=None):
         state_manager = StateManager(backup_config["backup_dir"])
         
         # Get all Atuin-related paths for comprehensive backup
-        files_to_backup = get_all_atuin_paths(admin_user)
+        files_to_backup = get_all_atuin_paths()
         
         if not files_to_backup:
             log_message("No Atuin files found for backup", "WARNING")

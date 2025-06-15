@@ -151,23 +151,51 @@ def get_current_version():
     """
     try:
         navidrome_bin = get_directories_config()["navidrome_bin"]
-        if not os.path.isfile(navidrome_bin) or not os.access(navidrome_bin, os.X_OK):
+        if not os.path.isfile(navidrome_bin):
+            log_message(f"Navidrome binary not found at {navidrome_bin}", "DEBUG")
             return None
         
-        result = subprocess.run([navidrome_bin, "--version"], capture_output=True, text=True)
-        if result.returncode == 0:
-            # Output: 'Navidrome v0.49.3' or similar
-            for line in result.stdout.splitlines():
-                parts = line.strip().split()
-                for part in parts:
-                    if part[0].isdigit() and part.count('.') == 2:
-                        return part
-            # Fallback: third word
-            parts = result.stdout.strip().split()
-            if len(parts) >= 3:
-                return parts[2].lstrip("v")
+        if not os.access(navidrome_bin, os.X_OK):
+            log_message(f"Navidrome binary not executable at {navidrome_bin}", "DEBUG")
+            return None
+        
+        result = subprocess.run([navidrome_bin, "--version"], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode != 0:
+            log_message(f"Navidrome version command failed with return code {result.returncode}", "DEBUG")
+            log_message(f"stderr: {result.stderr}", "DEBUG")
+            return None
+        
+        output = result.stdout.strip()
+        log_message(f"Navidrome version output: '{output}'", "DEBUG")
+        
+        if not output:
+            log_message("Navidrome version command returned empty output", "DEBUG")
+            return None
+        
+        # Try multiple parsing strategies
+        # Strategy 1: Look for version pattern like "v0.49.3" or "0.49.3"
+        import re
+        version_pattern = r'v?(\d+\.\d+\.\d+)'
+        match = re.search(version_pattern, output)
+        if match:
+            return match.group(1)
+        
+        # Strategy 2: Split and look for version-like strings
+        for line in output.splitlines():
+            parts = line.strip().split()
+            for part in parts:
+                if re.match(r'v?\d+\.\d+\.\d+', part):
+                    return part.lstrip('v')
+        
+        log_message(f"Could not parse version from output: '{output}'", "WARNING")
         return None
-    except Exception:
+        
+    except subprocess.TimeoutExpired:
+        log_message("Navidrome version command timed out", "WARNING")
+        return None
+    except Exception as e:
+        log_message(f"Error getting Navidrome version: {e}", "WARNING")
         return None
 
 def get_latest_version():

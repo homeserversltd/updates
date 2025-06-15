@@ -86,8 +86,19 @@ def get_filebrowser_version():
     try:
         result = subprocess.run(["filebrowser", "version"], capture_output=True, text=True, check=False)
         if result.returncode == 0:
-            version = result.stdout.strip()
-            return version
+            output = result.stdout.strip()
+            log_message(f"Filebrowser version output: '{output}'", "DEBUG")
+            
+            # Parse version from output like "File Browser v2.32.0/3d6c5152"
+            import re
+            version_pattern = r'v?(\d+\.\d+\.\d+)'
+            match = re.search(version_pattern, output)
+            if match:
+                return match.group(1)
+            
+            # Fallback: return the full output for debugging
+            log_message(f"Could not parse version from output: '{output}'", "WARNING")
+            return output
         return None
     except Exception as e:
         log_message(f"Warning: Failed to detect Filebrowser version: {e}")

@@ -1,17 +1,33 @@
 {
     "metadata": {
-        "schema_version": "1.0.2",
+        "schema_version": "1.0.3",
         "module_name": "vaultwarden",
         "description": "Vaultwarden password manager",
         "enabled": true
     },
     "config": {
         "directories": {
+            "install_dir": "/opt/vaultwarden",
+            "binary_path": "/opt/vaultwarden/vaultwarden",
+            "web_vault_dir": "/opt/vaultwarden/web-vault",
+            "src_dir": "/opt/vaultwarden/src",
             "data_dir": "/var/lib/vaultwarden",
-            "config_dir": "/etc/vaultwarden"
+            "config_dir": "/etc/vaultwarden",
+            "log_dir": "/var/log/vaultwarden",
+            "cargo_home": "/usr/local/cargo",
+            "cargo_bin": "~/.cargo/bin/vaultwarden"
         },
         "installation": {
-            "github_api_url": "https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest"
+            "main_repo": {
+                "github_api_url": "https://api.github.com/repos/dani-garcia/vaultwarden/releases/latest",
+                "cargo_package": "vaultwarden",
+                "cargo_features": ["postgresql"]
+            },
+            "web_vault": {
+                "github_api_url": "https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest",
+                "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/{version}/bw_web_{version}.tar.gz"
+            },
+            "temp_dir": "/tmp"
         }
     }
 } 
