@@ -444,11 +444,11 @@ def main(args=None):
     if current_version != latest_version:
         log_message("Update available. Creating backup...")
         
-        # Initialize global rollback system with configured backup directory
-        backup_config = get_backup_config()
-        state_manager = StateManager(backup_config["backup_dir"])
+        # Initialize StateManager for backup
+        state_manager = StateManager()
         
         # Get files to backup from configuration
+        backup_config = get_backup_config()
         files_to_backup = []
         for path in backup_config["include_paths"]:
             if os.path.exists(path):
@@ -463,18 +463,18 @@ def main(args=None):
         
         log_message(f"Creating backup for {len(files_to_backup)} Oh My Posh files...")
         
-        # Create rollback point
-        rollback_point = rollback.create_rollback_point(
+        # Create backup using StateManager
+        backup_success = state_manager.backup_module_state(
             module_name=SERVICE_NAME,
             description=f"pre_update_{current_version}_to_{latest_version}",
             files=files_to_backup
         )
         
-        if not rollback_point:
-            log_message("Failed to create rollback point", "ERROR")
+        if not backup_success:
+            log_message("Failed to create backup", "ERROR")
             return {"success": False, "error": "Backup failed"}
         
-        log_message(f"Rollback point created with {len(rollback_point)} backups")
+        log_message("Backup created successfully")
         
         # Perform the update (no service to stop for Oh My Posh)
         log_message("Installing update...")
@@ -500,7 +500,6 @@ def main(args=None):
                     "old_version": current_version, 
                     "new_version": new_version,
                     "verification": verification,
-                    "rollback_point": rollback_point,
                     "config": MODULE_CONFIG
                 }
             else:
@@ -508,24 +507,23 @@ def main(args=None):
                 
         except Exception as e:
             log_message(f"Update failed: {e}", "ERROR")
-            log_message("Restoring from rollback point...")
+            log_message("Restoring from backup...")
             
-            # Restore rollback point
-            rollback_success = rollback.restore_rollback_point(rollback_point)
+            # Restore using StateManager
+            rollback_success = state_manager.restore_module_state(SERVICE_NAME)
             
             if rollback_success:
-                log_message("Successfully restored from rollback point")
+                log_message("Successfully restored from backup")
                 # Verify rollback worked
                 restored_version = get_current_version()
                 log_message(f"Restored version: {restored_version}")
             else:
-                log_message("Failed to restore from rollback point", "ERROR")
+                log_message("Failed to restore from backup", "ERROR")
             
             return {
                 "success": False, 
                 "error": str(e),
                 "rollback_success": rollback_success,
-                "rollback_point": rollback_point,
                 "restored_version": get_current_version() if rollback_success else None,
                 "config": MODULE_CONFIG
             }
