@@ -395,19 +395,38 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
                 # Update global index with new orchestrator version
                 update_global_index(modules_path, [], True)
                 
-                # Re-exec with the updated orchestrator
+                # Re-exec with the updated orchestrator via shell script
                 log_message("RESTART: Re-executing with updated orchestrator...")
                 import subprocess
                 import sys
                 
-                # Get the current script path and arguments
-                script_path = os.path.abspath(__file__)
+                # Find the shell script that originally invoked us
+                shell_script_path = os.path.join(modules_path, "updateManager.sh")
+                
+                # Convert Python args back to shell script args
+                shell_args = []
                 current_args = sys.argv[1:]  # Skip script name
                 
-                # Re-execute the updated orchestrator
+                # Map Python args to shell args
+                for arg in current_args:
+                    if arg == "--check-only":
+                        shell_args.append("--check")
+                    elif arg == "--legacy":
+                        shell_args.append("--legacy")
+                    # Add other arg mappings as needed
+                
+                # Re-execute via the shell script (which properly invokes the Python module)
                 try:
-                    result = subprocess.run([sys.executable, script_path] + current_args, 
-                                          check=True, capture_output=False)
+                    if os.path.exists(shell_script_path):
+                        result = subprocess.run([shell_script_path] + shell_args, 
+                                              check=True, capture_output=False)
+                    else:
+                        # Fallback: run as module from correct directory
+                        result = subprocess.run([
+                            sys.executable, "-m", "updates.index"
+                        ] + current_args, 
+                        cwd="/usr/local/lib", check=True, capture_output=False)
+                    
                     # If we get here, the new orchestrator completed successfully
                     results["orchestrator_updated"] = True
                     results["orchestrator_restarted"] = True
