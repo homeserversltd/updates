@@ -60,8 +60,12 @@ def load_module_config():
 MODULE_CONFIG = load_module_config()
 
 def log_message(message: str, level: str = "INFO"):
-    """Simple logging function"""
-    print(f"[{level}] {message}")
+    """Enhanced logging function with timestamps"""
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}")
+    # Flush output immediately so we see progress in real-time
+    sys.stdout.flush()
 
 def run_command(command: List[str]) -> subprocess.CompletedProcess:
     """Run a command and return the result"""
@@ -119,14 +123,36 @@ def upgrade_packages_batch(packages: List[str]) -> bool:
         env = os.environ.copy()
         env['DEBIAN_FRONTEND'] = 'noninteractive'
         
-        # Don't capture output so we can see progress, add timeout to prevent infinite hanging
+        # Show real-time progress for batch upgrades
         log_message(f"Running: {' '.join(upgrade_cmd)}")
-        result = subprocess.run(
-            upgrade_cmd, 
-            check=True, 
-            env=env,
-            timeout=1800  # 30 minute timeout for batch upgrades
-        )
+        log_message("Batch upgrade in progress. Output will be shown below...")
+        
+        try:
+            process = subprocess.Popen(
+                upgrade_cmd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            # Stream output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    print(f"  {output.strip()}")  # Indent batch output
+                    sys.stdout.flush()
+            
+            return_code = process.poll()
+            if return_code != 0:
+                raise subprocess.CalledProcessError(return_code, upgrade_cmd)
+                
+        except Exception as e:
+            log_message(f"Batch upgrade process failed: {e}", "ERROR")
+            return False
         
         log_message(f"Successfully upgraded {len(packages)} packages")
         return True
@@ -316,9 +342,48 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
             # Standard upgrade for smaller package sets
             log_message(f"Upgrading {upgradable_count} packages...")
             upgrade_cmd = MODULE_CONFIG["config"]["package_manager"]["upgrade_command"]
-            run_command(upgrade_cmd)
-            result["total_upgraded"] = upgradable_count
-            result["batches_processed"] = 1
+            
+            # Use non-interactive mode and show progress for standard upgrades too
+            env = os.environ.copy()
+            env['DEBIAN_FRONTEND'] = 'noninteractive'
+            
+            log_message(f"Running: {' '.join(upgrade_cmd)}")
+            log_message("This may take several minutes. Progress will be shown below...")
+            try:
+                # Run with real-time output so user can see progress
+                process = subprocess.Popen(
+                    upgrade_cmd,
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    bufsize=1
+                )
+                
+                # Stream output in real-time
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        print(output.strip())
+                        sys.stdout.flush()
+                
+                return_code = process.poll()
+                if return_code != 0:
+                    raise subprocess.CalledProcessError(return_code, upgrade_cmd)
+                    
+                log_message(f"Successfully upgraded {upgradable_count} packages")
+                result["total_upgraded"] = upgradable_count
+                result["batches_processed"] = 1
+            except subprocess.TimeoutExpired:
+                log_message("Standard upgrade timed out after 30 minutes", "ERROR")
+                result["error"] = "Upgrade timed out"
+                return result
+            except subprocess.CalledProcessError as e:
+                log_message(f"Standard upgrade failed: {e}", "ERROR")
+                result["error"] = f"Upgrade failed: {e}"
+                return result
         
         # Post-upgrade cleanup
         log_message("Removing unused packages...")
