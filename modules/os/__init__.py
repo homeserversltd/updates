@@ -19,15 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 OS Update Module
 
-Handles update logic specific to the operating system.
-Implements a main(args) entrypoint for orchestrated updates.
+Simple operating system update management - just apt update && apt upgrade.
 """
 
-import os
-from updates.utils.index import get_module_version
 from .index import main  # Expose main at package level
-
-__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 
 __all__ = ['main']
 

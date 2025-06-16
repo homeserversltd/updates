@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.1.0",
+        "schema_version": "1.1.1",
         "unbound_version": "1.19.0",
         "module_name": "adblock",
         "description": "Adblock module for Unbound DNS",

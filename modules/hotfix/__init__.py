@@ -37,7 +37,6 @@ Components:
 
 import os
 from pathlib import Path
-from updates.utils.index import get_module_version
 from .index import HotfixManager, HotfixOperationError, main
 
 __all__ = [
@@ -45,6 +44,3 @@ __all__ = [
     'HotfixOperationError', 
     'main'
 ]
-
-# Get version from index.json
-__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))

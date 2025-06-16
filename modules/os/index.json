@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.2",
+        "schema_version": "1.0.3",
         "module_name": "os",
         "description": "Operating system update module",
         "enabled": true

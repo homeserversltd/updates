@@ -23,11 +23,7 @@ Handles update logic specific to the Oh My Posh service.
 Implements a main(args) entrypoint for orchestrated updates.
 """
 
-import os
-from updates.utils.index import get_module_version
-from .index import main  # Expose main at package level
-
-__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
+from .index import main
 
 __all__ = ['main']
 

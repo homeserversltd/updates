@@ -52,7 +52,5 @@ import os
 from pathlib import Path
 
 from .index import WebsiteUpdater, main
-from updates.utils.index import get_module_version
 
-__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 __all__ = ['WebsiteUpdater', 'main']

@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.1",
+        "schema_version": "1.0.2",
         "module_name": "venvs",
         "description": "Python virtual environment management for HOMESERVER services",
         "enabled": true

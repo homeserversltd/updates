@@ -23,13 +23,9 @@ Handles update logic specific to the Atuin service.
 Implements a main(args) entrypoint for orchestrated updates.
 """
 
-import os
-from updates.utils.index import get_module_version
 from .index import (
     main
 )
-
-__version__ = get_module_version(os.path.dirname(os.path.abspath(__file__)))
 
 # This allows the module to be run directly
 if __name__ == "__main__":
