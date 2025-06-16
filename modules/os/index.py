@@ -179,8 +179,18 @@ def repair_package_system() -> bool:
             )
             if result.stdout.strip():
                 log_message("Found interrupted dpkg operations, attempting repair...")
-                log_message("Running: dpkg --configure -a")
-                subprocess.run(["dpkg", "--configure", "-a"], check=True)
+                log_message("Running: dpkg --configure -a (non-interactive)")
+                
+                # Use non-interactive mode and keep existing config files
+                env = os.environ.copy()
+                env['DEBIAN_FRONTEND'] = 'noninteractive'
+                
+                subprocess.run([
+                    "dpkg", 
+                    "--configure", 
+                    "-a",
+                    "--force-confold"  # Keep existing config files
+                ], check=True, env=env)
                 log_message("Successfully repaired interrupted dpkg operations")
         except subprocess.CalledProcessError:
             log_message("dpkg --configure -a failed, continuing anyway", "WARNING")
