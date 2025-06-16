@@ -360,11 +360,19 @@ def update_vaultwarden():
             cargo_features = installation_config["main_repo"]["cargo_features"]
             features_arg = f"--features={','.join(cargo_features)}" if cargo_features else ""
             
-            build_cmd = ["cargo", "build", "--release"]
+            # Use full path to cargo binary
+            cargo_home = directories.get("cargo_home", "/usr/local/cargo")
+            cargo_bin = os.path.join(cargo_home, "bin", "cargo")
+            
+            build_cmd = [cargo_bin, "build", "--release"]
             if features_arg:
                 build_cmd.append(features_arg)
             
-            result = subprocess.run(build_cmd, cwd=src_dir, capture_output=True, text=True)
+            # Set up environment for cargo build
+            build_env = os.environ.copy()
+            build_env["CARGO_HOME"] = cargo_home
+            
+            result = subprocess.run(build_cmd, cwd=src_dir, capture_output=True, text=True, env=build_env)
             
             if result.returncode != 0:
                 log_message(f"Failed to build Vaultwarden: {result.stderr}", "ERROR")
