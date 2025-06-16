@@ -210,7 +210,8 @@ def update_venv(venv_name, venv_cfg):
         venv_name: Name of the virtual environment
         venv_cfg: Configuration dictionary for the venv
     Returns:
-        bool: True if update succeeded, False otherwise
+        tuple: (success: bool, packages_updated: bool) - success indicates no errors, 
+               packages_updated indicates whether pip install/upgrade was actually executed
     """
     venv_path = venv_cfg["path"]
     requirements_source = venv_cfg.get("requirements_source")
@@ -247,7 +248,7 @@ def update_venv(venv_name, venv_cfg):
         result = subprocess.run(venv_cmd, capture_output=True, text=True)
         if result.returncode != 0:
             log_message(f"Failed to create venv: {result.stderr}", "ERROR")
-            return False
+            return False, False
         log_message(f"Created virtual environment at {venv_path}")
         venv_created = True
 
@@ -255,7 +256,7 @@ def update_venv(venv_name, venv_cfg):
     activate_script = os.path.join(venv_path, "bin", "activate")
     if not os.path.isfile(activate_script):
         log_message(f"Activation script not found at {activate_script}", "ERROR")
-        return False
+        return False, False
 
     # Check if packages already match requirements (skip if venv was just created)
     needs_update = venv_created
@@ -279,7 +280,7 @@ def update_venv(venv_name, venv_cfg):
             
             if not pip_needs_upgrade:
                 log_message(f"  No updates needed for {venv_name}")
-                return True
+                return True, False  # Success but no packages updated
         else:
             needs_update = True
             if missing_packages:
@@ -297,23 +298,26 @@ def update_venv(venv_name, venv_cfg):
                     log_message(f"    ... and {len(version_mismatches) - 3} more")
 
     if not needs_update and not pip_needs_upgrade:
-        return True
+        return True, False  # Success but no packages updated
 
     # Perform updates
     log_message(f"Updating virtual environment: {venv_name}")
     
     # Build pip install command
     pip_cmd = f". '{activate_script}'; "
+    packages_will_be_updated = False
     
     if upgrade_pip or pip_needs_upgrade:
         log_message(f"  Upgrading pip for {venv_name}")
         pip_cmd += "pip install --upgrade pip; "
+        packages_will_be_updated = True
     
     if packages and needs_update:
         log_message(f"  Installing/upgrading {len(packages)} packages")
         pip_cmd += "pip install --upgrade "
         pip_cmd += " ".join(f"'{pkg}'" for pkg in packages)
         pip_cmd += "; "
+        packages_will_be_updated = True
     
     pip_cmd += "deactivate"
 
@@ -330,7 +334,7 @@ def update_venv(venv_name, venv_cfg):
         )
         if result.returncode != 0:
             log_message(f"Failed to update venv {venv_name}: {result.stderr}", "ERROR")
-            return False
+            return False, False
         
         log_message(f"Successfully updated {venv_name}")
         if result.stdout.strip():
@@ -338,12 +342,12 @@ def update_venv(venv_name, venv_cfg):
         
     except subprocess.TimeoutExpired:
         log_message(f"Timeout ({timeout}s) updating venv {venv_name}", "ERROR")
-        return False
+        return False, False
     except Exception as e:
         log_message(f"Error updating venv {venv_name}: {e}", "ERROR")
-        return False
+        return False, False
 
-    return True
+    return True, packages_will_be_updated
 
 def verify_venv(venv_name, venv_cfg):
     """
@@ -599,15 +603,12 @@ def main(args=None):
         for venv_name, venv_cfg in venvs_config.items():
             log_message(f"Processing {venv_name}...")
             
-            # Track if this venv was expected to need updates
-            expected_update = venv_name in venvs_needing_updates
-            
-            success = update_venv(venv_name, venv_cfg)
+            success, packages_updated = update_venv(venv_name, venv_cfg)
             results[venv_name] = success
             
             if not success:
                 failed_venvs.append(venv_name)
-            elif expected_update:
+            elif packages_updated:  # Only count as actually updated if packages were installed/upgraded
                 actually_updated.append(venv_name)
             
             log_message("----------------------------------------")
