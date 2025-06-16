@@ -57,7 +57,8 @@ __all__ = [
     'compare_schema_versions',
     'sync_from_repo',
     'detect_module_updates',
-    'update_modules'
+    'update_modules',
+    'get_branch_from_index'
 ]
 
 def load_module_index(module_path: str) -> Optional[Dict[str, Any]]:
@@ -134,7 +135,7 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
             shutil.rmtree(local_path)
         
         # Clone repository fresh
-        log_message(f"Cloning repository {repo_url} to {local_path}")
+        log_message(f"Cloning repository {repo_url} (branch: {branch}) to {local_path}")
         result = subprocess.run(
             ["git", "clone", "-b", branch, repo_url, local_path],
             capture_output=True,
@@ -150,6 +151,21 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
     except Exception as e:
         log_message(f"Sync failed: {e}", "ERROR")
         return False
+
+def get_branch_from_index(index_data: dict) -> str:
+    """
+    Extract branch configuration from index.json data.
+    
+    Args:
+        index_data: Loaded index.json data
+        
+    Returns:
+        str: Branch name, defaults to "master" if not specified
+    """
+    if not index_data:
+        return "master"
+    
+    return index_data.get("metadata", {}).get("branch", "master")
 
 def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> List[str]:
     """

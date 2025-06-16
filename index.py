@@ -55,7 +55,8 @@ def load_global_index(modules_path: str) -> dict:
     return {
         "metadata": {
             "schema_version": "1.0.0",
-            "channel": "stable"
+            "channel": "stable",
+            "branch": "master"
         },
         "packages": {}
     }
@@ -385,7 +386,7 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     return results
 
 async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = None, 
-                                 modules_path: str = None, branch: str = "master") -> dict:
+                                 modules_path: str = None, branch: str = None) -> dict:
     """
     Main orchestrator for schema-version based updates.
     
@@ -402,7 +403,7 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         repo_url: Git repository URL containing updates
         local_repo_path: Local path to clone/sync repository
         modules_path: Path to local modules directory
-        branch: Git branch to sync from
+        branch: Git branch to sync from (if None, reads from index.json)
         
     Returns:
         dict: Results of the update process including both schema updates and executions
@@ -412,8 +413,14 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
     local_repo_path = local_repo_path or DEFAULT_LOCAL_PATH
     modules_path = modules_path or DEFAULT_MODULES_PATH
     
+    # Load branch from global index if not provided
+    if branch is None:
+        global_index = load_global_index(modules_path)
+        branch = global_index.get("metadata", {}).get("branch", "master")
+    
     log_message("Starting schema-based update orchestration")
     log_message(f"Repository: {repo_url}")
+    log_message(f"Branch: {branch}")
     log_message(f"Local modules: {modules_path}")
     log_message(f"Sync path: {local_repo_path}")
     
@@ -893,8 +900,8 @@ def main():
                        help="Local path to sync repository")
     parser.add_argument("--modules-path", default=DEFAULT_MODULES_PATH,
                        help="Path to local modules directory")
-    parser.add_argument("--branch", default="master",
-                       help="Git branch to sync from")
+    parser.add_argument("--branch", default=None,
+                       help="Git branch to sync from (default: read from index.json)")
     parser.add_argument("--legacy", action="store_true",
                        help="Use legacy manifest-based updates")
     parser.add_argument("--check-only", action="store_true",
