@@ -100,9 +100,10 @@ def get_gogs_version():
         
         result = subprocess.run([bin_path, "--version"], capture_output=True, text=True, check=False)
         if result.returncode == 0:
+            # Output format: "Gogs version X.Y.Z"
             version_parts = result.stdout.strip().split()
-            if len(version_parts) >= 2:
-                return version_parts[1]
+            if len(version_parts) >= 3 and version_parts[1] == "version":
+                return version_parts[2]
         return None
     except Exception as e:
         log_message(f"Warning: Failed to detect Gogs version: {e}")
