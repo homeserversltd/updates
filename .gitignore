@@ -59,7 +59,7 @@ logs/
 *.backup
 *.bak
 *.orig
-
+_old/
 # Test artifacts
 .pytest_cache/
 .coverage

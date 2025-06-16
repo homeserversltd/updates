@@ -347,7 +347,7 @@ def update_vaultwarden():
             log_message("Cloning Vaultwarden repository...")
             
             result = subprocess.run([
-                "git", "clone", "--depth", "1", "--branch", f"v{latest_version}",
+                "git", "clone", "--depth", "1", "--branch", latest_version,
                 "https://github.com/dani-garcia/vaultwarden.git", src_dir
             ], capture_output=True, text=True)
             
