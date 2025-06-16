@@ -114,15 +114,28 @@ def upgrade_packages_batch(packages: List[str]) -> bool:
         
         # Build upgrade command with specific packages
         upgrade_cmd = MODULE_CONFIG["config"]["package_manager"]["upgrade_command"] + packages
-        subprocess.run(upgrade_cmd, check=True, capture_output=True, text=True)
+        
+        # Use DEBIAN_FRONTEND=noninteractive to prevent hanging on prompts
+        env = os.environ.copy()
+        env['DEBIAN_FRONTEND'] = 'noninteractive'
+        
+        # Don't capture output so we can see progress, add timeout to prevent infinite hanging
+        log_message(f"Running: {' '.join(upgrade_cmd)}")
+        result = subprocess.run(
+            upgrade_cmd, 
+            check=True, 
+            env=env,
+            timeout=1800  # 30 minute timeout for batch upgrades
+        )
         
         log_message(f"Successfully upgraded {len(packages)} packages")
         return True
         
+    except subprocess.TimeoutExpired:
+        log_message(f"Batch upgrade timed out after 30 minutes", "ERROR")
+        return False
     except subprocess.CalledProcessError as e:
         log_message(f"Failed to upgrade batch: {e}", "ERROR")
-        if e.stderr:
-            log_message(f"Error details: {e.stderr.strip()}", "ERROR")
         return False
 
 def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
