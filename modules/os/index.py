@@ -19,13 +19,45 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 OS Update Module
 
-Simple operating system update management - just apt update && apt upgrade.
+Operating system update management with batch processing for large package sets.
 """
 
 import subprocess
 import sys
 import json
+import os
 from typing import Dict, Any, List, Optional
+
+def load_module_config():
+    """Load configuration from the module's index.json file."""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "index.json")
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        log_message(f"Failed to load module config: {e}", "WARNING")
+        # Return default configuration
+        return {
+            "metadata": {
+                "schema_version": "1.0.3",
+                "module_name": "os"
+            },
+            "config": {
+                "package_manager": {
+                    "update_command": ["apt", "update"],
+                    "upgrade_command": ["apt", "upgrade", "-y"],
+                    "autoremove_command": ["apt", "autoremove", "-y"],
+                    "clean_command": ["apt", "autoclean"],
+                    "list_upgradable_command": ["apt", "list", "--upgradable"]
+                },
+                "safety": {
+                    "max_upgrade_count": 100
+                }
+            }
+        }
+
+# Load module configuration
+MODULE_CONFIG = load_module_config()
 
 def log_message(message: str, level: str = "INFO"):
     """Simple logging function"""
@@ -45,22 +77,57 @@ def run_command(command: List[str]) -> subprocess.CompletedProcess:
             log_message(f"Error: {e.stderr.strip()}", "ERROR")
         raise
 
+def get_upgradable_packages() -> List[str]:
+    """Get list of upgradable package names"""
+    try:
+        cmd = MODULE_CONFIG["config"]["package_manager"]["list_upgradable_command"]
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        
+        packages = []
+        lines = result.stdout.strip().split('\n')
+        
+        # Skip header line and parse package names
+        for line in lines[1:]:  # Skip "Listing..." header
+            if line.strip() and '[upgradable' in line:
+                # Extract package name (first part before /)
+                package_name = line.split('/')[0].strip()
+                if package_name:
+                    packages.append(package_name)
+        
+        log_message(f"Found {len(packages)} upgradable packages")
+        return packages
+    except subprocess.CalledProcessError:
+        log_message("Failed to get upgradable packages list", "ERROR")
+        return []
+
 def count_upgradable_packages() -> int:
     """Count number of upgradable packages"""
+    return len(get_upgradable_packages())
+
+def upgrade_packages_batch(packages: List[str]) -> bool:
+    """Upgrade a specific batch of packages"""
     try:
-        result = run_command(["apt", "list", "--upgradable"])
-        # Subtract 1 to exclude the header line
-        lines = result.stdout.strip().split('\n')
-        count = len(lines) - 1 if len(lines) > 1 else 0
-        log_message(f"Found {count} upgradable packages")
-        return count
-    except subprocess.CalledProcessError:
-        log_message("Failed to count upgradable packages", "ERROR")
-        return 0
+        if not packages:
+            return True
+            
+        log_message(f"Upgrading batch of {len(packages)} packages: {', '.join(packages[:5])}{'...' if len(packages) > 5 else ''}")
+        
+        # Build upgrade command with specific packages
+        upgrade_cmd = MODULE_CONFIG["config"]["package_manager"]["upgrade_command"] + packages
+        subprocess.run(upgrade_cmd, check=True, capture_output=True, text=True)
+        
+        log_message(f"Successfully upgraded {len(packages)} packages")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        log_message(f"Failed to upgrade batch: {e}", "ERROR")
+        if e.stderr:
+            log_message(f"Error details: {e.stderr.strip()}", "ERROR")
+        return False
 
 def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
     """
-    Main entry point for OS updates
+    Main entry point for OS updates with batch processing
     
     Args:
         args: Command line arguments
@@ -86,6 +153,8 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
         "success": False,
         "updated": False,
         "upgradable": 0,
+        "batches_processed": 0,
+        "total_upgraded": 0,
         "error": None
     }
     
@@ -97,44 +166,88 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
             result["error"] = "apt package manager not found"
             return result
         
-        # Count upgradable packages before update
-        upgradable_before = count_upgradable_packages()
-        result["upgradable"] = upgradable_before
+        # Update package lists first
+        log_message("Updating package lists...")
+        update_cmd = MODULE_CONFIG["config"]["package_manager"]["update_command"]
+        run_command(update_cmd)
         
-        # Safety check - don't upgrade if too many packages
-        if upgradable_before > 100:
-            result["error"] = f"Too many packages to upgrade ({upgradable_before} > 100)"
-            log_message(result["error"], "ERROR")
-            return result
+        # Get list of upgradable packages
+        upgradable_packages = get_upgradable_packages()
+        upgradable_count = len(upgradable_packages)
+        result["upgradable"] = upgradable_count
         
-        if upgradable_before == 0:
+        if upgradable_count == 0:
             log_message("No packages to upgrade")
             result["success"] = True
             result["updated"] = False
             return result
         
-        # Update package lists
-        log_message("Updating package lists...")
-        run_command(["apt", "update"])
+        # Get safety threshold
+        max_upgrade_count = MODULE_CONFIG["config"]["safety"]["max_upgrade_count"]
         
-        # Upgrade packages
-        log_message(f"Upgrading {upgradable_before} packages...")
-        run_command(["apt", "upgrade", "-y"])
+        # Process packages in batches if needed
+        if upgradable_count > max_upgrade_count:
+            log_message(f"Large number of packages ({upgradable_count}) detected. Processing in batches of {max_upgrade_count}")
+            
+            total_upgraded = 0
+            batch_number = 0
+            
+            # Process packages in chunks
+            for i in range(0, upgradable_count, max_upgrade_count):
+                batch_number += 1
+                batch_packages = upgradable_packages[i:i + max_upgrade_count]
+                
+                log_message(f"Processing batch {batch_number}: {len(batch_packages)} packages")
+                
+                if upgrade_packages_batch(batch_packages):
+                    total_upgraded += len(batch_packages)
+                    result["batches_processed"] += 1
+                    log_message(f"Batch {batch_number} completed successfully")
+                else:
+                    log_message(f"Batch {batch_number} failed", "ERROR")
+                    result["error"] = f"Failed to upgrade batch {batch_number}"
+                    break
+                
+                # Update package lists between batches to get current state
+                if i + max_upgrade_count < upgradable_count:
+                    log_message("Updating package lists between batches...")
+                    run_command(update_cmd)
+                    
+                    # Refresh the remaining packages list
+                    remaining_packages = get_upgradable_packages()
+                    if not remaining_packages:
+                        log_message("All packages upgraded during batch processing")
+                        break
+                    
+                    # Update the packages list for next iteration
+                    upgradable_packages = remaining_packages
+                    upgradable_count = len(remaining_packages)
+            
+            result["total_upgraded"] = total_upgraded
+            
+        else:
+            # Standard upgrade for smaller package sets
+            log_message(f"Upgrading {upgradable_count} packages...")
+            upgrade_cmd = MODULE_CONFIG["config"]["package_manager"]["upgrade_command"]
+            run_command(upgrade_cmd)
+            result["total_upgraded"] = upgradable_count
+            result["batches_processed"] = 1
         
-        # Remove unused packages
+        # Post-upgrade cleanup
         log_message("Removing unused packages...")
-        run_command(["apt", "autoremove", "-y"])
+        autoremove_cmd = MODULE_CONFIG["config"]["package_manager"]["autoremove_command"]
+        run_command(autoremove_cmd)
         
-        # Clean package cache
         log_message("Cleaning package cache...")
-        run_command(["apt", "autoclean"])
+        clean_cmd = MODULE_CONFIG["config"]["package_manager"]["clean_command"]
+        run_command(clean_cmd)
         
-        # Check if upgrade was successful
+        # Check final state
         upgradable_after = count_upgradable_packages()
+        result["upgradable_after"] = upgradable_after
         
         result["success"] = True
         result["updated"] = True
-        result["upgradable_after"] = upgradable_after
         
         if upgradable_after == 0:
             log_message("All packages upgraded successfully")
