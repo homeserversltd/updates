@@ -1,8 +1,8 @@
 {
     "metadata": {
-        "schema_version": "1.0.5",
+        "schema_version": "1.0.6",
         "module_name": "os",
-        "description": "Operating system update module",
+        "description": "Operating system update module with intelligent repair",
         "enabled": true
     },
     "config": {

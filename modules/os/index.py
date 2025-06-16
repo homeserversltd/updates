@@ -138,6 +138,73 @@ def upgrade_packages_batch(packages: List[str]) -> bool:
         log_message(f"Failed to upgrade batch: {e}", "ERROR")
         return False
 
+def repair_package_system() -> bool:
+    """Detect and repair common package system issues"""
+    try:
+        log_message("Checking package system health...")
+        
+        # Check for interrupted dpkg operations
+        try:
+            result = subprocess.run(
+                ["dpkg", "--audit"], 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
+            if result.stdout.strip():
+                log_message("Found interrupted dpkg operations, attempting repair...")
+                log_message("Running: dpkg --configure -a")
+                subprocess.run(["dpkg", "--configure", "-a"], check=True)
+                log_message("Successfully repaired interrupted dpkg operations")
+        except subprocess.CalledProcessError:
+            log_message("dpkg --configure -a failed, continuing anyway", "WARNING")
+        
+        # Check for broken packages
+        try:
+            result = subprocess.run(
+                ["apt", "check"], 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
+        except subprocess.CalledProcessError as e:
+            if "broken packages" in str(e.stderr).lower():
+                log_message("Found broken packages, attempting repair...")
+                log_message("Running: apt --fix-broken install")
+                try:
+                    env = os.environ.copy()
+                    env['DEBIAN_FRONTEND'] = 'noninteractive'
+                    subprocess.run(
+                        ["apt", "--fix-broken", "install", "-y"], 
+                        check=True, 
+                        env=env
+                    )
+                    log_message("Successfully repaired broken packages")
+                except subprocess.CalledProcessError:
+                    log_message("Failed to repair broken packages", "ERROR")
+                    return False
+        
+        # Check for held packages that might cause issues
+        try:
+            result = subprocess.run(
+                ["apt-mark", "showhold"], 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
+            if result.stdout.strip():
+                held_packages = result.stdout.strip().split('\n')
+                log_message(f"Found {len(held_packages)} held packages: {', '.join(held_packages)}")
+        except subprocess.CalledProcessError:
+            pass  # apt-mark might not be available
+        
+        log_message("Package system health check completed")
+        return True
+        
+    except Exception as e:
+        log_message(f"Package system repair failed: {e}", "ERROR")
+        return False
+
 def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Main entry point for OS updates with batch processing
@@ -168,7 +235,8 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
         "upgradable": 0,
         "batches_processed": 0,
         "total_upgraded": 0,
-        "error": None
+        "error": None,
+        "repairs_performed": False
     }
     
     try:
@@ -178,6 +246,12 @@ def main(args: Optional[List[str]] = None) -> Dict[str, Any]:
         except subprocess.CalledProcessError:
             result["error"] = "apt package manager not found"
             return result
+        
+        # Repair package system before attempting updates
+        if not repair_package_system():
+            result["error"] = "Failed to repair package system"
+            return result
+        result["repairs_performed"] = True
         
         # Update package lists first
         log_message("Updating package lists...")
