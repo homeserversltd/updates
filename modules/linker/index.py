@@ -127,18 +127,28 @@ class LinkerUpdater:
     def _backup_current_installation(self) -> bool:
         """Create backup of current installation using StateManager."""
         try:
-            # Collect all target paths for backup, excluding venv directories
+            # Collect all target paths for backup
             components = self.config['config']['target_paths']['components']
             backup_files = []
+            temp_dir = None
             
             for component_name, component_config in components.items():
                 if component_config.get('enabled', False):
                     target_path = component_config['target_path']
                     if os.path.exists(target_path):
                         if component_name == "library":
-                            # For library component, backup everything except venv
-                            log_message(f"Backing up library component, excluding venv directory")
-                            backup_files.append(target_path)
+                            # For library component, create a temporary copy excluding venv
+                            log_message(f"Creating temporary backup of library excluding venv directory")
+                            temp_dir = tempfile.mkdtemp(prefix="linker_backup_")
+                            temp_library_path = os.path.join(temp_dir, "linker_library")
+                            
+                            # Copy library excluding venv, __pycache__, etc.
+                            shutil.copytree(
+                                target_path, 
+                                temp_library_path,
+                                ignore=shutil.ignore_patterns('venv', '__pycache__', '*.pyc', '*.log', '.git')
+                            )
+                            backup_files.append(temp_library_path)
                         else:
                             # For other components, backup as-is
                             backup_files.append(target_path)
@@ -151,9 +161,13 @@ class LinkerUpdater:
             backup_success = self.state_manager.backup_module_state(
                 module_name="linker",
                 description="Pre-linker-update backup",
-                files=backup_files,
-                exclude_patterns=['venv', '__pycache__', '*.pyc', '*.log']
+                files=backup_files
             )
+            
+            # Clean up temporary directory
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                log_message("Cleaned up temporary backup directory")
             
             if backup_success:
                 log_message("Linker backup created successfully")
@@ -164,6 +178,12 @@ class LinkerUpdater:
                 
         except Exception as e:
             log_message(f"Backup failed: {e}", "ERROR")
+            # Clean up temporary directory on error
+            if 'temp_dir' in locals() and temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception:
+                    pass
             return False
     
     def _update_components(self, source_dir: str) -> bool:
