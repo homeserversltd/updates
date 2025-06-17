@@ -14,6 +14,7 @@
         "vaultwarden": "1.0.0",
         "venvs": "1.0.0",
         "website": "1.0.0",
-        "hotfix": "1.0.0"
+        "hotfix": "1.0.0",
+        "linker": "1.0.0"
     }
 }
