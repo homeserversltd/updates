@@ -370,35 +370,6 @@ def get_atuin_version():
         log_message(f"Warning: Failed to detect Atuin version: {e}")
         return None
 
-def update_config_version():
-    """Update Atuin version in index.json with detected version."""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), "index.json")
-        
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
-        
-        current_version = get_atuin_version()
-        if not current_version:
-            log_message("Warning: Could not detect Atuin version - keeping existing config")
-            return False
-        
-        old_version = config_data.get('metadata', {}).get('atuin_version', 'unknown')
-        config_data['metadata']['atuin_version'] = current_version
-        
-        with open(config_path, 'w') as f:
-            json.dump(config_data, f, indent=4)
-        
-        if old_version != current_version:
-            log_message(f"Updated Atuin version in config: {old_version} → {current_version}")
-        else:
-            log_message(f"Atuin version confirmed: {current_version}")
-        
-        return True
-    except Exception as e:
-        log_message(f"Warning: Failed to update config version: {e}")
-        return False
-
 def check_atuin_version(bin_path):
     """
     Check the current version of Atuin if installed at bin_path.
@@ -542,28 +513,14 @@ def main(args=None):
     """
     Main entry point for Atuin update module.
     Args:
-        args: List of arguments (supports '--version', '--check', '--verify', '--config')
+        args: List of arguments (supports '--check', '--verify', '--config')
     Returns:
         dict: Status and results of the update
     """
     if args is None:
         args = []
     
-    # Handle command line arguments first
-    if args and len(args) > 0:
-        if args[0] == "--version":
-            version = get_atuin_version()
-            if version:
-                log_message(f"Detected Atuin version: {version}")
-                return {"success": True, "version": version}
-            else:
-                log_message("Could not detect Atuin version")
-                return {"success": False, "error": "Version detection failed"}
-    
     log_message("Starting Atuin module update...")
-    
-    # Update Atuin version in configuration
-    update_config_version()
     
     SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
     admin_user = get_admin_user()

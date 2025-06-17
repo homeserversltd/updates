@@ -18,7 +18,6 @@ The adblock module manages network-level ad blocking for HOMESERVER by maintaini
 {
     "metadata": {
         "schema_version": "1.1.0",     // Update trigger
-        "unbound_version": "1.19.0",   // Target Unbound version
         "module_name": "adblock",      // Module identifier
         "description": "Adblock module for Unbound DNS",
         "enabled": true                // Module status
@@ -40,55 +39,29 @@ The adblock module manages network-level ad blocking for HOMESERVER by maintaini
 - **`blocklist_path`**: Final location for the generated blocklist configuration
 - **`sources`**: Dictionary of blocklist sources with descriptive names and URLs
 
-### Automatic Version Detection
-
-The `unbound_version` field is **automatically updated** on each module run:
-
-1. **Detection Methods**:
-   - Primary: `unbound -V` command output parsing
-   - Fallback: `dpkg-query` for Debian/Ubuntu systems
-
-2. **Version Normalization**:
-   - Extracts clean version numbers (e.g., `1.17.1-2ubuntu0.1` → `1.17.1`)
-   - Handles different package manager formats
-
-3. **Configuration Update**:
-   - Updates `index.json` with detected version
-   - Logs version changes for tracking
-
-4. **Command Line Access**:
-   ```bash
-   python3 index.py --version  # Check current Unbound version
-   ```
-
 ## Operation Flow
 
-### 1. Version Detection & Config Update
+### 1. Configuration Loading
 ```python
-update_config_version()  # Detect and update Unbound version
+config = load_config()  # Reads index.json
 ```
 
-### 2. Configuration Loading
-```python
-config = load_config()  # Reads updated index.json
-```
-
-### 3. Source Download
+### 2. Source Download
 - Downloads Steven Black's unified hosts file (hosts format)
 - Downloads NoTracking's Unbound blacklist (Unbound format)
 - Creates empty files if downloads fail (graceful degradation)
 
-### 4. Format Processing
+### 3. Format Processing
 - **Hosts Format**: Converts `0.0.0.0 domain.com` → `local-zone: "domain.com" always_nxdomain`
 - **Unbound Format**: Uses directly (already in correct format)
 
-### 5. List Combination
+### 4. List Combination
 - **Domain-Level Deduplication**: Extracts and normalizes domains from both sources
 - **Format Normalization**: Handles trailing dots, case differences, and action types
 - **Intelligent Merging**: Combines `always_null` and `always_nxdomain` entries
 - **Sorted Output**: Generates consistent, alphabetically sorted blocklist
 
-### 6. Safe Installation
+### 5. Safe Installation
 - Creates backup using StateManager before changes
 - Installs new blocklist atomically
 - Restarts Unbound service if active
@@ -140,7 +113,6 @@ adblock/
 - **Return Value**: 
   - `True` for successful updates
   - `False` for failed updates
-  - Dictionary with `{"success": bool, "version": str}` for version checks
 - **Logging**: Uses `[adblock]` prefix for all messages
 
 ### System Dependencies
@@ -167,11 +139,8 @@ adblock/
 ```bash
 cd /usr/local/lib/updates/modules/adblock
 
-# Full blocklist update with automatic version detection
+# Full blocklist update
 python3 index.py
-
-# Check current Unbound version only
-python3 index.py --version
 ```
 
 ### Manual Update
@@ -192,7 +161,6 @@ print(f"Adblock update: {'success' if result else 'failed'}")
 
 ### Log Messages
 ```
-[adblock] Updated Unbound version in config: 1.17.1 → 1.19.0
 [adblock] Starting adblock update...
 [adblock] Downloading blocklists...
 [adblock] Processing hosts file...

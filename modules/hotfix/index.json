@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.2",
+        "schema_version": "0.1.2",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },

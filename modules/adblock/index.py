@@ -26,77 +26,6 @@ from pathlib import Path
 from updates.utils.state_manager import StateManager
 
 
-def get_unbound_version():
-    """
-    Detect the currently installed Unbound version.
-    Returns:
-        str: Version string or None if not installed/detectable
-    """
-    try:
-        # Try unbound -V first (most reliable)
-        result = subprocess.run(["unbound", "-V"], capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            # Parse version from output like "Version 1.17.1"
-            for line in result.stdout.split('\n'):
-                if line.startswith('Version '):
-                    return line.split()[1]
-        
-        # Fallback: try package manager version
-        # Check dpkg for Debian/Ubuntu systems
-        result = subprocess.run(["dpkg-query", "--showformat='${Version}'", "--show", "unbound"], 
-                              capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            version = result.stdout.strip().strip("'")
-            # Extract just the version number (remove debian package suffixes)
-            if version and not version.startswith("dpkg-query"):
-                # Handle versions like "1.17.1-2ubuntu0.1" -> "1.17.1"
-                return version.split('-')[0]
-        
-        return None
-    except Exception as e:
-        log(f"Warning: Failed to detect Unbound version: {e}")
-        return None
-
-
-def update_config_version():
-    """
-    Update the unbound_version field in index.json with the currently installed version.
-    Returns:
-        bool: True if updated successfully, False otherwise
-    """
-    try:
-        config_path = Path(__file__).parent / "index.json"
-        
-        # Load current config
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
-        
-        # Get current Unbound version
-        current_version = get_unbound_version()
-        if not current_version:
-            log("Warning: Could not detect Unbound version - keeping existing config")
-            return False
-        
-        # Update version in config
-        old_version = config_data.get('metadata', {}).get('unbound_version', 'unknown')
-        config_data['metadata']['unbound_version'] = current_version
-        
-        # Write updated config back
-        with open(config_path, 'w') as f:
-            json.dump(config_data, f, indent=4)
-        
-        if old_version != current_version:
-            log(f"Updated Unbound version in config: {old_version} → {current_version}")
-        else:
-            log(f"Unbound version confirmed: {current_version}")
-        
-        return True
-        
-    except Exception as e:
-        log(f"Warning: Failed to update config version: {e}")
-        return False
-
-
 def load_config():
     """Load configuration from index.json file."""
     config_path = Path(__file__).parent / "index.json"
@@ -238,24 +167,10 @@ def install_cron_job():
 
 
 def main(args=None):
-    # Handle command line arguments
-    if args and len(args) > 0:
-        if args[0] == "--version":
-            version = get_unbound_version()
-            if version:
-                log(f"Detected Unbound version: {version}")
-                return {"success": True, "version": version}
-            else:
-                log("Could not detect Unbound version")
-                return {"success": False, "error": "Version detection failed"}
-    
     log("Starting adblock update...")
     
     # Install/update cron job
     install_cron_job()
-    
-    # Update Unbound version in configuration
-    update_config_version()
     
     # Load configuration from index.json
     config = load_config()

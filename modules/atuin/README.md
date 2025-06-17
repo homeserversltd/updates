@@ -14,7 +14,6 @@ The Atuin update module provides comprehensive management of the Atuin shell his
 {
     "metadata": {
         "schema_version": "1.0.0",
-        "atuin_version": "1.19.0",
         "module_name": "atuin",
         "description": "Atuin shell history management tool"
     },
