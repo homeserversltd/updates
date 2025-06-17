@@ -25,10 +25,4 @@ This update management system is part of the HOMESERVER platform but is
 separately licensed under GPL v3 to encourage community contribution and
 ensure that improvements to the update infrastructure benefit all users.
 
-The core HOMESERVER platform (website backend and frontend) remains under
-the Business Source License with a 3-year grace period.
-
-For the complete licensing terms of the HOMESERVER platform, see:
-docs/LICENSE.md in the project root.
-
-Contact: legal@homeserver.com 
+contact: support@homeservers.ltd
