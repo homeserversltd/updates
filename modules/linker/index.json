@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.0",
+        "schema_version": "1.0.1",
         "module_name": "linker",
         "description": "HOMESERVER linker script suite update system via GitHub",
         "enabled": true
@@ -16,15 +16,15 @@
             "components": {
                 "scripts": {
                     "enabled": true,
-                    "source_path": "scripts",
-                    "target_path": "/usr/local/bin",
-                    "description": "Linker script suite executables"
+                    "source_path": "linker",
+                    "target_path": "/usr/local/bin/linker",
+                    "description": "Linker TUI executable script"
                 },
                 "config": {
                     "enabled": true,
-                    "source_path": "config",
-                    "target_path": "/etc/homeserver/linker",
-                    "description": "Linker configuration files"
+                    "source_path": "config.py",
+                    "target_path": "/etc/homeserver/linker/config.py",
+                    "description": "Linker configuration file"
                 }
             }
         }
