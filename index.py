@@ -137,7 +137,14 @@ def check_orchestrator_update(modules_path: str, repo_path: str) -> bool:
         return False
 
 def update_orchestrator(modules_path: str, repo_path: str) -> bool:
-    """Update the orchestrator system files from repository."""
+    """
+    Update the orchestrator system files from repository.
+    
+    This function preserves user-configured branch and channel preferences
+    when updating the orchestrator's index.json file. This ensures that
+    users who manually set a specific branch (e.g., 'develop', 'test')
+    will maintain their preference even after orchestrator updates.
+    """
     try:
         import shutil
         import tempfile
@@ -199,13 +206,41 @@ def update_orchestrator(modules_path: str, repo_path: str) -> bool:
             else:
                 log_message(f"File not found in repository: {file_name}", "WARNING")
         
-        # Update the index.json with new orchestrator version
+        # Update the index.json with new orchestrator version while preserving user branch preference
         repo_index_path = os.path.join(repo_path, "index.json")
         local_index_path = os.path.join(modules_path, "index.json")
         
         if os.path.exists(repo_index_path):
-            shutil.copy2(repo_index_path, local_index_path)
-            log_message("Updated: index.json")
+            # Preserve user's branch preference from local index
+            user_branch = None
+            user_channel = None
+            if os.path.exists(local_index_path):
+                try:
+                    with open(local_index_path, 'r') as f:
+                        local_index = json.load(f)
+                    user_branch = local_index.get("metadata", {}).get("branch")
+                    user_channel = local_index.get("metadata", {}).get("channel")
+                    log_message(f"Preserving user branch preference: {user_branch}")
+                except Exception as e:
+                    log_message(f"Warning: Could not read local index for branch preservation: {e}", "WARNING")
+            
+            # Load repository index and update with preserved user preferences
+            with open(repo_index_path, 'r') as f:
+                repo_index = json.load(f)
+            
+            # Preserve user's branch and channel preferences if they exist
+            if user_branch is not None:
+                repo_index["metadata"]["branch"] = user_branch
+                log_message(f"Preserved user branch: {user_branch}")
+            if user_channel is not None:
+                repo_index["metadata"]["channel"] = user_channel
+                log_message(f"Preserved user channel: {user_channel}")
+            
+            # Write the merged index with preserved user preferences
+            with open(local_index_path, 'w') as f:
+                json.dump(repo_index, f, indent=4)
+            
+            log_message("Updated: index.json (with preserved user preferences)")
         
         log_message("Orchestrator update completed successfully")
         return True
