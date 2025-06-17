@@ -187,7 +187,63 @@ def get_current_version():
             log_message(f"Vaultwarden binary not found at {binary_path}", "DEBUG")
             return None
         
-        # Method 1: Check web vault version files (most reliable)
+        # Method 1: Try binary version command (most accurate for binary updates)
+        try:
+            result = subprocess.run([binary_path, "--version"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                log_message(f"Binary version output: '{output}'", "DEBUG")
+                
+                # Handle case where version info is not present
+                if "Version info from Git not present" in output:
+                    log_message("Binary version info not available from Git", "DEBUG")
+                    # Continue to other methods instead of returning unknown
+                else:
+                    # Try to parse version from output
+                    import re
+                    version_pattern = r'v?(\d+\.\d+\.\d+)'
+                    match = re.search(version_pattern, output)
+                    if match:
+                        binary_version = match.group(1)
+                        log_message(f"Found binary version: {binary_version}", "DEBUG")
+                        return binary_version
+        except Exception as e:
+            log_message(f"Failed to get binary version: {e}", "DEBUG")
+        
+        # Method 2: Check git repository if it still exists
+        src_dir = "/opt/vaultwarden/src"
+        if os.path.exists(os.path.join(src_dir, ".git")):
+            try:
+                result = subprocess.run(
+                    ["git", "describe", "--tags", "--always"],
+                    cwd=src_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    git_version = result.stdout.strip()
+                    if git_version:
+                        log_message(f"Found git version: {git_version}", "DEBUG")
+                        return git_version
+            except Exception as e:
+                log_message(f"Failed to get git version: {e}", "DEBUG")
+        
+        # Method 3: Check Cargo.toml version
+        cargo_toml = os.path.join(src_dir, "Cargo.toml")
+        if os.path.exists(cargo_toml):
+            try:
+                with open(cargo_toml, 'r') as f:
+                    for line in f:
+                        if line.strip().startswith('version = '):
+                            version = line.split('=')[1].strip().strip('"')
+                            if version and version != "1.0.0":  # Skip placeholder version
+                                log_message(f"Found Cargo.toml version: {version}", "DEBUG")
+                                return version
+            except Exception as e:
+                log_message(f"Failed to read Cargo.toml: {e}", "DEBUG")
+        
+        # Method 4: Check web vault version files (fallback only)
         web_vault_dir = directories.get("web_vault_dir", "/opt/vaultwarden/web-vault")
         
         # Try vw-version.json first (vaultwarden-specific version)
@@ -217,60 +273,6 @@ def get_current_version():
                         return version
             except Exception as e:
                 log_message(f"Failed to read version.json: {e}", "DEBUG")
-        
-        # Method 2: Check git repository if it still exists
-        src_dir = "/opt/vaultwarden/src"
-        if os.path.exists(os.path.join(src_dir, ".git")):
-            try:
-                result = subprocess.run(
-                    ["git", "describe", "--tags", "--always"],
-                    cwd=src_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                if result.returncode == 0:
-                    git_version = result.stdout.strip()
-                    if git_version:
-                        log_message(f"Found git version: {git_version}", "DEBUG")
-                        return git_version
-            except Exception as e:
-                log_message(f"Failed to get git version: {e}", "DEBUG")
-        
-        # Method 3: Check Cargo.toml version (fallback)
-        cargo_toml = os.path.join(src_dir, "Cargo.toml")
-        if os.path.exists(cargo_toml):
-            try:
-                with open(cargo_toml, 'r') as f:
-                    for line in f:
-                        if line.strip().startswith('version = '):
-                            version = line.split('=')[1].strip().strip('"')
-                            if version and version != "1.0.0":  # Skip placeholder version
-                                log_message(f"Found Cargo.toml version: {version}", "DEBUG")
-                                return version
-            except Exception as e:
-                log_message(f"Failed to read Cargo.toml: {e}", "DEBUG")
-        
-        # Method 4: Try binary version command (last resort)
-        try:
-            result = subprocess.run([binary_path, "--version"], capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                output = result.stdout.strip()
-                log_message(f"Binary version output: '{output}'", "DEBUG")
-                
-                # Handle case where version info is not present
-                if "Version info from Git not present" in output:
-                    log_message("Binary version info not available from Git", "DEBUG")
-                    return "unknown"
-                
-                # Try to parse version from output
-                import re
-                version_pattern = r'v?(\d+\.\d+\.\d+)'
-                match = re.search(version_pattern, output)
-                if match:
-                    return match.group(1)
-        except Exception as e:
-            log_message(f"Failed to get binary version: {e}", "DEBUG")
         
         # If we get here, vaultwarden is installed but version is unclear
         log_message("Vaultwarden is installed but version could not be determined", "WARNING")
