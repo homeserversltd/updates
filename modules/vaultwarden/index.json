@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.8",
+        "schema_version": "1.0.9",
         "module_name": "vaultwarden",
         "description": "Vaultwarden password manager",
         "enabled": true
@@ -25,7 +25,7 @@
             },
             "web_vault": {
                 "github_api_url": "https://api.github.com/repos/dani-garcia/bw_web_builds/releases/latest",
-                "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/v{version}/bw_web_{version}.tar.gz"
+                "download_template": "https://github.com/dani-garcia/bw_web_builds/releases/download/v{version}/bw_web_v{version}.tar.gz"
             },
             "temp_dir": "/tmp"
         }
