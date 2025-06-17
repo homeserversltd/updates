@@ -194,19 +194,28 @@ def get_current_version():
                 output = result.stdout.strip()
                 log_message(f"Binary version output: '{output}'", "DEBUG")
                 
-                # Handle case where version info is not present
-                if "Version info from Git not present" in output:
-                    log_message("Binary version info not available from Git", "DEBUG")
-                    # Continue to other methods instead of returning unknown
-                else:
-                    # Try to parse version from output
-                    import re
-                    version_pattern = r'v?(\d+\.\d+\.\d+)'
-                    match = re.search(version_pattern, output)
-                    if match:
-                        binary_version = match.group(1)
-                        log_message(f"Found binary version: {binary_version}", "DEBUG")
-                        return binary_version
+                # Try to parse version from output - handle multiple formats
+                import re
+                
+                # Pattern 1: "Vaultwarden X.Y.Z" (current format)
+                version_pattern1 = r'Vaultwarden\s+(\d+\.\d+\.\d+)'
+                match = re.search(version_pattern1, output)
+                if match:
+                    binary_version = match.group(1)
+                    log_message(f"Found binary version: {binary_version}", "DEBUG")
+                    return binary_version
+                
+                # Pattern 2: Generic "vX.Y.Z" or "X.Y.Z" (fallback)
+                version_pattern2 = r'v?(\d+\.\d+\.\d+)'
+                match = re.search(version_pattern2, output)
+                if match:
+                    binary_version = match.group(1)
+                    log_message(f"Found binary version (fallback pattern): {binary_version}", "DEBUG")
+                    return binary_version
+                
+                # If no version found but command succeeded, log for debugging
+                log_message(f"Binary version command succeeded but no version pattern matched: {output}", "DEBUG")
+                
         except Exception as e:
             log_message(f"Failed to get binary version: {e}", "DEBUG")
         
