@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.1",
+        "schema_version": "1.0.4",
         "module_name": "linker",
         "description": "HOMESERVER linker script suite update system via GitHub",
         "enabled": true
@@ -12,19 +12,18 @@
             "temp_directory": "/tmp/homeserver-linker-update"
         },
         "target_paths": {
-            "base_directory": "/usr/local/bin",
             "components": {
-                "scripts": {
+                "library": {
+                    "enabled": true,
+                    "source_path": ".",
+                    "target_path": "/usr/local/lib/linker",
+                    "description": "Complete linker Python library with all components"
+                },
+                "symlink": {
                     "enabled": true,
                     "source_path": "linker",
                     "target_path": "/usr/local/bin/linker",
-                    "description": "Linker TUI executable script"
-                },
-                "config": {
-                    "enabled": true,
-                    "source_path": "config.py",
-                    "target_path": "/etc/homeserver/linker/config.py",
-                    "description": "Linker configuration file"
+                    "description": "System-wide linker command symlink"
                 }
             }
         }

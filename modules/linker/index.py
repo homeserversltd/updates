@@ -172,31 +172,40 @@ class LinkerUpdater:
                 source_path = os.path.join(source_dir, component_config['source_path'])
                 target_path = component_config['target_path']
                 
-                if not os.path.exists(source_path):
-                    log_message(f"Source path {source_path} does not exist, skipping {component_name}", "WARNING")
-                    continue
-                
-                # Remove existing target if it's a directory
-                if os.path.exists(target_path) and os.path.isdir(target_path):
-                    shutil.rmtree(target_path)
-                elif os.path.exists(target_path):
-                    os.remove(target_path)
-                
-                # Ensure parent directory exists
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                
-                # Copy new content
-                if os.path.isdir(source_path):
-                    shutil.copytree(source_path, target_path)
-                else:
-                    shutil.copy2(source_path, target_path)
-                
-                # Preserve executable permissions for scripts
-                if component_name == "scripts":
-                    for root, dirs, files in os.walk(target_path):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            os.chmod(file_path, 0o755)  # rwxr-xr-x
+                # Handle special cases for different component types
+                if component_name == "library":
+                    # For the complete library, copy everything except .git and venv
+                    if not os.path.exists(source_dir):
+                        log_message(f"Source directory {source_dir} does not exist, skipping {component_name}", "WARNING")
+                        continue
+                    
+                    # Remove existing target directory
+                    if os.path.exists(target_path):
+                        shutil.rmtree(target_path)
+                    
+                    # Ensure parent directory exists
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    
+                    # Copy entire repository except .git and venv directories
+                    shutil.copytree(source_dir, target_path, ignore=shutil.ignore_patterns('.git', 'venv', '__pycache__', '*.pyc'))
+                    
+                    # Set up virtual environment and install dependencies
+                    self._setup_virtual_environment(target_path)
+                    
+                elif component_name == "symlink":
+                    # Handle symlink creation - point to the linker executable in the library
+                    source_executable = "/usr/local/lib/linker/linker"
+                    
+                    # Remove existing symlink/file
+                    if os.path.exists(target_path) or os.path.islink(target_path):
+                        os.remove(target_path)
+                    
+                    # Ensure parent directory exists
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    
+                    # Create symlink
+                    os.symlink(source_executable, target_path)
+                    log_message(f"Created symlink: {target_path} → {source_executable}")
                 
                 log_message(f"Updated {component_name}: {source_path} → {target_path}")
                 
@@ -219,6 +228,51 @@ class LinkerUpdater:
                 log_message("Linker rollback failed", "ERROR")
         except Exception as e:
             log_message(f"Error during rollback: {e}", "ERROR")
+    
+    def _setup_virtual_environment(self, target_path: str) -> bool:
+        """Set up virtual environment and install dependencies for the linker library."""
+        try:
+            venv_dir = os.path.join(target_path, "venv")
+            requirements_file = os.path.join(target_path, "requirements.txt")
+            setup_script = os.path.join(target_path, "setup_venv.sh")
+            
+            # Run the setup_venv.sh script if it exists
+            if os.path.exists(setup_script):
+                log_message("Running setup_venv.sh script")
+                success = self._execute_command(["/bin/bash", setup_script], cwd=target_path)
+                if success:
+                    log_message("Virtual environment setup completed successfully")
+                    return True
+                else:
+                    log_message("setup_venv.sh script failed, attempting manual setup", "WARNING")
+            
+            # Manual setup as fallback
+            log_message("Setting up virtual environment manually")
+            
+            # Create virtual environment
+            if not self._execute_command(["python3", "-m", "venv", venv_dir]):
+                log_message("Failed to create virtual environment", "ERROR")
+                return False
+            
+            # Install requirements if they exist
+            if os.path.exists(requirements_file):
+                pip_path = os.path.join(venv_dir, "bin", "pip")
+                if not self._execute_command([pip_path, "install", "--upgrade", "pip"]):
+                    log_message("Failed to upgrade pip", "WARNING")
+                
+                if not self._execute_command([pip_path, "install", "-r", requirements_file]):
+                    log_message("Failed to install requirements", "ERROR")
+                    return False
+                
+                log_message("Requirements installed successfully")
+            else:
+                log_message("No requirements.txt found, skipping dependency installation")
+            
+            return True
+            
+        except Exception as e:
+            log_message(f"Virtual environment setup failed: {e}", "ERROR")
+            return False
     
     def _cleanup_temp_directory(self, temp_dir: str) -> None:
         """Clean up temporary directory."""
