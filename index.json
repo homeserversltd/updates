@@ -1,8 +1,8 @@
 {
     "metadata": {
-        "schema_version": "1.0.8",
+        "schema_version": "1.0.9",
         "channel": "stable",
-        "branch": "test"
+        "branch": "master"
     },
     "packages": {
         "adblock": "1.0.0",
