@@ -373,7 +373,7 @@ async def async_update_check() -> dict:
 
 ### Common Issues
 1. **"Python orchestrator not found"**
-   - Verify `/var/local/lib/updates/index.py` exists
+   - Verify `/usr/local/lib/updates/index.py` exists
    - Check file permissions
 
 2. **Permission errors**
@@ -388,7 +388,7 @@ async def async_update_check() -> dict:
 ### Debug Mode
 For detailed troubleshooting, examine the Python orchestrator directly:
 ```bash
-python3 /var/local/lib/updates/index.py --verbose
+python3 /usr/local/lib/updates/index.py --verbose
 ```
 
 ## Version Compatibility

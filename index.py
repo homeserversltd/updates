@@ -1022,19 +1022,67 @@ def main():
             # Run new schema-based system
             if args.check_only:
                 log_message("Check-only mode: detecting updates without applying...")
-                # Just sync and detect, don't update
+                
+                # Step 1: Schema-level check (existing functionality)
+                schema_updates_available = []
                 if sync_from_repo(args.repo_url, args.local_repo, args.branch):
-                    repo_modules_path = os.path.join(args.local_repo, "updates")
+                    repo_modules_path = os.path.join(args.local_repo, "modules")
                     if not os.path.exists(repo_modules_path):
                         repo_modules_path = args.local_repo
                     
                     modules_to_update = detect_module_updates(args.modules_path, repo_modules_path)
+                    schema_updates_available = modules_to_update
+                    
                     if modules_to_update:
-                        log_message(f"Updates available for: {', '.join(modules_to_update)}")
+                        log_message("Schema updates available:")
+                        for module in modules_to_update:
+                            log_message(f"  - {module} (schema update needed)")
                     else:
-                        log_message("All modules are up to date")
+                        log_message("All module schemas are up to date")
                 else:
-                    log_message("Failed to sync repository for check", "ERROR")
+                    log_message("Failed to sync repository for schema check", "ERROR")
+                    return
+                
+                # Step 2: OS module content check (focused approach)
+                log_message("Checking OS module for available package updates...")
+                enabled_modules = get_enabled_modules(args.modules_path)
+                content_updates_available = []
+                
+                # Only check OS module for deeper content updates
+                if "os" in enabled_modules:
+                    try:
+                        # Import and run the OS module's check functionality
+                        from . import run_update
+                        check_result = run_update("modules.os", ["--check"])
+                        
+                        if isinstance(check_result, dict) and check_result.get("upgradable", 0) > 0:
+                            count = check_result.get("upgradable", 0)
+                            log_message(f"  - OS module: {count} packages available for upgrade")
+                            content_updates_available.append({
+                                "module": "os",
+                                "count": count,
+                                "details": check_result
+                            })
+                        else:
+                            log_message("  - OS module: No package updates available")
+                            
+                    except Exception as e:
+                        log_message(f"  - OS module check failed: {e}", "WARNING")
+                else:
+                    log_message("  - OS module not enabled, skipping package check")
+                
+                # Summary
+                log_message("Check summary:")
+                if schema_updates_available:
+                    log_message(f"  - Schema updates: {len(schema_updates_available)} modules")
+                if content_updates_available:
+                    total_content_items = sum(item["count"] for item in content_updates_available)
+                    log_message(f"  - Content updates: {total_content_items} items across {len(content_updates_available)} modules")
+                
+                if not schema_updates_available and not content_updates_available:
+                    log_message("  - No updates available")
+                else:
+                    log_message("  - Updates are available - run without --check to apply them")
             else:
                 # Full update process
                 if sys.version_info >= (3, 7):
