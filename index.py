@@ -61,7 +61,7 @@ def load_global_index(modules_path: str) -> dict:
         "packages": {}
     }
 
-def update_global_index(modules_path: str, updated_modules: list, orchestrator_updated: bool = False) -> bool:
+def update_global_index(modules_path: str, updated_modules: list, orchestrator_updated: bool = False, repo_modules_path: str = None) -> bool:
     """Update the global index.json with new module versions and orchestrator schema version."""
     try:
         index_file = os.path.join(modules_path, "index.json")
@@ -69,12 +69,34 @@ def update_global_index(modules_path: str, updated_modules: list, orchestrator_u
         
         # Update package versions based on updated modules
         for module_name in updated_modules:
-            module_path = os.path.join(modules_path, module_name)
-            module_index = load_module_index(module_path)
+            schema_version = "1.0.0"  # Default fallback
+            
+            # First try to get schema version from repository (what we actually deployed)
+            if repo_modules_path:
+                repo_search_path = repo_modules_path
+                if os.path.exists(os.path.join(repo_modules_path, "modules")):
+                    repo_search_path = os.path.join(repo_modules_path, "modules")
+                
+                repo_module_path = os.path.join(repo_search_path, module_name)
+                if os.path.exists(repo_module_path):
+                    repo_module_index = load_module_index(repo_module_path)
+                    if repo_module_index:
+                        schema_version = repo_module_index.get("metadata", {}).get("schema_version", "1.0.0")
+                        log_message(f"Updated global index: {module_name} → {schema_version} (from repository)")
+                        global_index["packages"][module_name] = schema_version
+                        continue
+            
+            # Fallback: get schema version from local module (what we actually have)
+            local_module_path = os.path.join(modules_path, "modules", module_name)
+            if not os.path.exists(local_module_path):
+                local_module_path = os.path.join(modules_path, module_name)
+            
+            module_index = load_module_index(local_module_path)
             if module_index:
                 schema_version = module_index.get("metadata", {}).get("schema_version", "1.0.0")
-                global_index["packages"][module_name] = schema_version
-                log_message(f"Updated global index: {module_name} → {schema_version}")
+                log_message(f"Updated global index: {module_name} → {schema_version} (from local)")
+            
+            global_index["packages"][module_name] = schema_version
         
         # Update orchestrator schema version if it was updated
         if orchestrator_updated:
@@ -578,7 +600,7 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         log_message("Step 6: Updating global index...")
         successful_updates = [module for module, success in results["modules_updated"].items() if success] if results["modules_updated"] else []
         if successful_updates:
-            results["global_index_updated"] = update_global_index(modules_path, successful_updates, False)
+            results["global_index_updated"] = update_global_index(modules_path, successful_updates, False, repo_modules_path)
         
         # Enhanced Summary with detailed module status reporting
         schema_updated_count = sum(1 for success in results["modules_updated"].values() if success) if results["modules_updated"] else 0
