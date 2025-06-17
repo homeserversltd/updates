@@ -127,7 +127,7 @@ class LinkerUpdater:
     def _backup_current_installation(self) -> bool:
         """Create backup of current installation using StateManager."""
         try:
-            # Collect all target paths for backup
+            # Collect all target paths for backup, excluding venv directories
             components = self.config['config']['target_paths']['components']
             backup_files = []
             
@@ -135,7 +135,13 @@ class LinkerUpdater:
                 if component_config.get('enabled', False):
                     target_path = component_config['target_path']
                     if os.path.exists(target_path):
-                        backup_files.append(target_path)
+                        if component_name == "library":
+                            # For library component, backup everything except venv
+                            log_message(f"Backing up library component, excluding venv directory")
+                            backup_files.append(target_path)
+                        else:
+                            # For other components, backup as-is
+                            backup_files.append(target_path)
             
             if not backup_files:
                 log_message("No files to backup")
@@ -145,7 +151,8 @@ class LinkerUpdater:
             backup_success = self.state_manager.backup_module_state(
                 module_name="linker",
                 description="Pre-linker-update backup",
-                files=backup_files
+                files=backup_files,
+                exclude_patterns=['venv', '__pycache__', '*.pyc', '*.log']
             )
             
             if backup_success:
