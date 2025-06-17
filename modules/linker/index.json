@@ -1,0 +1,32 @@
+{
+    "metadata": {
+        "schema_version": "1.0.0",
+        "module_name": "linker",
+        "description": "HOMESERVER linker script suite update system via GitHub",
+        "enabled": true
+    },
+    "config": {
+        "repository": {
+            "url": "https://github.com/homeserversltd/linker.git",
+            "branch": "master",
+            "temp_directory": "/tmp/homeserver-linker-update"
+        },
+        "target_paths": {
+            "base_directory": "/usr/local/bin",
+            "components": {
+                "scripts": {
+                    "enabled": true,
+                    "source_path": "scripts",
+                    "target_path": "/usr/local/bin",
+                    "description": "Linker script suite executables"
+                },
+                "config": {
+                    "enabled": true,
+                    "source_path": "config",
+                    "target_path": "/etc/homeserver/linker",
+                    "description": "Linker configuration files"
+                }
+            }
+        }
+    }
+} 

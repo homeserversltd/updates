@@ -27,7 +27,7 @@ check_venv_health() {
 
 # Function to get installed package version
 get_package_version() {
-    local package="$1"
+    local package="$1"ls
     if [ -f "$VENV_PIP" ]; then
         "$VENV_PIP" show "$package" 2>/dev/null | grep "^Version:" | cut -d' ' -f2
     fi
