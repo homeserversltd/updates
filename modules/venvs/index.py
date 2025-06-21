@@ -144,6 +144,7 @@ def parse_requirement(requirement_line):
 def check_packages_match_requirements(venv_path, requirements):
     """
     Check if installed packages match the requirements exactly.
+    Uses pip's dry-run capability to properly handle environment markers and version constraints.
     Args:
         venv_path: Path to the virtual environment
         requirements: List of requirement strings
@@ -151,7 +152,7 @@ def check_packages_match_requirements(venv_path, requirements):
         tuple: (all_match, missing_packages, version_mismatches, installed_packages)
     """
     try:
-        # Get currently installed packages
+        # Get currently installed packages for reference
         activate_script = os.path.join(venv_path, "bin", "activate")
         list_cmd = f". '{activate_script}'; pip list --format=freeze; deactivate"
         result = subprocess.run(["bash", "-c", list_cmd], capture_output=True, text=True)
@@ -160,7 +161,7 @@ def check_packages_match_requirements(venv_path, requirements):
             log_message(f"Failed to list packages: {result.stderr}", "DEBUG")
             return False, [], [], {}
         
-        # Parse installed packages
+        # Parse installed packages for reference
         installed_packages = {}
         for line in result.stdout.strip().split('\n'):
             if line.strip() and '==' in line:
@@ -170,33 +171,64 @@ def check_packages_match_requirements(venv_path, requirements):
                     version = parts[1]
                     installed_packages[pkg_name] = version
         
-        # Parse requirements and check matches
-        missing_packages = []
-        version_mismatches = []
+        # Use pip install --dry-run to check if requirements are satisfied
+        # This properly handles environment markers and version constraints
+        requirements_content = '\n'.join(requirements)
         
-        for req in requirements:
-            pkg_name, req_version, operator = parse_requirement(req)
-            
-            if pkg_name is None:
-                log_message(f"Could not parse requirement: {req}", "DEBUG")
-                continue
-            
-            if pkg_name not in installed_packages:
-                missing_packages.append(req)
-                continue
-            
-            installed_version = installed_packages[pkg_name]
-            
-            # For exact version requirements (==), check exact match
-            if operator == "==" and req_version:
-                if installed_version != req_version:
-                    version_mismatches.append(f"{pkg_name}: installed {installed_version}, required {req_version}")
-            # For other operators or no version spec, assume it's acceptable
-            # (more complex version comparison would require packaging library)
+        # Create a temporary requirements file
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_req_file:
+            temp_req_file.write(requirements_content)
+            temp_req_path = temp_req_file.name
         
-        all_match = len(missing_packages) == 0 and len(version_mismatches) == 0
-        
-        return all_match, missing_packages, version_mismatches, installed_packages
+        try:
+            # Use pip install --dry-run to see what would be installed
+            # This respects environment markers and proper version comparison
+            dry_run_cmd = f". '{activate_script}'; pip install --dry-run -r '{temp_req_path}' 2>&1; deactivate"
+            dry_run_result = subprocess.run(["bash", "-c", dry_run_cmd], capture_output=True, text=True)
+            
+            output = dry_run_result.stdout + dry_run_result.stderr
+            
+            # Analyze the output to determine if updates are needed
+            missing_packages = []
+            version_mismatches = []
+            
+            # If pip shows "Requirement already satisfied" for all packages, no updates needed
+            # If pip shows "Would install" or "Collecting", updates are needed
+            if "Would install" in output:
+                # Parse which requirements would cause installations
+                # For now, if any installation would happen, mark all requirements as potentially needing update
+                # This is conservative but safe - pip will handle the details during actual installation
+                for req in requirements:
+                    pkg_name, _, _ = parse_requirement(req)
+                    if pkg_name:
+                        # Check if this package appears in the installation list
+                        for line in output.split('\n'):
+                            if 'would install' in line.lower() and pkg_name in line.lower():
+                                missing_packages.append(req)
+                                break
+            elif "Collecting" in output and dry_run_result.returncode != 0:
+                # If pip failed during collection, there might be dependency issues
+                # Be conservative and assume updates are needed
+                missing_packages = requirements
+            elif "Requirement already satisfied" in output or (dry_run_result.returncode == 0 and not output.strip()):
+                # All requirements are satisfied
+                pass
+            else:
+                # Unknown output pattern - be conservative
+                if dry_run_result.returncode != 0:
+                    missing_packages = requirements
+            
+            all_match = len(missing_packages) == 0 and len(version_mismatches) == 0
+            
+            return all_match, missing_packages, version_mismatches, installed_packages
+            
+        finally:
+            # Clean up temporary file
+            try:
+                os.unlink(temp_req_path)
+            except:
+                pass
         
     except Exception as e:
         log_message(f"Error checking package requirements: {e}", "DEBUG")
