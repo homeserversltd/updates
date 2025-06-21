@@ -1055,6 +1055,12 @@ def main():
             # Run legacy system
             run_legacy_updates()
         else:
+            # Load branch from global index if not provided
+            if args.branch is None:
+                global_index = load_global_index(args.modules_path)
+                args.branch = global_index.get("metadata", {}).get("branch", "master")
+                log_message(f"Using branch from index.json: {args.branch}")
+            
             # Run new schema-based system
             if args.check_only:
                 log_message("Check-only mode: detecting updates without applying...")

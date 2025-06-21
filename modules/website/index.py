@@ -32,7 +32,7 @@ import subprocess
 import tempfile
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import requests
 import time
 from updates.index import log_message
