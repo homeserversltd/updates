@@ -27,9 +27,20 @@ try:
     from updates.utils.state_manager import StateManager
 except ImportError:
     # Add parent directory to path for direct execution
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-    from updates.index import log_message
-    from updates.utils.state_manager import StateManager
+    parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    try:
+        from updates.index import log_message
+        from updates.utils.state_manager import StateManager
+    except ImportError:
+        # Fallback: try adding the current directory to path
+        current_dir = os.path.abspath(os.path.dirname(__file__))
+        updates_dir = os.path.abspath('/usr/local/lib/updates')
+        if updates_dir not in sys.path:
+            sys.path.insert(0, updates_dir)
+        from updates.index import log_message
+        from updates.utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():
