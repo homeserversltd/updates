@@ -19,8 +19,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import os
 import subprocess
 import json
-from updates.index import log_message
-from updates.utils.state_manager import StateManager
+import sys
+
+# Handle imports for both direct execution and module execution
+try:
+    from updates.index import log_message
+    from updates.utils.state_manager import StateManager
+except ImportError:
+    # Add parent directory to path for direct execution
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    from updates.index import log_message
+    from updates.utils.state_manager import StateManager
 
 # Load module configuration from index.json
 def load_module_config():
