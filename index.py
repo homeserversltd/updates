@@ -121,6 +121,46 @@ def update_global_index(modules_path: str, updated_modules: list, orchestrator_u
         log_message(f"Failed to update global index: {e}", "ERROR")
         return False
 
+def update_homeserver_config_timestamp() -> bool:
+    """
+    Update the lastUpdated timestamp in the homeserver config file.
+    This ensures the frontend shows accurate "Last Updated" information.
+    """
+    try:
+        from datetime import datetime
+        
+        homeserver_config_path = "/var/www/homeserver/src/config/homeserver.json"
+        
+        if not os.path.exists(homeserver_config_path):
+            log_message(f"Homeserver config not found at {homeserver_config_path}", "WARNING")
+            return False
+        
+        # Read current config
+        with open(homeserver_config_path, 'r') as f:
+            config_data = json.load(f)
+        
+        # Update the lastUpdated timestamp
+        current_date = datetime.now().strftime("%m-%d-%Y")
+        
+        # Ensure the global.version structure exists
+        if "global" not in config_data:
+            config_data["global"] = {}
+        if "version" not in config_data["global"]:
+            config_data["global"]["version"] = {}
+        
+        config_data["global"]["version"]["lastUpdated"] = current_date
+        
+        # Write updated config
+        with open(homeserver_config_path, 'w') as f:
+            json.dump(config_data, f, indent=4)
+        
+        log_message(f"Updated homeserver config lastUpdated to: {current_date}")
+        return True
+        
+    except Exception as e:
+        log_message(f"Failed to update homeserver config timestamp: {e}", "ERROR")
+        return False
+
 def check_orchestrator_update(modules_path: str, repo_path: str) -> bool:
     """Check if the orchestrator system needs updating by comparing schema versions."""
     try:
@@ -516,6 +556,9 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
                 # Update global index with new orchestrator version
                 update_global_index(modules_path, [], True)
                 
+                # Update homeserver config timestamp for orchestrator update
+                update_homeserver_config_timestamp()
+                
                 # Re-exec with the updated orchestrator via shell script
                 log_message("RESTART: Re-executing with updated orchestrator...")
                 import subprocess
@@ -601,6 +644,11 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         successful_updates = [module for module, success in results["modules_updated"].items() if success] if results["modules_updated"] else []
         if successful_updates:
             results["global_index_updated"] = update_global_index(modules_path, successful_updates, False, repo_modules_path)
+        
+        # Step 7: Update homeserver config timestamp
+        log_message("Step 7: Updating homeserver config timestamp...")
+        homeserver_timestamp_updated = update_homeserver_config_timestamp()
+        results["homeserver_timestamp_updated"] = homeserver_timestamp_updated
         
         # Enhanced Summary with detailed module status reporting
         schema_updated_count = sum(1 for success in results["modules_updated"].values() if success) if results["modules_updated"] else 0
