@@ -3,13 +3,25 @@
 # HOMESERVER Update Manager
 # Orchestrates the Python-based schema-driven update system
 
+# Ensure PATH includes common system directories
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
 # Paths
 PYTHON_UPDATES_DIR="/usr/local/lib/updates"
 PYTHON_ORCHESTRATOR="$PYTHON_UPDATES_DIR/index.py"
 
 # Function to log messages with timestamps
 log_message() {
-    echo "[$(/usr/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
+    # Try multiple date command locations for robustness
+    if command -v date >/dev/null 2>&1; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    elif [ -x "/usr/bin/date" ]; then
+        echo "[$(/usr/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
+    elif [ -x "/bin/date" ]; then
+        echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
+    else
+        echo "[$(python3 -c "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")] $1"
+    fi
 }
 
 # Function to check if Python system is available
