@@ -255,6 +255,13 @@ def update_orchestrator(modules_path: str, repo_path: str) -> bool:
                     os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
                     shutil.copy2(repo_file_path, local_file_path)
                 
+                # Ensure shell scripts are executable
+                if file_name.endswith('.sh'):
+                    import stat
+                    current_permissions = os.stat(local_file_path).st_mode
+                    os.chmod(local_file_path, current_permissions | stat.S_IEXEC | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                    log_message(f"Made executable: {file_name}")
+                
                 log_message(f"Updated: {file_name}")
             else:
                 log_message(f"File not found in repository: {file_name}", "WARNING")
@@ -322,6 +329,12 @@ def update_orchestrator(modules_path: str, repo_path: str) -> bool:
                             shutil.copytree(backup_path, local_path)
                         else:
                             shutil.copy2(backup_path, local_path)
+                            
+                            # Ensure shell scripts are executable after restore
+                            if file_name.endswith('.sh'):
+                                import stat
+                                current_permissions = os.stat(local_path).st_mode
+                                os.chmod(local_path, current_permissions | stat.S_IEXEC | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
                 
                 log_message("Orchestrator restored from backup")
             

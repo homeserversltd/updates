@@ -58,7 +58,8 @@ __all__ = [
     'sync_from_repo',
     'detect_module_updates',
     'update_modules',
-    'get_branch_from_index'
+    'get_branch_from_index',
+    'make_shell_scripts_executable'
 ]
 
 def load_module_index(module_path: str) -> Optional[Dict[str, Any]]:
@@ -166,6 +167,35 @@ def get_branch_from_index(index_data: dict) -> str:
         return "master"
     
     return index_data.get("metadata", {}).get("branch", "master")
+
+def make_shell_scripts_executable(directory_path: str) -> None:
+    """
+    Recursively make all .sh files in a directory executable.
+    
+    This function ensures that shell scripts maintain executable permissions
+    after being copied from repositories, which may not preserve execute bits
+    depending on the source repository's permissions and the copy method used.
+    
+    Args:
+        directory_path: Path to directory to process (absolute path recommended)
+        
+    Note:
+        - Uses relative paths in log messages for readability
+        - Sets execute permissions for user, group, and other (755-style)
+        - Handles permission errors gracefully with warnings
+    """
+    import stat
+    
+    for root, dirs, files in os.walk(directory_path):
+        for file in files:
+            if file.endswith('.sh'):
+                file_path = os.path.join(root, file)
+                try:
+                    current_permissions = os.stat(file_path).st_mode
+                    os.chmod(file_path, current_permissions | stat.S_IEXEC | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                    log_message(f"Made executable: {os.path.relpath(file_path, directory_path)}")
+                except Exception as e:
+                    log_message(f"Failed to make executable {file_path}: {e}", "WARNING")
 
 def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> List[str]:
     """
@@ -275,6 +305,9 @@ def update_modules(modules_to_update: List[str], local_modules_path: str, repo_m
             shutil.copytree(repo_module_path, local_module_path)
             log_message(f"Updated module {module_name}")
             
+            # Ensure all shell scripts in the module are executable
+            make_shell_scripts_executable(local_module_path)
+            
             # Run the module's update script
             update_result = run_update(module_name)
             results[module_name] = update_result is not None
@@ -290,6 +323,9 @@ def update_modules(modules_to_update: List[str], local_modules_path: str, repo_m
                     shutil.rmtree(local_module_path)
                 shutil.move(backup_path, local_module_path)
                 log_message(f"Restored backup for {module_name}")
+                
+                # Ensure shell scripts in restored module are executable
+                make_shell_scripts_executable(local_module_path)
     
     return results
 
