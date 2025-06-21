@@ -9,7 +9,7 @@ PYTHON_ORCHESTRATOR="$PYTHON_UPDATES_DIR/index.py"
 
 # Function to log messages with timestamps
 log_message() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo "[$(/usr/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
 # Function to check if Python system is available
@@ -32,15 +32,15 @@ run_python_updates() {
     case "$mode" in
         "check")
             log_message "Running update check (no changes will be made)..."
-            cd /usr/local/lib && python3 -m updates.index --check-only
+            cd /usr/local/lib && /usr/bin/python3 -m updates.index --check-only
             ;;
         "legacy")
             log_message "Running legacy manifest-based updates..."
-            cd /usr/local/lib && python3 -m updates.index --legacy
+            cd /usr/local/lib && /usr/bin/python3 -m updates.index --legacy
             ;;
         "full"|*)
             log_message "Running schema-based updates..."
-            cd /usr/local/lib && python3 -m updates.index
+            cd /usr/local/lib && /usr/bin/python3 -m updates.index
             ;;
     esac
     
@@ -67,32 +67,32 @@ run_module_management() {
         "enable")
             if [ -n "$component" ]; then
                 log_message "Enabling component '$component' in module '$target'..."
-                cd /usr/local/lib && python3 -m updates.index --enable-component "$target" "$component"
+                cd /usr/local/lib && /usr/bin/python3 -m updates.index --enable-component "$target" "$component"
             else
                 log_message "Enabling module '$target'..."
-                cd /usr/local/lib && python3 -m updates.index --enable-module "$target"
+                cd /usr/local/lib && /usr/bin/python3 -m updates.index --enable-module "$target"
             fi
             ;;
         "disable")
             if [ -n "$component" ]; then
                 log_message "Disabling component '$component' in module '$target'..."
-                cd /usr/local/lib && python3 -m updates.index --disable-component "$target" "$component"
+                cd /usr/local/lib && /usr/bin/python3 -m updates.index --disable-component "$target" "$component"
             else
                 log_message "Disabling module '$target'..."
-                cd /usr/local/lib && python3 -m updates.index --disable-module "$target"
+                cd /usr/local/lib && /usr/bin/python3 -m updates.index --disable-module "$target"
             fi
             ;;
         "list")
             log_message "Listing all modules..."
-            cd /usr/local/lib && python3 -m updates.index --list-modules
+            cd /usr/local/lib && /usr/bin/python3 -m updates.index --list-modules
             ;;
         "status")
             if [ -n "$target" ]; then
                 log_message "Getting status for module '$target'..."
-                cd /usr/local/lib && python3 -m updates.index --module-status "$target"
+                cd /usr/local/lib && /usr/bin/python3 -m updates.index --module-status "$target"
             else
                 log_message "Getting status for all modules..."
-                cd /usr/local/lib && python3 -m updates.index --all-status
+                cd /usr/local/lib && /usr/bin/python3 -m updates.index --all-status
             fi
             ;;
     esac
