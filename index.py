@@ -23,18 +23,11 @@ import os
 import sys
 import argparse
 from pathlib import Path
+from datetime import datetime
+from . import compare_schema_versions, run_update, load_module_index, log_message, sync_from_repo, detect_module_updates, update_modules
 
 # Add current directory to path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# Import from the current package using relative imports
-from . import (
-    log_message,
-    sync_from_repo,
-    detect_module_updates,
-    update_modules,
-    load_module_index
-)
 
 # Configuration
 DEFAULT_REPO_URL = "https://github.com/homeserversltd/updates.git"
@@ -127,7 +120,6 @@ def update_homeserver_config_timestamp() -> bool:
     This ensures the frontend shows accurate "Last Updated" information.
     """
     try:
-        from datetime import datetime
         
         homeserver_config_path = "/var/www/homeserver/src/config/homeserver.json"
         
@@ -184,7 +176,6 @@ def check_orchestrator_update(modules_path: str, repo_path: str) -> bool:
         repo_schema_version = repo_index.get("metadata", {}).get("schema_version", "0.0.0")
         
         # Compare versions using existing function
-        from . import compare_schema_versions
         needs_update = compare_schema_versions(repo_schema_version, local_schema_version) > 0
         
         if needs_update:
@@ -397,9 +388,6 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     for module_name in enabled_modules:
         try:
             log_message(f"Executing module: {module_name}")
-            
-            # Import the run_update function from __init__.py
-            from . import run_update
             
             # Run the module's main function
             result = run_update(f"modules.{module_name}")
