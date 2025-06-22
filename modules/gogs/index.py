@@ -27,6 +27,7 @@ import urllib.request
 import tempfile
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import restore_service_permissions_simple, PermissionManager, PermissionTarget
 
 # Load module configuration from index.json
 def load_module_config():
@@ -82,7 +83,10 @@ def get_gogs_paths():
     config = MODULE_CONFIG["config"]
     
     # Add all configured directories
-    for key, path in config["directories"].items():
+    for key, dir_config in config["directories"].items():
+        # Handle both new format (dict with path) and legacy format (string)
+        path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
+        
         if os.path.exists(path):
             paths.append(path)
             log_message(f"Found Gogs path for backup: {path}")
@@ -94,7 +98,8 @@ def get_gogs_paths():
 def get_gogs_version():
     """Detect currently installed Gogs version."""
     try:
-        bin_path = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+        gogs_bin_config = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+        bin_path = gogs_bin_config["path"] if isinstance(gogs_bin_config, dict) else gogs_bin_config
         if not os.path.isfile(bin_path) or not os.access(bin_path, os.X_OK):
             return None
         
@@ -146,7 +151,8 @@ def verify_gogs_installation():
     
     try:
         # Check binary
-        bin_path = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+        gogs_bin_config = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+        bin_path = gogs_bin_config["path"] if isinstance(gogs_bin_config, dict) else gogs_bin_config
         verification_results["paths"]["binary"] = bin_path
         
         if os.path.exists(bin_path):
@@ -161,7 +167,8 @@ def verify_gogs_installation():
                     verification_results["version"] = version
         
         # Check directories
-        for dir_key, dir_path in MODULE_CONFIG["config"]["directories"].items():
+        for dir_key, dir_config in MODULE_CONFIG["config"]["directories"].items():
+            dir_path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
             verification_results[f"{dir_key}_exists"] = os.path.exists(dir_path)
             verification_results["paths"][dir_key] = dir_path
         
@@ -203,7 +210,8 @@ def install_gogs_binary(version):
             
             # Move to final location
             gogs_dir = os.path.join(temp_extract, "gogs")
-            install_dir = MODULE_CONFIG["config"]["directories"]["install_dir"]
+            install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
+            install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
             
             if os.path.exists(install_dir):
                 shutil.rmtree(install_dir)
@@ -229,10 +237,14 @@ def install_gogs_from_source(version):
         bool: True if successful, False otherwise
     """
     try:
-        source_config = MODULE_CONFIG["config"]["source_build"]
+        # Hardcoded source build configuration
         repo_url = MODULE_CONFIG["config"]["installation"]["source_repo_url"]
-        build_dir = source_config["build_dir"]
-        install_dir = MODULE_CONFIG["config"]["directories"]["install_dir"]
+        build_dir = "/tmp/gogs_build"
+        build_command = ["make", "build"]
+        build_timeout = 600
+        
+        install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
+        install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
         
         log_message(f"Attempting source build for version {version}")
         
@@ -258,8 +270,7 @@ def install_gogs_from_source(version):
             
             # Build Gogs
             log_message("Building Gogs from source...")
-            build_cmd = source_config["build_command"]
-            subprocess.run(build_cmd, check=True, timeout=source_config["build_timeout"])
+            subprocess.run(build_command, check=True, timeout=build_timeout)
             
             # Install the built binary
             if os.path.exists(install_dir):
@@ -268,7 +279,8 @@ def install_gogs_from_source(version):
             
             # Copy built binary and other necessary files
             built_binary = os.path.join(build_dir, "gogs")
-            target_binary = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+            gogs_bin_config = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
+            target_binary = gogs_bin_config["path"] if isinstance(gogs_bin_config, dict) else gogs_bin_config
             
             if os.path.exists(built_binary):
                 shutil.copy2(built_binary, target_binary)
@@ -292,6 +304,66 @@ def install_gogs_from_source(version):
         log_message(f"Source build failed: {e}", "WARNING")
         return False
 
+def restore_gogs_permissions():
+    """
+    Restore proper ownership and permissions for Gogs files and directories.
+    This is critical after updates that run as root to prevent service failures.
+    
+    Returns:
+        bool: True if permissions were restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring Gogs permissions after update...")
+        
+        config = MODULE_CONFIG["config"]
+        permission_manager = PermissionManager("gogs")
+        
+        # Build permission targets from JSON configuration
+        targets = []
+        default_owner = config["permissions"]["owner"]
+        default_group = config["permissions"]["group"]
+        
+        for dir_key, dir_config in config["directories"].items():
+            if isinstance(dir_config, dict):
+                # New format with embedded permissions
+                path = dir_config["path"]
+                owner = dir_config.get("owner", default_owner)
+                mode = int(dir_config["mode"], 8)  # Convert string to octal
+                
+                # Determine if it's a directory or file and if recursive
+                is_directory = os.path.isdir(path) if os.path.exists(path) else "dir" in dir_key
+                recursive = is_directory and dir_key in ["install_dir", "repo_path", "data_dir", "config_dir"]
+                
+                targets.append(PermissionTarget(
+                    path=path,
+                    owner=owner,
+                    group=default_group,
+                    mode=mode,
+                    recursive=recursive
+                ))
+            else:
+                # Legacy format fallback
+                targets.append(PermissionTarget(
+                    path=dir_config,
+                    owner=default_owner,
+                    group=default_group,
+                    mode=0o755,
+                    recursive=True
+                ))
+        
+        success = permission_manager.set_permissions(targets)
+        
+        if success:
+            log_message("Successfully restored Gogs permissions")
+        else:
+            log_message("Failed to restore some Gogs permissions", "WARNING")
+            
+        return success
+        
+    except Exception as e:
+        log_message(f"Critical error during Gogs permission restoration: {e}", "ERROR")
+        return False
+
 def main(args=None):
     """
     Main entry point for Gogs update module.
@@ -313,6 +385,14 @@ def main(args=None):
             else:
                 log_message("Could not detect Gogs version")
                 return {"success": False, "error": "Version detection failed"}
+        elif args[0] == "--fix-permissions":
+            log_message("Manually restoring Gogs permissions...")
+            if restore_gogs_permissions():
+                log_message("✓ Permissions restored successfully")
+                return {"success": True, "message": "Permissions restored"}
+            else:
+                log_message("✗ Failed to restore permissions")
+                return {"success": False, "error": "Permission restoration failed"}
     
     log_message("Starting Gogs module update...")
     
@@ -321,13 +401,14 @@ def main(args=None):
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Gogs module configuration:")
-        for key, path in MODULE_CONFIG["config"]["directories"].items():
+        for key, dir_config in MODULE_CONFIG["config"]["directories"].items():
+            path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
             log_message(f"  {key}: {path}")
         
         return {
             "success": True,
             "config": MODULE_CONFIG,
-            "paths": MODULE_CONFIG["config"]["directories"]
+            "paths": {k: (v["path"] if isinstance(v, dict) else v) for k, v in MODULE_CONFIG["config"]["directories"].items()}
         }
 
     # --verify mode: comprehensive installation verification
@@ -415,13 +496,8 @@ def main(args=None):
             if not success:
                 raise Exception("Both binary and source installation methods failed")
             
-            # Set permissions
-            for path in files_to_backup:
-                if os.path.exists(path):
-                    shutil.chown(path, 
-                                MODULE_CONFIG["config"]["permissions"]["owner"],
-                                MODULE_CONFIG["config"]["permissions"]["group"])
-                    os.chmod(path, int(MODULE_CONFIG["config"]["permissions"]["mode"], 8))
+            # Restore permissions using the centralized permission system
+            restore_gogs_permissions()
             
             # Verify new installation
             log_message("Verifying new installation...")
@@ -434,6 +510,9 @@ def main(args=None):
                 # Run post-update verification
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
+                
+                # Restore Gogs permissions
+                restore_gogs_permissions()
                 
                 return {
                     "success": True, 

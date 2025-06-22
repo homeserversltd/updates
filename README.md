@@ -85,7 +85,10 @@ python3 /var/local/lib/updates/index.py --repo-url https://github.com/custom/upd
 - `index.json` - Global index tracking current module versions and system metadata
 - `updateManager.sh` - Shell wrapper providing convenient access to update functions
 - `modules/` - Directory containing individual update modules
-- `utils/` - Shared utilities for logging, version comparison, and Git operations
+- `utils/` - Shared utilities for logging, version comparison, Git operations, and permissions
+  - `permissions.py` - Centralized permission management system for all modules
+  - `state_manager.py` - Backup and restore functionality for module states
+  - `index.py` - Utility functions for module operations and logging
 
 ## Global Index Format
 
@@ -146,6 +149,38 @@ Each module directory must contain:
 ### Example Module index.py
 
 ```python
+from updates.utils.permissions import PermissionManager, PermissionTarget
+from updates.utils.state_manager import StateManager
+from updates.index import log_message
+
+def restore_service_permissions():
+    """Restore proper permissions after update."""
+    try:
+        permission_manager = PermissionManager("service_name")
+        
+        # Build targets from module configuration
+        targets = [
+            PermissionTarget(
+                path="/opt/service",
+                owner="service_user",
+                group="service_group",
+                mode=0o755,
+                recursive=True
+            ),
+            PermissionTarget(
+                path="/var/lib/service",
+                owner="service_user", 
+                group="service_group",
+                mode=0o755,
+                recursive=True
+            )
+        ]
+        
+        return permission_manager.set_permissions(targets)
+    except Exception as e:
+        log_message(f"Permission restoration failed: {e}", "ERROR")
+        return False
+
 def main(args=None):
     """
     Main entry point for module execution.
@@ -156,19 +191,29 @@ def main(args=None):
     Args:
         args: Optional command line arguments
     """
-    print("Executing adblock module...")
+    log_message("Executing service module...")
     
-    # Module-specific execution logic (runs every update cycle)
-    # - Verify configuration files are current
-    # - Ensure services are running with correct settings
-    # - Update any dynamic configurations
-    # - Restart services if needed
-    # - Validate functionality
-    
-    print("Adblock module execution completed")
+    try:
+        # Module-specific execution logic (runs every update cycle)
+        # - Verify configuration files are current
+        # - Ensure services are running with correct settings
+        # - Update any dynamic configurations
+        # - Restart services if needed
+        # - Validate functionality
+        
+        # Always restore permissions after any changes
+        if not restore_service_permissions():
+            log_message("Warning: Permission restoration failed", "WARNING")
+        
+        log_message("Service module execution completed")
+        return {"success": True}
+        
+    except Exception as e:
+        log_message(f"Module execution failed: {e}", "ERROR")
+        return {"success": False, "error": str(e)}
 ```
 
-**Note**: The `main()` function runs during every update cycle for enabled modules, not just when the module code is updated. Design your modules to be idempotent and handle both initial setup and ongoing maintenance.
+**Note**: The `main()` function runs during every update cycle for enabled modules, not just when the module code is updated. Design your modules to be idempotent and handle both initial setup and ongoing maintenance. **Always restore permissions** after making changes to prevent service failures.
 
 ## How the Two-Phase Update Process Works
 
@@ -263,8 +308,9 @@ No changes to the orchestrator are required - new modules are automatically disc
 
 ## Utility Functions
 
-The `__init__.py` module provides utility functions for module development:
+The update system provides several utility modules for module development:
 
+### Core Utilities (`__init__.py`)
 - `load_module_index(path)` - Load module index.json
 - `compare_schema_versions(v1, v2)` - Compare semantic versions
 - `sync_from_repo(url, path, branch)` - Git sync operations
@@ -272,6 +318,35 @@ The `__init__.py` module provides utility functions for module development:
 - `update_modules(modules, local, repo)` - Execute module updates
 - `run_update(module_path, args)` - Run individual module
 - `run_updates_async(updates)` - Parallel module execution
+
+### Permission Management (`utils/permissions.py`)
+- `PermissionManager(module_name)` - Main permission management class
+- `PermissionTarget(path, owner, group, mode, ...)` - Permission target definition
+- `restore_service_permissions_simple(...)` - Simple service permission restoration
+- `create_service_permission_targets(...)` - Create standard permission targets
+- `fix_common_service_permissions(service_name)` - Fix permissions for common locations
+
+### State Management (`utils/state_manager.py`)
+- `StateManager()` - Backup and restore functionality for module states
+- `backup_module_state(module_name, description, files)` - Create module backups
+- `restore_module_state(module_name)` - Restore from backup
+
+### Example Usage
+```python
+from updates.utils.permissions import PermissionManager, PermissionTarget
+from updates.utils.state_manager import StateManager
+from updates.index import log_message
+
+# Permission management
+permission_manager = PermissionManager("my_service")
+success = permission_manager.set_permissions([
+    PermissionTarget("/opt/service", "service", "service", 0o755, recursive=True)
+])
+
+# State management
+state_manager = StateManager()
+backup_success = state_manager.backup_module_state("my_service", "pre_update", ["/opt/service"])
+```
 
 ## Update Process Flow
 
@@ -314,6 +389,9 @@ This fallback ensures existing manifest-based modules continue to function durin
 - **Proper Error Handling**: Use try/catch blocks and meaningful error messages
 - **State Validation**: Always verify current state before making changes
 - **Service Management**: Handle service restarts gracefully and verify functionality
+- **Permission Management**: Always restore proper permissions after making changes
+- **Centralized Permissions**: Use PermissionManager instead of manual chmod/chown commands
+- **Configuration-Driven**: Define permissions in index.json for consistency
 
 ### Schema Management
 - **Schema Versioning**: Increment schema version only for code/infrastructure changes
@@ -338,10 +416,121 @@ The system uses only Python standard library modules:
 
 No external dependencies are required, ensuring system reliability.
 
+## Permission Management
+
+The update system includes a centralized permission management system via `utils/permissions.py` that handles file ownership and permissions across all modules.
+
+### PermissionManager Usage
+
+Each module can use the `PermissionManager` class to restore proper permissions after updates:
+
+```python
+from updates.utils.permissions import PermissionManager, PermissionTarget
+
+# Create permission manager for your module
+permission_manager = PermissionManager("gogs")
+
+# Define permission targets
+targets = [
+    PermissionTarget(
+        path="/opt/gogs",
+        owner="git",
+        group="git", 
+        mode=0o755,
+        recursive=True
+    ),
+    PermissionTarget(
+        path="/opt/gogs/gogs",
+        owner="root",
+        group="root",
+        mode=0o755,
+        target_type="file"
+    )
+]
+
+# Apply permissions
+success = permission_manager.set_permissions(targets)
+```
+
+### Module Configuration Integration
+
+Modules can define permissions directly in their `index.json`:
+
+```json
+{
+    "config": {
+        "directories": {
+            "install_dir": {
+                "path": "/opt/gogs",
+                "owner": "root",
+                "mode": "755"
+            },
+            "data_dir": {
+                "path": "/var/lib/gogs",
+                "mode": "755"
+            },
+            "gogs_bin": {
+                "path": "/opt/gogs/gogs",
+                "owner": "root",
+                "mode": "755"
+            }
+        },
+        "permissions": {
+            "owner": "git",
+            "group": "git"
+        }
+    }
+}
+```
+
+### Convenience Functions
+
+The permission system provides helper functions for common patterns:
+
+```python
+from updates.utils.permissions import restore_service_permissions_simple
+
+# Simple service permission restoration
+success = restore_service_permissions_simple(
+    service_name="gogs",
+    config_dir="/etc/gogs",
+    data_dir="/var/lib/gogs",
+    binary_path="/opt/gogs/gogs"
+)
+```
+
+### Permission Restoration Pattern
+
+All modules should restore permissions after updates to prevent service failures:
+
+```python
+def restore_service_permissions():
+    """Restore proper permissions after update."""
+    try:
+        permission_manager = PermissionManager("service_name")
+        
+        # Build targets from module configuration
+        targets = []
+        for dir_key, dir_config in config["directories"].items():
+            targets.append(PermissionTarget(
+                path=dir_config["path"],
+                owner=dir_config.get("owner", default_owner),
+                group=default_group,
+                mode=int(dir_config["mode"], 8),
+                recursive=os.path.isdir(path)
+            ))
+        
+        return permission_manager.set_permissions(targets)
+    except Exception as e:
+        log_message(f"Permission restoration failed: {e}", "ERROR")
+        return False
+```
+
 ## Security Considerations
 
 - **Git Repository Trust**: Only sync from trusted repository sources
-- **File System Permissions**: Module directories require appropriate write permissions
+- **File System Permissions**: Centralized permission management ensures consistent security
+- **Permission Restoration**: All modules must restore proper permissions after updates
 - **Backup Integrity**: Verify backup creation before proceeding with updates
 - **Atomic Operations**: Use temporary directories for staging before final deployment
 - **Error Isolation**: Module failures contained to prevent system-wide issues

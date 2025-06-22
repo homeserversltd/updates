@@ -37,10 +37,86 @@ import requests
 import time
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager
 
 class WebsiteUpdateError(Exception):
     """Custom exception for website update failures."""
     pass
+
+def restore_website_permissions(config: Dict[str, Any]) -> bool:
+    """
+    Restore website permissions using PermissionManager for enabled components.
+    
+    Args:
+        config: Module configuration containing components and permissions
+        
+    Returns:
+        bool: True if permissions restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring website permissions...")
+        
+        # Initialize PermissionManager
+        permission_manager = PermissionManager()
+        
+        # Get components and permissions configuration
+        components = config.get('config', {}).get('target_paths', {}).get('components', {})
+        permissions = config.get('permissions', {})
+        
+        if not components:
+            log_message("No components configuration found, skipping permission restoration")
+            return True
+        
+        if not permissions:
+            log_message("No permissions configuration found, skipping permission restoration")
+            return True
+        
+        # Build targets from enabled components
+        targets = []
+        default_owner = permissions.get('owner', 'www-data')
+        default_group = permissions.get('group', 'www-data')
+        default_dir_mode = permissions.get('directory_mode', '755')
+        default_file_mode = permissions.get('file_mode', '644')
+        
+        for component_name, component_config in components.items():
+            if component_config.get('enabled', False):
+                target_path = component_config['target_path']
+                
+                # Determine if this is a file or directory based on the path
+                if target_path.endswith('.json') or '.' in os.path.basename(target_path):
+                    # This is a file
+                    mode = default_file_mode
+                else:
+                    # This is a directory
+                    mode = default_dir_mode
+                
+                target = permission_manager.create_target(
+                    path=target_path,
+                    owner=default_owner,
+                    group=default_group,
+                    mode=mode,
+                    recursive=True if not target_path.endswith('.json') else False
+                )
+                targets.append(target)
+                log_message(f"Added permission target: {target_path} ({default_owner}:{default_group} {mode})")
+        
+        if not targets:
+            log_message("No permission targets configured from enabled components")
+            return True
+        
+        # Apply permissions
+        success = permission_manager.apply_permissions(targets)
+        
+        if success:
+            log_message(f"Successfully restored permissions for {len(targets)} website components")
+            return True
+        else:
+            log_message("Failed to restore website permissions", "ERROR")
+            return False
+            
+    except Exception as e:
+        log_message(f"Error restoring website permissions: {e}", "ERROR")
+        return False
 
 class WebsiteUpdater:
     """Git-based website updater with StateManager integration and graceful failure handling."""
@@ -137,10 +213,7 @@ class WebsiteUpdater:
                     if os.path.exists(target_path):
                         backup_files.append(target_path)
             
-            # Also backup package-lock.json if it exists
-            package_lock = "/var/www/homeserver/package-lock.json"
-            if os.path.exists(package_lock):
-                backup_files.append(package_lock)
+            # Note: package-lock.json and node_modules are not backed up as they are generated artifacts
             
             if not backup_files:
                 log_message("No files to backup")
@@ -227,6 +300,12 @@ class WebsiteUpdater:
                 log_message("npm build failed", "ERROR")
                 return False
             
+            # Restore permissions after build process
+            log_message("Restoring permissions after build process")
+            if not restore_website_permissions(self.config):
+                log_message("Failed to restore permissions after build", "WARNING")
+                # Don't fail the entire process for permission issues
+            
             # Start homeserver service
             log_message("Starting homeserver service")
             if not self._execute_command(['systemctl', 'start', 'homeserver.service']):
@@ -266,6 +345,10 @@ class WebsiteUpdater:
             restore_success = self.state_manager.restore_module_state("website")
             if restore_success:
                 log_message("Website rollback completed successfully")
+                
+                # Restore permissions after rollback
+                log_message("Restoring permissions after rollback")
+                restore_website_permissions(self.config)
                 
                 # Restart services after rollback
                 base_dir = self.config['config']['target_paths']['base_directory']
@@ -361,7 +444,7 @@ def main(args=None):
     Main entry point for website module.
     
     Args:
-        args: List of arguments (supports '--check', '--version')
+        args: List of arguments (supports '--check', '--version', '--fix-permissions')
         
     Returns:
         dict: Status and results of the website update operation
@@ -375,7 +458,15 @@ def main(args=None):
     try:
         updater = WebsiteUpdater(module_path)
         
-        if "--check" in args:
+        if "--fix-permissions" in args:
+            log_message("Fixing website permissions...")
+            success = restore_website_permissions(updater.config)
+            return {
+                "success": success,
+                "message": "Website permissions fixed" if success else "Failed to fix website permissions"
+            }
+        
+        elif "--check" in args:
             config = updater.config
             components = config.get('config', {}).get('target_paths', {}).get('components', {})
             enabled_components = [name for name, comp in components.items() if comp.get('enabled', False)]

@@ -1,18 +1,37 @@
 {
     "metadata": {
-        "schema_version": "0.1.4",
+        "schema_version": "0.1.6",
         "module_name": "gogs",
         "description": "Gogs Git server",
         "enabled": true
     },
     "config": {
         "directories": {
-            "data_dir": "/var/lib/gogs",
-            "config_dir": "/etc/gogs",
-            "install_dir": "/opt/gogs",
-            "config_file": "/opt/gogs/custom/conf/app.ini",
-            "repo_path": "/mnt/nas/git/repositories",
-            "gogs_bin": "/opt/gogs/gogs"
+            "data_dir": {
+                "path": "/var/lib/gogs",
+                "mode": "755"
+            },
+            "config_dir": {
+                "path": "/etc/gogs", 
+                "mode": "755"
+            },
+            "install_dir": {
+                "path": "/opt/gogs",
+                "mode": "755"
+            },
+            "config_file": {
+                "path": "/opt/gogs/custom/conf/app.ini",
+                "mode": "640"
+            },
+            "repo_path": {
+                "path": "/mnt/nas/git/repositories",
+                "mode": "755"
+            },
+            "gogs_bin": {
+                "path": "/opt/gogs/gogs",
+                "owner": "root",
+                "mode": "755"
+            }
         },
         "installation": {
             "github_api_url": "https://api.github.com/repos/gogs/gogs/releases/latest",
@@ -21,16 +40,9 @@
             "extract_path": "/opt/",
             "fallback_to_source": true
         },
-        "source_build": {
-            "build_command": ["make", "build"],
-            "build_dir": "/tmp/gogs_build",
-            "go_version_required": "1.19",
-            "build_timeout": 600
-        },
         "permissions": {
-            "owner": "git",
             "group": "git",
-            "mode": "750"
+            "owner": "git"
         }
     }
 } 

@@ -1,202 +1,46 @@
-# Linker Update Module
+# Linker Module
 
-Git-based updater for HOMESERVER linker script suite with StateManager integration.
+## Purpose
 
-## Overview
+The linker module provides a Terminal User Interface (TUI) tool for efficiently managing hard links on HOMESERVER's NAS storage. It enables users to create and manage hard links across multiple directories, maximizing storage efficiency while maintaining data accessibility across different services.
 
-The linker module handles updating the HOMESERVER linker script suite from the GitHub repository. It supports component-based updates, automatic rollback on failure, and comprehensive script management.
+## What It Does
 
-## Design Philosophy
+- **Hard Link Management**: Creates and manages hard links between files across different NAS directories
+- **TUI Interface**: Provides an intuitive terminal-based interface for file linking operations
+- **Storage Optimization**: Eliminates duplicate files by linking content across multiple locations
+- **Safety Protection**: Prevents accidental deletion of files that have hard links elsewhere
+- **Cross-Service Sharing**: Enables content sharing between different HOMESERVER services
 
-- **Component-based updates**: Update scripts and configuration independently
-- **GitHub integration**: Shallow cloning for efficient repository access
-- **StateManager integration**: Reliable backup and restore of all components
-- **Simple update process**: Direct file replacement with permission preservation
-- **Customer-first approach**: Failed updates don't break existing installations
+## Why It Matters
 
-## Architecture
+NAS systems often need the same content accessible from multiple services and directories. Traditional file copying wastes storage space and creates synchronization problems. HOMESERVER's linker module solves this elegantly:
 
-### Component Structure
+- **Storage Efficiency**: Share files across multiple directories without duplicating storage space
+- **Service Integration**: Make content available to multiple services (Jellyfin, Piwigo, etc.) simultaneously
+- **Data Integrity**: Hard links ensure all references point to the same physical data
+- **Cost Optimization**: Maximize storage utilization on expensive NAS drives
+- **Simplified Management**: Single source of truth for shared content across services
 
-The module manages two distinct components:
-- **Scripts**: Executable linker scripts
-- **Config**: Configuration files
+## Integration with HOMESERVER
 
-### Update Flow
+The linker module integrates with HOMESERVER's file management system to provide intelligent hard link management across the NAS infrastructure. It works seamlessly with media services, photo galleries, and file browsers to optimize storage without compromising functionality.
 
-1. **Backup Phase**
-   - StateManager backs up all enabled components
-   - Backup location: `/var/backups/linker`
+## Key Features
 
-2. **Repository Phase**
-   - Shallow clone of GitHub repository
-   - Temporary directory: `/tmp/homeserver-linker-update`
-   - Branch selection via configuration
+- **Cross-Directory Linking**: Link files between `/media` (Jellyfin), `/photos` (Piwigo), and other service directories
+- **Safety-First Design**: Prevents deletion of files that have active hard links elsewhere
+- **Intuitive TUI**: Easy-to-use terminal interface for browsing and linking files
+- **Link Visualization**: Shows existing hard links and their relationships
+- **Batch Operations**: Efficiently create multiple hard links in a single operation
+- **Conflict Prevention**: Detects and prevents problematic linking scenarios
 
-3. **Component Update Phase**
-   - Update each enabled component
-   - Remove existing target before copy
-   - Preserve file permissions
-   - Skip disabled components
+## Common Use Cases
 
-4. **Rollback Phase** (on failure)
-   - Restore all components via StateManager
-   - Clean up temporary directory
+- **Media Sharing**: Link video files between Jellyfin's `/media` directory and general file storage
+- **Photo Organization**: Share photos between Piwigo's `/photos` directory and family albums
+- **Document Access**: Make documents available to multiple services without duplication
+- **Backup Efficiency**: Create space-efficient backup structures using hard links
+- **Content Distribution**: Organize content for different users while sharing the same files
 
-## Configuration (index.json)
-
-```json
-{
-    "metadata": {
-        "schema_version": "1.0.0",
-        "module_name": "linker",
-        "description": "HOMESERVER linker script suite update system via GitHub",
-        "enabled": true
-    },
-    "config": {
-        "repository": {
-            "url": "https://github.com/homeserversltd/linker.git",
-            "branch": "master",
-            "temp_directory": "/tmp/homeserver-linker-update"
-        },
-        "target_paths": {
-            "base_directory": "/usr/local/bin",
-            "components": {
-                "scripts": {
-                    "enabled": true,
-                    "source_path": "scripts",
-                    "target_path": "/usr/local/bin",
-                    "description": "Linker script suite executables"
-                },
-                "config": {
-                    "enabled": true,
-                    "source_path": "config",
-                    "target_path": "/etc/homeserver/linker",
-                    "description": "Linker configuration files"
-                }
-            }
-        }
-    }
-}
-```
-
-### Configuration Options
-
-- **repository**: GitHub repository settings
-  - **url**: Repository URL
-  - **branch**: Target branch
-  - **temp_directory**: Temporary clone location
-
-- **target_paths**: Component configuration
-  - **base_directory**: Root installation directory
-  - **components**: Individual component settings
-    - **enabled**: Whether to update this component
-    - **source_path**: Path in repository
-    - **target_path**: Installation path
-    - **description**: Component purpose
-
-## Component Management
-
-### Script Updates
-- Executable linker scripts
-- Preserves file permissions
-- Direct file replacement
-
-### Config Updates
-- Configuration files
-- Preserves file permissions
-- Direct file replacement
-
-## Error Handling
-
-### Graceful Degradation
-- Failed components don't affect others
-- Temporary files are cleaned up
-- Rollback preserves functionality
-
-### Error Categories
-1. **Backup Errors**
-   - StateManager backup failure
-   - Insufficient permissions
-   - Disk space issues
-
-2. **Repository Errors**
-   - Clone failures
-   - Network issues
-   - Invalid repository
-
-3. **Component Errors**
-   - File copy failures
-   - Permission issues
-   - Missing source files
-
-## Command Line Interface
-
-### Check Status
-```bash
-python3 index.py --check
-```
-Returns:
-- Enabled components
-- Total components
-- Schema version
-
-### Version Check
-```bash
-python3 index.py --version
-```
-Returns:
-- Schema version
-- Module name
-
-### Full Update
-```bash
-python3 index.py
-```
-Performs complete update process with:
-- Component updates
-- Validation
-
-## Integration Points
-
-### Orchestrator Interface
-- **Entry Point**: `main(args=None)` function
-- **Return Value**: Dictionary with success status and details
-- **Logging**: Uses standard update logging system
-
-### StateManager Integration
-- Uses standard backup/restore patterns
-- Consistent with other module rollback strategies
-- No special rollback machinery needed
-
-## Best Practices
-
-### Component Updates
-- Keep components focused and independent
-- Use descriptive component names
-- Document component purposes
-- Enable/disable as needed
-
-### Error Handling
-- Log detailed error messages
-- Clean up on all exit paths
-- Use StateManager for rollback
-
-## Development Workflow
-
-### Adding Components
-1. Add component to `index.json`
-2. Set appropriate paths
-3. Enable/disable as needed
-4. Test update process
-
-### Testing Updates
-- Test each component independently
-- Verify file permissions
-- Validate rollback
-
-### Schema Updates
-- Increment schema version
-- Update component configurations
-- Test with existing installations
-- Document changes 
+This module transforms HOMESERVER's NAS into an intelligent storage system where content can exist in multiple logical locations while consuming minimal physical storage space, all managed through a user-friendly interface that prioritizes data safety. 

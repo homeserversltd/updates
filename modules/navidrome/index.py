@@ -24,6 +24,7 @@ import tarfile
 import urllib.request
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager, PermissionTarget
 
 # Load module configuration from index.json
 def load_module_config():
@@ -65,22 +66,21 @@ def get_navidrome_paths():
     Returns:
         list: List of paths that exist and should be backed up
     """
-    config = MODULE_CONFIG["config"]["directories"]
-    potential_paths = [
-        config.get("install_dir", "/opt/navidrome"),
-        config.get("data_dir", "/var/lib/navidrome")
-    ]
+    paths = []
+    config = MODULE_CONFIG["config"]
     
-    # Only return paths that actually exist
-    existing_paths = []
-    for path in potential_paths:
+    # Add all configured directories
+    for dir_key, dir_config in config["directories"].items():
+        # Handle both new format (dict with path) and legacy format (string)
+        path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
+        
         if os.path.exists(path):
-            existing_paths.append(path)
+            paths.append(path)
             log_message(f"Found Navidrome path for backup: {path}")
         else:
             log_message(f"Navidrome path not found (skipping): {path}", "DEBUG")
     
-    return existing_paths
+    return paths
 
 def get_installation_config():
     """Get installation configuration from module config."""
@@ -117,7 +117,10 @@ def get_current_version():
         str: Version string or None if not installed
     """
     try:
-        navidrome_bin = MODULE_CONFIG["config"]["directories"].get("navidrome_bin", "/opt/navidrome/navidrome")
+        # Handle both new format (dict with path) and legacy format (string)
+        navidrome_bin_config = MODULE_CONFIG["config"]["directories"].get("navidrome_bin", "/opt/navidrome/navidrome")
+        navidrome_bin = navidrome_bin_config["path"] if isinstance(navidrome_bin_config, dict) else navidrome_bin_config
+        
         if not os.path.isfile(navidrome_bin):
             log_message(f"Navidrome binary not found at {navidrome_bin}", "DEBUG")
             return None
@@ -186,7 +189,8 @@ def install_navidrome(version):
     log_message(f"Installing Navidrome {version}...", "INFO")
     try:
         config = MODULE_CONFIG["config"]["directories"]
-        install_dir = config.get("install_dir", "/opt/navidrome")
+        install_dir_config = config.get("install_dir", "/opt/navidrome")
+        install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
         
         # Build download URL
         download_url = f"https://github.com/navidrome/navidrome/releases/download/v{version}/navidrome_{version}_linux_amd64.tar.gz"
@@ -209,15 +213,81 @@ def install_navidrome(version):
         os.remove(tarball_path)
         log_message("Extracted new version")
         
-        # Set basic permissions
-        navidrome_bin = os.path.join(install_dir, "navidrome")
-        subprocess.run(["chmod", "755", navidrome_bin], check=True)
-        subprocess.run(["chown", "-R", "navidrome:navidrome", install_dir], check=False)  # Don't fail if user doesn't exist
+        # Restore proper permissions using PermissionManager
+        if not restore_navidrome_permissions():
+            log_message("Warning: Failed to restore permissions after installation", "WARNING")
         
         return True
         
     except Exception as e:
         log_message(f"Error during Navidrome installation: {str(e)}", "ERROR")
+        return False
+
+def restore_navidrome_permissions():
+    """
+    Restore proper ownership and permissions for navidrome files and directories.
+    This is critical after updates that run as root to prevent service failures.
+    
+    Returns:
+        bool: True if permissions were restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring navidrome permissions after update...")
+        
+        config = MODULE_CONFIG["config"]
+        permission_manager = PermissionManager("navidrome")
+        
+        # Build permission targets from JSON configuration
+        targets = []
+        default_owner = config["permissions"]["owner"]
+        default_group = config["permissions"]["group"]
+        
+        for dir_key, dir_config in config["directories"].items():
+            if isinstance(dir_config, dict):
+                # New format with embedded permissions
+                path = dir_config["path"]
+                owner = dir_config.get("owner", default_owner)
+                mode = int(dir_config["mode"], 8)  # Convert string to octal
+                
+                # Binary files should be owned by root for security
+                if "bin" in dir_key.lower():
+                    owner = "root"
+                    group = "root"
+                else:
+                    group = default_group
+                
+                # Determine if this should be recursive
+                recursive = os.path.isdir(path) if os.path.exists(path) else True
+                
+                targets.append(PermissionTarget(
+                    path=path,
+                    owner=owner,
+                    group=group,
+                    mode=mode,
+                    recursive=recursive
+                ))
+            else:
+                # Legacy format - use defaults
+                targets.append(PermissionTarget(
+                    path=dir_config,
+                    owner=default_owner,
+                    group=default_group,
+                    mode=0o755,
+                    recursive=True
+                ))
+        
+        # Apply all permission targets
+        success = permission_manager.set_permissions(targets)
+        
+        if success:
+            log_message("✓ Successfully restored navidrome permissions")
+        else:
+            log_message("✗ Failed to restore some navidrome permissions", "WARNING")
+        
+        return success
+        
+    except Exception as e:
+        log_message(f"Error restoring navidrome permissions: {e}", "ERROR")
         return False
 
 def verify_navidrome_installation():
@@ -237,8 +307,13 @@ def verify_navidrome_installation():
     
     try:
         config = MODULE_CONFIG["config"]["directories"]
-        navidrome_bin = config.get("navidrome_bin", "/opt/navidrome/navidrome")
-        data_dir = config.get("data_dir", "/var/lib/navidrome")
+        
+        # Handle both new format (dict with path) and legacy format (string)
+        navidrome_bin_config = config.get("navidrome_bin", "/opt/navidrome/navidrome")
+        navidrome_bin = navidrome_bin_config["path"] if isinstance(navidrome_bin_config, dict) else navidrome_bin_config
+        
+        data_dir_config = config.get("data_dir", "/var/lib/navidrome")
+        data_dir = data_dir_config["path"] if isinstance(data_dir_config, dict) else data_dir_config
         
         # Check binary
         if os.path.exists(navidrome_bin):
@@ -287,14 +362,31 @@ def main(args=None):
     
     SERVICE_NAME = MODULE_CONFIG["metadata"]["module_name"]
     config = MODULE_CONFIG["config"]["directories"]
-    NAVIDROME_BIN = config.get("navidrome_bin", "/opt/navidrome/navidrome")
+    
+    # Handle both new format (dict with path) and legacy format (string)
+    navidrome_bin_config = config.get("navidrome_bin", "/opt/navidrome/navidrome")
+    NAVIDROME_BIN = navidrome_bin_config["path"] if isinstance(navidrome_bin_config, dict) else navidrome_bin_config
+
+    # --fix-permissions mode: restore permissions only
+    if len(args) > 0 and args[0] == "--fix-permissions":
+        log_message("Restoring Navidrome permissions...")
+        success = restore_navidrome_permissions()
+        return {
+            "success": success,
+            "permissions_restored": success
+        }
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Navidrome module configuration:")
         log_message(f"  Binary path: {NAVIDROME_BIN}")
-        log_message(f"  Install dir: {config.get('install_dir', '/opt/navidrome')}")
-        log_message(f"  Data dir: {config.get('data_dir', '/var/lib/navidrome')}")
+        
+        # Handle new directory format
+        for dir_key, dir_config in config.items():
+            if isinstance(dir_config, dict):
+                log_message(f"  {dir_key}: {dir_config['path']}")
+            else:
+                log_message(f"  {dir_key}: {dir_config}")
         
         state_manager = StateManager()
         log_message(f"  Backup dir: {state_manager.backup_root}")
@@ -399,6 +491,10 @@ def main(args=None):
             
             if new_version == latest_version and verification["service_active"]:
                 log_message(f"Successfully updated Navidrome from {current_version} to {latest_version}")
+                
+                # Restore permissions after successful update
+                log_message("Ensuring proper permissions after update...")
+                restore_navidrome_permissions()
                 
                 return {
                     "success": True, 

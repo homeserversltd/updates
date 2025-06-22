@@ -25,6 +25,7 @@ import urllib.request
 import json
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager, PermissionTarget
 
 # Load module configuration from index.json
 def load_module_config():
@@ -120,40 +121,54 @@ def format_path(path_template, admin_user):
     """
     return path_template.format(admin_user=admin_user)
 
+def get_directory_path(config, key, admin_user, default_path=None):
+    """Helper function to get directory path from either new or legacy format."""
+    dir_config = config.get(key, default_path)
+    if isinstance(dir_config, dict):
+        # New format with embedded permissions
+        path_template = dir_config["path"]
+    else:
+        # Legacy format - just a string path
+        path_template = dir_config
+    
+    if path_template and "{admin_user}" in path_template:
+        return format_path(path_template, admin_user)
+    return path_template
+
 def get_atuin_bin_path(admin_user):
     """
     Get the path to the Atuin binary for the given user.
     """
-    path_template = MODULE_CONFIG["config"]["directories"]["atuin_bin"]
-    return format_path(path_template, admin_user)
+    directories = MODULE_CONFIG["config"]["directories"]
+    return get_directory_path(directories, "atuin_bin", admin_user, "/home/{admin_user}/.atuin/bin/atuin")
 
 def get_atuin_config_dir(admin_user):
     """
     Get the path to the Atuin config directory for the given user.
     """
-    path_template = MODULE_CONFIG["config"]["directories"]["config_dir"]
-    return format_path(path_template, admin_user)
+    directories = MODULE_CONFIG["config"]["directories"]
+    return get_directory_path(directories, "config_dir", admin_user, "/home/{admin_user}/.config/atuin")
 
 def get_atuin_data_dir(admin_user):
     """
     Get the path to the Atuin data directory for the given user.
     """
-    path_template = MODULE_CONFIG["config"]["directories"]["data_dir"]
-    return format_path(path_template, admin_user)
+    directories = MODULE_CONFIG["config"]["directories"]
+    return get_directory_path(directories, "data_dir", admin_user, "/home/{admin_user}/.local/share/atuin")
 
 def get_atuin_env_file(admin_user):
     """
     Get the path to the Atuin environment file for the given user.
     """
-    path_template = MODULE_CONFIG["config"]["directories"]["atuin_env"]
-    return format_path(path_template, admin_user)
+    directories = MODULE_CONFIG["config"]["directories"]
+    return get_directory_path(directories, "atuin_env", admin_user, "/home/{admin_user}/.atuin/bin/env")
 
 def get_atuin_root_dir(admin_user):
     """
     Get the path to the Atuin root directory for the given user.
     """
-    path_template = MODULE_CONFIG["config"]["directories"]["atuin_root"]
-    return format_path(path_template, admin_user)
+    directories = MODULE_CONFIG["config"]["directories"]
+    return get_directory_path(directories, "atuin_root", admin_user, "/home/{admin_user}/.atuin")
 
 def get_all_atuin_paths():
     """
@@ -509,6 +524,84 @@ def verify_atuin_installation(admin_user):
     
     return verification_results
 
+def restore_atuin_permissions(admin_user):
+    """
+    Restore proper ownership and permissions for atuin files and directories.
+    This is critical after updates that run as root to prevent access issues.
+    
+    Args:
+        admin_user: The admin username for path resolution
+        
+    Returns:
+        bool: True if permissions were restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring atuin permissions after update...")
+        
+        config = MODULE_CONFIG["config"]
+        permission_manager = PermissionManager("atuin")
+        
+        # Build permission targets from JSON configuration
+        targets = []
+        default_owner_template = config["permissions"]["owner"]
+        default_group_template = config["permissions"]["group"]
+        
+        # Resolve user templates
+        default_owner = format_path(default_owner_template, admin_user)
+        default_group = format_path(default_group_template, admin_user)
+        
+        for dir_key, dir_config in config["directories"].items():
+            if isinstance(dir_config, dict):
+                # New format with embedded permissions
+                path_template = dir_config["path"]
+                path = format_path(path_template, admin_user)
+                mode = int(dir_config["mode"], 8)  # Convert string to octal
+                
+                # For atuin, everything should be owned by the user
+                owner = default_owner
+                group = default_group
+                
+                # Skip if path doesn't exist
+                if not os.path.exists(path):
+                    log_message(f"Skipping {path} - does not exist", "DEBUG")
+                    continue
+                
+                # Determine if this should be recursive
+                recursive = os.path.isdir(path)
+                
+                targets.append(PermissionTarget(
+                    path=path,
+                    owner=owner,
+                    group=group,
+                    mode=mode,
+                    recursive=recursive
+                ))
+            else:
+                # Legacy format - use defaults
+                path = format_path(dir_config, admin_user)
+                if os.path.exists(path):
+                    targets.append(PermissionTarget(
+                        path=path,
+                        owner=default_owner,
+                        group=default_group,
+                        mode=0o755,
+                        recursive=True
+                    ))
+        
+        # Apply all permission targets
+        success = permission_manager.set_permissions(targets)
+        
+        if success:
+            log_message("✓ Successfully restored atuin permissions")
+        else:
+            log_message("✗ Failed to restore some atuin permissions", "WARNING")
+        
+        return success
+        
+    except Exception as e:
+        log_message(f"Error restoring atuin permissions: {e}", "ERROR")
+        return False
+
 def main(args=None):
     """
     Main entry point for Atuin update module.
@@ -529,6 +622,16 @@ def main(args=None):
         return {"success": False, "error": "No admin user"}
     
     ATUIN_BIN = get_atuin_bin_path(admin_user)
+
+    # --fix-permissions mode: restore permissions only
+    if len(args) > 0 and args[0] == "--fix-permissions":
+        log_message("Restoring Atuin permissions...")
+        success = restore_atuin_permissions(admin_user)
+        return {
+            "success": success,
+            "permissions_restored": success,
+            "admin_user": admin_user
+        }
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
@@ -642,6 +745,10 @@ def main(args=None):
                 # Run post-update verification
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
+                
+                # Restore permissions after successful update
+                log_message("Ensuring proper permissions after update...")
+                restore_atuin_permissions(admin_user)
                 
                 return {
                     "success": True, 

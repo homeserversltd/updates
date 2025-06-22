@@ -24,6 +24,7 @@ import zipfile
 import tempfile
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager, PermissionTarget
 
 # Load module configuration from index.json
 def load_module_config():
@@ -99,6 +100,11 @@ def get_directories_config():
         "themes_dir": "/etc/ohmyposh/themes"
     })
 
+def get_directory_path(config, key, default_path):
+    """Helper function to get directory path from either new or legacy format."""
+    dir_config = config.get(key, default_path)
+    return dir_config["path"] if isinstance(dir_config, dict) else dir_config
+
 def get_permissions_config():
     """Get permissions configuration from module config."""
     return MODULE_CONFIG["config"].get("permissions", {
@@ -114,7 +120,8 @@ def get_current_version():
         str: Version string or None if not installed
     """
     try:
-        oh_my_posh_bin = get_directories_config()["oh_my_posh_bin"]
+        directories = get_directories_config()
+        oh_my_posh_bin = get_directory_path(directories, "oh_my_posh_bin", "/usr/local/bin/oh-my-posh")
         if not os.path.isfile(oh_my_posh_bin):
             log_message(f"Oh My Posh binary not found at {oh_my_posh_bin}", "DEBUG")
             return None
@@ -176,33 +183,65 @@ def get_latest_version():
         log_message(f"Failed to get latest version info: {e}", "ERROR")
         return None
 
-def set_permissions():
-    """Set proper permissions for Oh My Posh installation."""
+def restore_ohmyposh_permissions():
+    """
+    Restore proper ownership and permissions for oh-my-posh files and directories.
+    This is critical after updates that run as root to prevent access issues.
+    
+    Returns:
+        bool: True if permissions were restored successfully, False otherwise
+    """
     try:
-        dirs_config = get_directories_config()
-        perms_config = get_permissions_config()
+        log_message("Restoring oh-my-posh permissions after update...")
         
-        oh_my_posh_bin = dirs_config["oh_my_posh_bin"]
-        themes_dir = dirs_config["themes_dir"]
+        config = MODULE_CONFIG["config"]
+        permission_manager = PermissionManager("ohmyposh")
         
-        # Set binary permissions
-        if os.path.exists(oh_my_posh_bin):
-            subprocess.run([
-                "chmod", perms_config["binary_mode"], oh_my_posh_bin
-            ], check=True)
-            log_message(f"Set binary permissions on {oh_my_posh_bin}")
+        # Build permission targets from JSON configuration
+        targets = []
+        default_owner = config["permissions"]["owner"]
+        default_group = config["permissions"]["group"]
         
-        # Set themes permissions
-        if os.path.exists(themes_dir):
-            subprocess.run([
-                "find", themes_dir, "-type", "f", "-exec", 
-                "chmod", perms_config["themes_mode"], "{}", "+"
-            ], check=True)
-            log_message(f"Set themes permissions in {themes_dir}")
+        for dir_key, dir_config in config["directories"].items():
+            if isinstance(dir_config, dict):
+                # New format with embedded permissions
+                path = dir_config["path"]
+                owner = dir_config.get("owner", default_owner)
+                group = default_group
+                mode = int(dir_config["mode"], 8)  # Convert string to octal
+                
+                # Determine if this should be recursive
+                recursive = os.path.isdir(path) if os.path.exists(path) else True
+                
+                targets.append(PermissionTarget(
+                    path=path,
+                    owner=owner,
+                    group=group,
+                    mode=mode,
+                    recursive=recursive
+                ))
+            else:
+                # Legacy format - use defaults
+                targets.append(PermissionTarget(
+                    path=dir_config,
+                    owner=default_owner,
+                    group=default_group,
+                    mode=0o755,
+                    recursive=True
+                ))
         
-        return True
+        # Apply all permission targets
+        success = permission_manager.set_permissions(targets)
+        
+        if success:
+            log_message("✓ Successfully restored oh-my-posh permissions")
+        else:
+            log_message("✗ Failed to restore some oh-my-posh permissions", "WARNING")
+        
+        return success
+        
     except Exception as e:
-        log_message(f"Failed to set permissions: {e}", "WARNING")
+        log_message(f"Error restoring oh-my-posh permissions: {e}", "ERROR")
         return False
 
 def install_oh_my_posh_binary(version):
@@ -219,7 +258,7 @@ def install_oh_my_posh_binary(version):
         
         # Build download URL
         download_url = install_config["download_url_template"].format(version=version)
-        oh_my_posh_bin = dirs_config["oh_my_posh_bin"]
+        oh_my_posh_bin = get_directory_path(dirs_config, "oh_my_posh_bin", "/usr/local/bin/oh-my-posh")
         
         # Download binary
         log_message(f"Downloading Oh My Posh binary from {download_url}...")
@@ -246,7 +285,7 @@ def install_oh_my_posh_themes():
         dirs_config = get_directories_config()
         
         themes_url = install_config["themes_url"]
-        themes_dir = dirs_config["themes_dir"]
+        themes_dir = get_directory_path(dirs_config, "themes_dir", "/etc/ohmyposh/themes")
         
         # Create themes directory
         os.makedirs(themes_dir, exist_ok=True)
@@ -299,8 +338,9 @@ def install_oh_my_posh(version):
     if not install_oh_my_posh_themes():
         return False
     
-    # Set permissions
-    set_permissions()
+    # Restore proper permissions using PermissionManager
+    if not restore_ohmyposh_permissions():
+        log_message("Warning: Failed to restore permissions after installation", "WARNING")
     
     return True
 
@@ -323,8 +363,8 @@ def verify_oh_my_posh_installation():
     try:
         dirs_config = get_directories_config()
         
-        oh_my_posh_bin = dirs_config["oh_my_posh_bin"]
-        themes_dir = dirs_config["themes_dir"]
+        oh_my_posh_bin = get_directory_path(dirs_config, "oh_my_posh_bin", "/usr/local/bin/oh-my-posh")
+        themes_dir = get_directory_path(dirs_config, "themes_dir", "/etc/ohmyposh/themes")
         
         verification_results["paths"]["binary"] = oh_my_posh_bin
         verification_results["paths"]["themes_dir"] = themes_dir
@@ -379,14 +419,28 @@ def main(args=None):
     SERVICE_NAME = MODULE_CONFIG.get("metadata", {}).get("module_name", "ohmyposh")
     directories_config = get_directories_config()
     
-    OH_MY_POSH_BIN = directories_config.get("oh_my_posh_bin", "/usr/local/bin/oh-my-posh")
+    OH_MY_POSH_BIN = get_directory_path(directories_config, "oh_my_posh_bin", "/usr/local/bin/oh-my-posh")
+
+    # --fix-permissions mode: restore permissions only
+    if len(args) > 0 and args[0] == "--fix-permissions":
+        log_message("Restoring Oh My Posh permissions...")
+        success = restore_ohmyposh_permissions()
+        return {
+            "success": success,
+            "permissions_restored": success
+        }
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Oh My Posh module configuration:")
         log_message(f"  Binary path: {OH_MY_POSH_BIN}")
-        log_message(f"  Install dir: {directories_config['install_dir']}")
-        log_message(f"  Themes dir: {directories_config['themes_dir']}")
+        
+        # Handle new directory format
+        for dir_key, dir_config in directories_config.items():
+            if isinstance(dir_config, dict):
+                log_message(f"  {dir_key}: {dir_config['path']}")
+            else:
+                log_message(f"  {dir_key}: {dir_config}")
         
         backup_config = get_backup_config()
         log_message(f"  Backup dir: {backup_config['backup_dir']}")
@@ -493,6 +547,10 @@ def main(args=None):
                 # Run post-update verification
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
+                
+                # Restore permissions after successful update
+                log_message("Ensuring proper permissions after update...")
+                restore_ohmyposh_permissions()
                 
                 return {
                     "success": True, 

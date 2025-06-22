@@ -1,17 +1,36 @@
 {
     "metadata": {
-        "schema_version": "0.1.2",
+        "schema_version": "0.1.4",
         "module_name": "filebrowser",
         "description": "File browser web interface",
         "enabled": false
     },
     "config": {
         "directories": {
-            "data_dir": "/var/lib/filebrowser",
-            "config_dir": "/etc/filebrowser"
+            "data_dir": {
+                "path": "/var/lib/filebrowser",
+                "mode": "755"
+            },
+            "config_dir": {
+                "path": "/etc/filebrowser",
+                "mode": "755"
+            },
+            "binary": {
+                "path": "/usr/local/bin/filebrowser",
+                "owner": "root",
+                "mode": "755"
+            },
+            "database_file": {
+                "path": "/etc/filebrowser/filebrowser.db",
+                "mode": "640"
+            }
         },
         "installation": {
             "github_api_url": "https://api.github.com/repos/filebrowser/filebrowser/releases/latest"
+        },
+        "permissions": {
+            "owner": "filebrowser",
+            "group": "filebrowser"
         }
     }
 } 

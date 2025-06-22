@@ -1,18 +1,32 @@
 {
     "metadata": {
-        "schema_version": "0.1.5",
+        "schema_version": "0.1.6",
         "module_name": "navidrome",
         "description": "Navidrome music server",
         "enabled": true
     },
     "config": {
         "directories": {
-            "install_dir": "/opt/navidrome",
-            "data_dir": "/var/lib/navidrome",
-            "navidrome_bin": "/opt/navidrome/navidrome"
+            "install_dir": {
+                "path": "/opt/navidrome",
+                "mode": "755"
+            },
+            "data_dir": {
+                "path": "/var/lib/navidrome",
+                "mode": "755"
+            },
+            "navidrome_bin": {
+                "path": "/opt/navidrome/navidrome",
+                "owner": "root",
+                "mode": "755"
+            }
         },
         "installation": {
             "github_api_url": "https://api.github.com/repos/navidrome/navidrome/releases/latest"
+        },
+        "permissions": {
+            "owner": "navidrome",
+            "group": "navidrome"
         }
     }
 } 

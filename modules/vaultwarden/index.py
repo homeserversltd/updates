@@ -27,6 +27,7 @@ import tarfile
 import re
 
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager, PermissionTarget
 
 def log_message(message, level="INFO"):
     """Log a message with timestamp and level."""
@@ -102,6 +103,11 @@ def get_directories_config():
         "cargo_bin": "~/.cargo/bin/vaultwarden"
     })
 
+def get_directory_path(config, key, default_path):
+    """Helper function to get directory path from either new or legacy format."""
+    dir_config = config.get(key, default_path)
+    return dir_config["path"] if isinstance(dir_config, dict) else dir_config
+
 def get_installation_config():
     """Get installation configuration from module config."""
     return MODULE_CONFIG["config"].get("installation", {
@@ -129,12 +135,12 @@ def get_all_vaultwarden_paths():
     
     # Standard paths that should be backed up if they exist
     potential_paths = [
-        directories["binary_path"],
-        directories["web_vault_dir"],
-        directories["data_dir"],
-        directories["config_dir"],
-        directories["log_dir"],
-        "/etc/vaultwarden.env",  # Common config file location
+        get_directory_path(directories, "binary_path", "/opt/vaultwarden/vaultwarden"),
+        get_directory_path(directories, "web_vault_dir", "/opt/vaultwarden/web-vault"),
+        get_directory_path(directories, "data_dir", "/var/lib/vaultwarden"),
+        get_directory_path(directories, "config_dir", "/etc/vaultwarden"),
+        get_directory_path(directories, "log_dir", "/var/log/vaultwarden"),
+        get_directory_path(directories, "config_file", "/etc/vaultwarden.env"),
         "/mnt/nas/vaultwarden/attachments"  # NAS attachments if configured
     ]
     
@@ -179,7 +185,7 @@ def get_current_version():
     """
     try:
         directories = get_directories_config()
-        binary_path = directories["binary_path"]
+        binary_path = get_directory_path(directories, "binary_path", "/opt/vaultwarden/vaultwarden")
         
         if not os.path.isfile(binary_path):
             log_message(f"Vaultwarden binary not found at {binary_path}", "DEBUG")
@@ -251,7 +257,7 @@ def get_current_version():
                 log_message(f"Failed to read Cargo.toml: {e}", "DEBUG")
         
         # Method 4: Check web vault version files (fallback only)
-        web_vault_dir = directories.get("web_vault_dir", "/opt/vaultwarden/web-vault")
+        web_vault_dir = get_directory_path(directories, "web_vault_dir", "/opt/vaultwarden/web-vault")
         
         # Try vw-version.json first (vaultwarden-specific version)
         vw_version_file = os.path.join(web_vault_dir, "vw-version.json")
@@ -389,7 +395,7 @@ def update_vaultwarden():
             
             # Install new binary
             built_binary = os.path.join(src_dir, "target", "release", "vaultwarden")
-            target_binary = directories["binary_path"]
+            target_binary = get_directory_path(directories, "binary_path", "/opt/vaultwarden/vaultwarden")
             
             if not os.path.exists(built_binary):
                 log_message(f"Built binary not found at {built_binary}", "ERROR")
@@ -397,7 +403,6 @@ def update_vaultwarden():
             
             log_message("Installing new binary...")
             shutil.copy2(built_binary, target_binary)
-            os.chmod(target_binary, 0o755)
             
             # Download and install web vault
             log_message("Downloading web vault...")
@@ -410,7 +415,7 @@ def update_vaultwarden():
             
             # Extract web vault
             log_message("Installing web vault...")
-            web_vault_dir = directories["web_vault_dir"]
+            web_vault_dir = get_directory_path(directories, "web_vault_dir", "/opt/vaultwarden/web-vault")
             
             # Remove old web vault
             if os.path.exists(web_vault_dir):
@@ -425,6 +430,10 @@ def update_vaultwarden():
             if os.path.exists(extracted_dir):
                 shutil.move(extracted_dir, web_vault_dir)
             
+            # Restore proper permissions using PermissionManager
+            if not restore_vaultwarden_permissions():
+                log_message("Warning: Failed to restore permissions after installation", "WARNING")
+            
             log_message("Vaultwarden update completed successfully")
             return True
             
@@ -434,6 +443,77 @@ def update_vaultwarden():
             
     except Exception as e:
         log_message(f"Error during Vaultwarden update: {e}", "ERROR")
+        return False
+
+def restore_vaultwarden_permissions():
+    """
+    Restore proper ownership and permissions for vaultwarden files and directories.
+    This is critical after updates that run as root to prevent service failures.
+    
+    Returns:
+        bool: True if permissions were restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring vaultwarden permissions after update...")
+        
+        config = MODULE_CONFIG["config"]
+        permission_manager = PermissionManager("vaultwarden")
+        
+        # Build permission targets from JSON configuration
+        targets = []
+        default_owner = config["permissions"]["owner"]
+        default_group = config["permissions"]["group"]
+        
+        for dir_key, dir_config in config["directories"].items():
+            if isinstance(dir_config, dict):
+                # New format with embedded permissions
+                path = dir_config["path"]
+                owner = dir_config.get("owner", default_owner)
+                mode = int(dir_config["mode"], 8)  # Convert string to octal
+                
+                # Binary files and cargo_home should be owned by root for security
+                if "bin" in dir_key.lower() or "cargo" in dir_key.lower():
+                    owner = "root"
+                    group = "root"
+                else:
+                    group = default_group
+                
+                # Skip cargo_bin as it's in user home directory
+                if dir_key == "cargo_bin":
+                    continue
+                
+                # Determine if this should be recursive
+                recursive = os.path.isdir(path) if os.path.exists(path) else True
+                
+                targets.append(PermissionTarget(
+                    path=path,
+                    owner=owner,
+                    group=group,
+                    mode=mode,
+                    recursive=recursive
+                ))
+            else:
+                # Legacy format - use defaults
+                targets.append(PermissionTarget(
+                    path=dir_config,
+                    owner=default_owner,
+                    group=default_group,
+                    mode=0o755,
+                    recursive=True
+                ))
+        
+        # Apply all permission targets
+        success = permission_manager.set_permissions(targets)
+        
+        if success:
+            log_message("✓ Successfully restored vaultwarden permissions")
+        else:
+            log_message("✗ Failed to restore some vaultwarden permissions", "WARNING")
+        
+        return success
+        
+    except Exception as e:
+        log_message(f"Error restoring vaultwarden permissions: {e}", "ERROR")
         return False
 
 def verify_vaultwarden_installation():
@@ -454,8 +534,8 @@ def verify_vaultwarden_installation():
     try:
         directories = get_directories_config()
         
-        binary_path = directories["binary_path"]
-        web_vault_dir = directories["web_vault_dir"]
+        binary_path = get_directory_path(directories, "binary_path", "/opt/vaultwarden/vaultwarden")
+        web_vault_dir = get_directory_path(directories, "web_vault_dir", "/opt/vaultwarden/web-vault")
         service_name = get_service_name()
         
         # Check binary exists
@@ -500,16 +580,29 @@ def main(args=None):
     
     directories = get_directories_config()
     SERVICE_NAME = get_service_name()
-    VAULTWARDEN_BIN = directories.get("binary_path", "/opt/vaultwarden/vaultwarden")
+    VAULTWARDEN_BIN = get_directory_path(directories, "binary_path", "/opt/vaultwarden/vaultwarden")
+
+    # --fix-permissions mode: restore permissions only
+    if len(args) > 0 and args[0] == "--fix-permissions":
+        log_message("Restoring Vaultwarden permissions...")
+        success = restore_vaultwarden_permissions()
+        return {
+            "success": success,
+            "permissions_restored": success
+        }
 
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Vaultwarden module configuration:")
         log_message(f"  Service: {SERVICE_NAME}")
         log_message(f"  Binary path: {VAULTWARDEN_BIN}")
-        log_message(f"  Web vault dir: {directories['web_vault_dir']}")
-        log_message(f"  Data dir: {directories['data_dir']}")
-        log_message(f"  Config dir: {directories['config_dir']}")
+        
+        # Handle new directory format
+        for dir_key, dir_config in directories.items():
+            if isinstance(dir_config, dict):
+                log_message(f"  {dir_key}: {dir_config['path']}")
+            else:
+                log_message(f"  {dir_key}: {dir_config}")
         
         return {
             "success": True,
@@ -617,6 +710,10 @@ def main(args=None):
             
             if new_version == latest_version and verification["service_active"]:
                 log_message(f"Successfully updated Vaultwarden from {current_version} to {latest_version}")
+                
+                # Restore permissions after successful update
+                log_message("Ensuring proper permissions after update...")
+                restore_vaultwarden_permissions()
                 
                 return {
                     "success": True, 

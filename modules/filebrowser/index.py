@@ -24,6 +24,7 @@ import urllib.request
 import json
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import restore_service_permissions_simple, PermissionManager, PermissionTarget
 
 # Load module configuration from index.json
 def load_module_config():
@@ -67,17 +68,16 @@ def get_filebrowser_paths():
     paths = []
     config = MODULE_CONFIG["config"]
     
-    # Add data directory
-    data_dir = config["directories"]["data_dir"]
-    if os.path.exists(data_dir):
-        paths.append(data_dir)
-        log_message(f"Found Filebrowser data directory: {data_dir}")
-    
-    # Add config directory
-    config_dir = config["directories"]["config_dir"]
-    if os.path.exists(config_dir):
-        paths.append(config_dir)
-        log_message(f"Found Filebrowser config directory: {config_dir}")
+    # Add all configured directories
+    for dir_key, dir_config in config["directories"].items():
+        # Handle both new format (dict with path) and legacy format (string)
+        path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
+        
+        if os.path.exists(path):
+            paths.append(path)
+            log_message(f"Found Filebrowser path for backup: {path}")
+        else:
+            log_message(f"Filebrowser path not found (skipping): {path}", "DEBUG")
     
     return paths
 
@@ -154,14 +154,10 @@ def verify_filebrowser_installation():
                     verification_results["version"] = version
         
         # Check directories
-        config_dir = MODULE_CONFIG["config"]["directories"]["config_dir"]
-        data_dir = MODULE_CONFIG["config"]["directories"]["data_dir"]
-        
-        verification_results["paths"]["config_dir"] = config_dir
-        verification_results["paths"]["data_dir"] = data_dir
-        
-        verification_results["config_dir_exists"] = os.path.exists(config_dir)
-        verification_results["data_dir_exists"] = os.path.exists(data_dir)
+        for dir_key, dir_config in MODULE_CONFIG["config"]["directories"].items():
+            dir_path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
+            verification_results["paths"][dir_key] = dir_path
+            verification_results[f"{dir_key}_exists"] = os.path.exists(dir_path)
         
         # Log verification results
         for check, result in verification_results.items():
@@ -176,6 +172,66 @@ def verify_filebrowser_installation():
         log_message(f"Error during Filebrowser verification: {e}", "ERROR")
     
     return verification_results
+
+def restore_filebrowser_permissions():
+    """
+    Restore proper ownership and permissions for filebrowser files and directories.
+    This is critical after updates that run as root to prevent service failures.
+    
+    Returns:
+        bool: True if permissions were restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring filebrowser permissions after update...")
+        
+        config = MODULE_CONFIG["config"]
+        permission_manager = PermissionManager("filebrowser")
+        
+        # Build permission targets from JSON configuration
+        targets = []
+        default_owner = config["permissions"]["owner"]
+        default_group = config["permissions"]["group"]
+        
+        for dir_key, dir_config in config["directories"].items():
+            if isinstance(dir_config, dict):
+                # New format with embedded permissions
+                path = dir_config["path"]
+                owner = dir_config.get("owner", default_owner)
+                mode = int(dir_config["mode"], 8)  # Convert string to octal
+                
+                # Determine if it's a directory or file and if recursive
+                is_directory = os.path.isdir(path) if os.path.exists(path) else "dir" in dir_key
+                recursive = is_directory and dir_key in ["data_dir", "config_dir"]
+                
+                targets.append(PermissionTarget(
+                    path=path,
+                    owner=owner,
+                    group=default_group,
+                    mode=mode,
+                    recursive=recursive
+                ))
+            else:
+                # Legacy format fallback
+                targets.append(PermissionTarget(
+                    path=dir_config,
+                    owner=default_owner,
+                    group=default_group,
+                    mode=0o755,
+                    recursive=True
+                ))
+        
+        success = permission_manager.set_permissions(targets)
+        
+        if success:
+            log_message("Successfully restored filebrowser permissions")
+        else:
+            log_message("Failed to restore some filebrowser permissions", "WARNING")
+            
+        return success
+        
+    except Exception as e:
+        log_message(f"Critical error during filebrowser permission restoration: {e}", "ERROR")
+        return False
 
 def main(args=None):
     """
@@ -198,6 +254,14 @@ def main(args=None):
             else:
                 log_message("Could not detect Filebrowser version")
                 return {"success": False, "error": "Version detection failed"}
+        elif args[0] == "--fix-permissions":
+            log_message("Manually restoring filebrowser permissions...")
+            if restore_filebrowser_permissions():
+                log_message("✓ Permissions restored successfully")
+                return {"success": True, "message": "Permissions restored"}
+            else:
+                log_message("✗ Failed to restore permissions")
+                return {"success": False, "error": "Permission restoration failed"}
     
     log_message("Starting Filebrowser module update...")
     
@@ -206,16 +270,14 @@ def main(args=None):
     # --config mode: show current configuration
     if len(args) > 0 and args[0] == "--config":
         log_message("Current Filebrowser module configuration:")
-        log_message(f"  Data dir: {MODULE_CONFIG['config']['directories']['data_dir']}")
-        log_message(f"  Config dir: {MODULE_CONFIG['config']['directories']['config_dir']}")
+        for key, dir_config in MODULE_CONFIG["config"]["directories"].items():
+            path = dir_config["path"] if isinstance(dir_config, dict) else dir_config
+            log_message(f"  {key}: {path}")
         
         return {
             "success": True,
             "config": MODULE_CONFIG,
-            "paths": {
-                "data_dir": MODULE_CONFIG["config"]["directories"]["data_dir"],
-                "config_dir": MODULE_CONFIG["config"]["directories"]["config_dir"]
-            }
+            "paths": {k: (v["path"] if isinstance(v, dict) else v) for k, v in MODULE_CONFIG["config"]["directories"].items()}
         }
 
     # --verify mode: comprehensive installation verification
@@ -316,6 +378,10 @@ def main(args=None):
                 # Run post-update verification
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
+                
+                # Restore permissions
+                if not restore_filebrowser_permissions():
+                    log_message("Warning: Failed to restore filebrowser permissions", "WARNING")
                 
                 return {
                     "success": True, 

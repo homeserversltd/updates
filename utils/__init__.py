@@ -25,6 +25,13 @@ This module provides common utilities used by various update modules.
 from .index import log_message, get_module_version
 from .version_control import checkout_module_version, list_module_versions, checkout_last_safe
 from .state_manager import StateManager
+from .permissions import (
+    PermissionManager, 
+    PermissionTarget, 
+    create_service_permission_targets,
+    restore_service_permissions_simple,
+    fix_common_service_permissions
+)
 
 __all__ = [
     'log_message',
@@ -32,5 +39,10 @@ __all__ = [
     'checkout_module_version',
     'list_module_versions', 
     'checkout_last_safe',
-    'StateManager'
+    'StateManager',
+    'PermissionManager',
+    'PermissionTarget',
+    'create_service_permission_targets',
+    'restore_service_permissions_simple',
+    'fix_common_service_permissions'
 ]

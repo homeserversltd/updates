@@ -25,10 +25,77 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager
 
 class HotfixOperationError(Exception):
     """Custom exception for hotfix operation failures."""
     pass
+
+def restore_hotfix_permissions(config: Dict[str, Any]) -> bool:
+    """
+    Restore permissions for all hotfix operations that have permission specifications.
+    
+    Args:
+        config: Module configuration containing pools and operations
+        
+    Returns:
+        bool: True if permissions restored successfully, False otherwise
+    """
+    try:
+        log_message("Restoring hotfix permissions...")
+        
+        # Initialize PermissionManager
+        permission_manager = PermissionManager()
+        
+        # Get all pools
+        pools = config.get('pools', [])
+        if not pools:
+            log_message("No pools found, skipping permission restoration")
+            return True
+        
+        # Build targets from operations with permission specifications
+        targets = []
+        
+        for pool in pools:
+            pool_id = pool.get('id', 'unknown')
+            operations = pool.get('operations', [])
+            
+            for operation in operations:
+                destination = operation.get('destination')
+                permissions = operation.get('permissions')
+                
+                if destination and permissions:
+                    owner = permissions.get('owner', 'root')
+                    group = permissions.get('group', 'root')
+                    mode = permissions.get('mode', '644')
+                    
+                    target = permission_manager.create_target(
+                        path=destination,
+                        owner=owner,
+                        group=group,
+                        mode=mode,
+                        recursive=False  # Hotfix operations are typically single files
+                    )
+                    targets.append(target)
+                    log_message(f"Added permission target: {destination} ({owner}:{group} {mode})")
+        
+        if not targets:
+            log_message("No permission targets found in hotfix operations")
+            return True
+        
+        # Apply permissions
+        success = permission_manager.apply_permissions(targets)
+        
+        if success:
+            log_message(f"Successfully restored permissions for {len(targets)} hotfix targets")
+            return True
+        else:
+            log_message("Failed to restore hotfix permissions", "ERROR")
+            return False
+            
+    except Exception as e:
+        log_message(f"Error restoring hotfix permissions: {e}", "ERROR")
+        return False
 
 class HotfixManager:
     """Pool-based hotfix manager with StateManager integration."""
@@ -87,6 +154,47 @@ class HotfixManager:
         log_message(f"All {description} commands completed successfully")
         return True
     
+    def _apply_operation_permissions(self, operation: Dict[str, Any]) -> bool:
+        """Apply permissions for a single operation if specified."""
+        permissions = operation.get('permissions')
+        if not permissions:
+            return True  # No permissions specified, that's fine
+        
+        destination = operation.get('destination')
+        if not destination:
+            return True
+        
+        try:
+            # Initialize PermissionManager
+            permission_manager = PermissionManager()
+            
+            # Create target from operation permissions
+            owner = permissions.get('owner', 'root')
+            group = permissions.get('group', 'root')
+            mode = permissions.get('mode', '644')
+            
+            target = permission_manager.create_target(
+                path=destination,
+                owner=owner,
+                group=group,
+                mode=mode,
+                recursive=False
+            )
+            
+            # Apply permissions
+            success = permission_manager.apply_permissions([target])
+            
+            if success:
+                log_message(f"Applied permissions to {destination}: {owner}:{group} {mode}")
+                return True
+            else:
+                log_message(f"Failed to apply permissions to {destination}", "ERROR")
+                return False
+                
+        except Exception as e:
+            log_message(f"Error applying permissions to {destination}: {e}", "ERROR")
+            return False
+    
     def _apply_pool_operations(self, pool: Dict[str, Any]) -> bool:
         """Apply all file operations in a pool."""
         pool_id = pool["id"]
@@ -117,6 +225,11 @@ class HotfixManager:
                 # Copy file
                 shutil.copy2(source_path, destination_path)
                 log_message(f"Copied: {source_path} → {destination_path}")
+                
+                # Apply permissions if specified
+                if not self._apply_operation_permissions(operation):
+                    log_message(f"Failed to apply permissions for operation in pool {pool_id}", "ERROR")
+                    return False
                 
             except Exception as e:
                 log_message(f"Failed to apply operation in pool {pool_id}: {e}", "ERROR")
@@ -156,7 +269,7 @@ class HotfixManager:
                 log_message(f"Failed to create backup for pool {pool_id}", "ERROR")
                 return False
             
-            # Apply phase - copy all source files to destinations
+            # Apply phase - copy all source files to destinations with permissions
             apply_success = self._apply_pool_operations(pool)
             if not apply_success:
                 log_message(f"Failed to apply operations for pool {pool_id}, rolling back", "ERROR")
@@ -186,6 +299,11 @@ class HotfixManager:
             restore_success = self.state_manager.restore_module_state(f"hotfix_pool_{pool_id}")
             if restore_success:
                 log_message(f"Successfully rolled back pool {pool_id}")
+                
+                # Restore permissions after rollback if needed
+                log_message(f"Restoring permissions after rollback for pool {pool_id}")
+                restore_hotfix_permissions(self.config)
+                
             else:
                 log_message(f"Failed to rollback pool {pool_id}", "ERROR")
         except Exception as e:
@@ -285,7 +403,7 @@ def main(args=None):
     Main entry point for hotfix module.
     
     Args:
-        args: List of arguments (supports '--check', '--version')
+        args: List of arguments (supports '--check', '--version', '--fix-permissions')
         
     Returns:
         dict: Status and results of the hotfix operation
@@ -299,7 +417,15 @@ def main(args=None):
     try:
         manager = HotfixManager(module_path)
         
-        if "--check" in args:
+        if "--fix-permissions" in args:
+            log_message("Fixing hotfix permissions...")
+            success = restore_hotfix_permissions(manager.config)
+            return {
+                "success": success,
+                "message": "Hotfix permissions fixed" if success else "Failed to fix hotfix permissions"
+            }
+        
+        elif "--check" in args:
             config = manager.config
             pools = config.get("pools", [])
             

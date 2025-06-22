@@ -1,21 +1,45 @@
 {
     "metadata": {
-        "schema_version": "0.1.6",
+        "schema_version": "0.1.7",
         "module_name": "atuin",
         "description": "Atuin shell history management tool",
         "enabled": false
     },
     "config": {
         "directories": {
-            "atuin_root": "/home/{admin_user}/.atuin",
-            "atuin_bin": "/home/{admin_user}/.atuin/bin/atuin",
-            "atuin_env": "/home/{admin_user}/.atuin/bin/env",
-            "config_dir": "/home/{admin_user}/.config/atuin",
-            "data_dir": "/home/{admin_user}/.local/share/atuin"
+            "atuin_root": {
+                "path": "/home/{admin_user}/.atuin",
+                "mode": "755",
+                "user_relative": true
+            },
+            "atuin_bin": {
+                "path": "/home/{admin_user}/.atuin/bin/atuin",
+                "mode": "755",
+                "user_relative": true
+            },
+            "atuin_env": {
+                "path": "/home/{admin_user}/.atuin/bin/env",
+                "mode": "644",
+                "user_relative": true
+            },
+            "config_dir": {
+                "path": "/home/{admin_user}/.config/atuin",
+                "mode": "755",
+                "user_relative": true
+            },
+            "data_dir": {
+                "path": "/home/{admin_user}/.local/share/atuin",
+                "mode": "755",
+                "user_relative": true
+            }
         },
         "installation": {
             "install_script_url": "https://setup.atuin.sh",
             "github_api_url": "https://api.github.com/repos/atuinsh/atuin/releases/latest"
+        },
+        "permissions": {
+            "owner": "{admin_user}",
+            "group": "{admin_user}"
         }
     }
 }
