@@ -1,0 +1,375 @@
+"""
+HOMESERVER Update Management System
+Copyright (C) 2024 HOMESERVER LLC
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import os
+import json
+import subprocess
+import shutil
+import urllib.request
+import time
+import re
+import tempfile
+from pathlib import Path
+from updates.index import log_message
+from updates.utils.state_manager import StateManager
+from updates.utils.permissions import PermissionManager, PermissionTarget
+
+# Load module configuration
+def load_module_config():
+    config_path = os.path.join(os.path.dirname(__file__), "index.json")
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+MODULE_CONFIG = load_module_config()
+
+# Configuration constants
+DOCS_REPO_URL = "https://github.com/homeserversltd/documentation.git"
+DOCS_LOCAL_PATH = "/opt/docs/docs"
+DOCS_TEMP_PATH = "/tmp/homeserver-docs-update"
+DOCS_VERSION_FILE = "/opt/docs/.docs_version"
+
+def get_directories_config():
+    return MODULE_CONFIG["config"]["directories"]
+
+def get_mkdocs_paths():
+    paths = []
+    for dir_key, dir_config in get_directories_config().items():
+        path = dir_config["path"]
+        if os.path.exists(path):
+            paths.append(path)
+    return paths
+
+def get_current_version():
+    try:
+        result = subprocess.run(["mkdocs", "--version"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            pattern = r'mkdocs, version (\d+\.\d+\.\d+)'
+            match = re.search(pattern, output)
+            if match:
+                return match.group(1)
+        return None
+    except:
+        return None
+
+def get_latest_version():
+    try:
+        api_url = MODULE_CONFIG["config"]["installation"]["github_api_url"]
+        with urllib.request.urlopen(api_url) as resp:
+            data = json.load(resp)
+            tag = data.get("tag_name", "")
+            if tag.startswith("v"):
+                return tag[1:]
+            return tag
+    except:
+        return None
+
+def get_current_docs_version():
+    """Get the current documentation version (commit hash) from local storage."""
+    try:
+        if os.path.exists(DOCS_VERSION_FILE):
+            with open(DOCS_VERSION_FILE, 'r') as f:
+                return f.read().strip()
+        return None
+    except:
+        return None
+
+def get_latest_docs_version():
+    """Get the latest documentation version (commit hash) from GitHub."""
+    try:
+        # Use GitHub API to get latest commit hash
+        api_url = "https://api.github.com/repos/homeserversltd/documentation/commits/main"
+        with urllib.request.urlopen(api_url) as resp:
+            data = json.load(resp)
+            return data.get("sha", "")
+    except Exception as e:
+        log_message(f"Failed to get latest docs version: {e}", "ERROR")
+        return None
+
+def save_docs_version(version):
+    """Save the current documentation version to local storage."""
+    try:
+        with open(DOCS_VERSION_FILE, 'w') as f:
+            f.write(version)
+        return True
+    except Exception as e:
+        log_message(f"Failed to save docs version: {e}", "ERROR")
+        return False
+
+def clone_docs_repository():
+    """Clone the documentation repository to temporary location."""
+    try:
+        # Clean up any existing temp directory
+        if os.path.exists(DOCS_TEMP_PATH):
+            shutil.rmtree(DOCS_TEMP_PATH)
+        
+        # Clone the repository
+        result = subprocess.run([
+            "git", "clone", "--depth", "1", 
+            DOCS_REPO_URL, DOCS_TEMP_PATH
+        ], capture_output=True, text=True, timeout=60)
+        
+        if result.returncode != 0:
+            log_message(f"Git clone failed: {result.stderr}", "ERROR")
+            return False
+        
+        return True
+    except Exception as e:
+        log_message(f"Failed to clone docs repository: {e}", "ERROR")
+        return False
+
+def deploy_docs_content():
+    """Deploy documentation content from temp location to docs directory."""
+    try:
+        # Ensure docs directory exists
+        os.makedirs(DOCS_LOCAL_PATH, exist_ok=True)
+        
+        # Remove existing content (except .git if it exists)
+        for item in os.listdir(DOCS_LOCAL_PATH):
+            item_path = os.path.join(DOCS_LOCAL_PATH, item)
+            if item != '.git':  # Preserve any git metadata
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+        
+        # Copy new content from temp directory
+        temp_content_path = os.path.join(DOCS_TEMP_PATH)
+        if os.path.exists(temp_content_path):
+            # Copy all files and directories except .git
+            for item in os.listdir(temp_content_path):
+                if item != '.git':
+                    src = os.path.join(temp_content_path, item)
+                    dst = os.path.join(DOCS_LOCAL_PATH, item)
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+        
+        # Set proper ownership and permissions
+        admin_user = "admin"  # Default admin user
+        try:
+            # Get admin user from environment or config
+            admin_user = os.environ.get('ADMIN_USER', 'admin')
+        except:
+            pass
+        
+        # Recursively set ownership
+        for root, dirs, files in os.walk(DOCS_LOCAL_PATH):
+            for d in dirs:
+                path = os.path.join(root, d)
+                subprocess.run(['chown', f'{admin_user}:{admin_user}', path], 
+                             capture_output=True)
+            for f in files:
+                path = os.path.join(root, f)
+                subprocess.run(['chown', f'{admin_user}:{admin_user}', path], 
+                             capture_output=True)
+        
+        return True
+    except Exception as e:
+        log_message(f"Failed to deploy docs content: {e}", "ERROR")
+        return False
+
+def cleanup_temp_docs():
+    """Clean up temporary documentation directory."""
+    try:
+        if os.path.exists(DOCS_TEMP_PATH):
+            shutil.rmtree(DOCS_TEMP_PATH)
+        return True
+    except Exception as e:
+        log_message(f"Failed to cleanup temp docs: {e}", "WARNING")
+        return False
+
+def update_documentation():
+    """Update documentation content from GitHub repository."""
+    try:
+        log_message("Checking for documentation updates...", "INFO")
+        
+        current_docs_version = get_current_docs_version()
+        latest_docs_version = get_latest_docs_version()
+        
+        if not latest_docs_version:
+            log_message("Could not determine latest docs version", "ERROR")
+            return False
+        
+        if current_docs_version == latest_docs_version:
+            log_message("Documentation is already up to date", "INFO")
+            return True
+        
+        log_message(f"Updating documentation from {current_docs_version or 'unknown'} to {latest_docs_version}", "INFO")
+        
+        # Clone repository
+        if not clone_docs_repository():
+            return False
+        
+        # Deploy content
+        if not deploy_docs_content():
+            cleanup_temp_docs()
+            return False
+        
+        # Save new version
+        if not save_docs_version(latest_docs_version):
+            log_message("Failed to save docs version, but content updated", "WARNING")
+        
+        # Cleanup
+        cleanup_temp_docs()
+        
+        log_message("Documentation updated successfully", "INFO")
+        return True
+        
+    except Exception as e:
+        log_message(f"Documentation update failed: {e}", "ERROR")
+        cleanup_temp_docs()
+        return False
+
+def restore_mkdocs_permissions():
+    try:
+        permission_manager = PermissionManager("mkdocs")
+        targets = []
+        default_owner = MODULE_CONFIG["config"]["permissions"]["owner"]
+        default_group = MODULE_CONFIG["config"]["permissions"]["group"]
+        
+        for dir_key, dir_config in get_directories_config().items():
+            targets.append(PermissionTarget(
+                path=dir_config["path"],
+                owner=default_owner,
+                group=default_group,
+                mode=int(dir_config["mode"], 8),
+                recursive=True
+            ))
+        
+        return permission_manager.set_permissions(targets)
+    except Exception as e:
+        log_message(f"Failed to restore permissions: {e}", "ERROR")
+        return False
+
+def verify_mkdocs_installation():
+    verification = {
+        "pip_installed": False,
+        "version": None,
+        "service_active": False,
+        "docs_version": None
+    }
+    try:
+        verification["version"] = get_current_version()
+        verification["pip_installed"] = verification["version"] is not None
+        verification["service_active"] = is_service_active("mkdocs")
+        verification["docs_version"] = get_current_docs_version()
+    except:
+        pass
+    return verification
+
+def is_service_active(service):
+    try:
+        result = subprocess.run(["systemctl", "is-active", "--quiet", service])
+        return result.returncode == 0
+    except:
+        return False
+
+def systemctl(action, service="mkdocs"):
+    try:
+        result = subprocess.run(["systemctl", action, service], capture_output=True, text=True)
+        return result.returncode == 0
+    except:
+        return False
+
+def main(args=None):
+    if args is None:
+        args = []
+    
+    log_message("Starting mkdocs update...")
+    
+    # Check for software updates
+    current_version = get_current_version()
+    latest_version = get_latest_version()
+    
+    # Check for documentation updates
+    current_docs_version = get_current_docs_version()
+    latest_docs_version = get_latest_docs_version()
+    
+    software_needs_update = current_version != latest_version
+    docs_need_update = current_docs_version != latest_docs_version
+    
+    if not software_needs_update and not docs_need_update:
+        verification = verify_mkdocs_installation()
+        return {"success": True, "updated": False, "verification": verification}
+    
+    # Backup current state if either component needs updating
+    state_manager = StateManager()
+    files_to_backup = get_mkdocs_paths() + [DOCS_LOCAL_PATH, DOCS_VERSION_FILE]
+    backup_success = state_manager.backup_module_state(
+        "mkdocs",
+        f"pre_update_{current_version or 'unknown'}_to_{latest_version or 'unknown'}_docs_{current_docs_version or 'unknown'}_to_{latest_docs_version or 'unknown'}",
+        files=files_to_backup
+    )
+    if not backup_success:
+        return {"success": False, "error": "Backup failed"}
+    
+    try:
+        # Stop service before updates
+        systemctl("stop")
+        
+        # Update software if needed
+        if software_needs_update:
+            log_message(f"Updating MkDocs software from {current_version} to {latest_version}", "INFO")
+            subprocess.run(["pip", "install", "--upgrade", "mkdocs"], check=True)
+            subprocess.run(["pip", "install", "--upgrade", "mkdocs-material"], check=True)
+        
+        # Update documentation if needed
+        if docs_need_update:
+            if not update_documentation():
+                raise Exception("Documentation update failed")
+        
+        # Restore permissions
+        restore_mkdocs_permissions()
+        
+        # Start service
+        systemctl("start")
+        time.sleep(5)  # Wait for startup
+        
+        # Verify everything is working
+        verification = verify_mkdocs_installation()
+        new_version = verification.get("version")
+        new_docs_version = verification.get("docs_version")
+        
+        success_conditions = [
+            not software_needs_update or new_version == latest_version,
+            not docs_need_update or new_docs_version == latest_docs_version,
+            verification["service_active"]
+        ]
+        
+        if all(success_conditions):
+            log_message("MkDocs update completed successfully", "INFO")
+            return {
+                "success": True, 
+                "updated": True, 
+                "verification": verification,
+                "software_updated": software_needs_update,
+                "docs_updated": docs_need_update
+            }
+        else:
+            raise Exception("Post-update verification failed")
+            
+    except Exception as e:
+        log_message(f"Update failed: {e}", "ERROR")
+        state_manager.restore_module_state("mkdocs")
+        systemctl("start")
+        return {"success": False, "error": str(e)}
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,41 @@
+{
+    "metadata": {
+        "schema_version": "0.1.0",
+        "module_name": "mkdocs",
+        "description": "Mkdocs documentation server",
+        "enabled": true
+    },
+    "config": {
+        "directories": {
+            "install_dir": {
+                "path": "/opt/mkdocs",
+                "mode": "755"
+            },
+            "config_dir": {
+                "path": "/etc/mkdocs",
+                "mode": "755"
+            },
+            "data_dir": {
+                "path": "/var/lib/mkdocs",
+                "mode": "755"
+            },
+            "docs_dir": {
+                "path": "/opt/docs/docs",
+                "mode": "755"
+            }
+        },
+        "installation": {
+            "github_api_url": "https://api.github.com/repos/squidfunk/mkdocs-material/releases/latest"
+        },
+        "documentation": {
+            "repository_url": "https://github.com/homeserversltd/documentation.git",
+            "api_url": "https://api.github.com/repos/homeserversltd/documentation/commits/main",
+            "local_path": "/opt/docs/docs",
+            "version_file": "/opt/docs/.docs_version"
+        },
+        "permissions": {
+            "owner": "mkdocs",
+            "group": "mkdocs"
+        }
+    }
+} 
