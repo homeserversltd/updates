@@ -1,9 +1,9 @@
 {
     "metadata": {
-        "schema_version": "0.1.4",
+        "schema_version": "0.1.5",
         "module_name": "website",
-        "description": "HOMESERVER website frontend/backend update system via GitHub",
-        "enabled": false
+        "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",
+        "enabled": true
     },
     "config": {
         "repository": {

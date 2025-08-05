@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import requests
 import time
-from updates.index import log_message
+from updates.index import log_message, compare_schema_versions
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager
 
@@ -362,6 +362,74 @@ class WebsiteUpdater:
         except Exception as e:
             log_message(f"Error during rollback: {e}", "ERROR")
     
+    def _get_local_version(self) -> Optional[str]:
+        """Get the current local version from homeserver.json."""
+        try:
+            local_config_path = "/var/www/homeserver/src/config/homeserver.json"
+            if not os.path.exists(local_config_path):
+                log_message("Local homeserver.json not found", "WARNING")
+                return None
+            
+            with open(local_config_path, 'r') as f:
+                config = json.load(f)
+            
+            version = config.get('global', {}).get('version', {}).get('release')
+            if version:
+                log_message(f"Local version: {version}")
+                return version
+            else:
+                log_message("No version found in local homeserver.json", "WARNING")
+                return None
+                
+        except Exception as e:
+            log_message(f"Failed to read local version: {e}", "ERROR")
+            return None
+    
+    def _get_repository_version(self, temp_dir: str) -> Optional[str]:
+        """Get the version from the repository's homeserver.json."""
+        try:
+            repo_config_path = os.path.join(temp_dir, "src", "config", "homeserver.json")
+            if not os.path.exists(repo_config_path):
+                log_message("Repository homeserver.json not found", "WARNING")
+                return None
+            
+            with open(repo_config_path, 'r') as f:
+                config = json.load(f)
+            
+            version = config.get('global', {}).get('version', {}).get('release')
+            if version:
+                log_message(f"Repository version: {version}")
+                return version
+            else:
+                log_message("No version found in repository homeserver.json", "WARNING")
+                return None
+                
+        except Exception as e:
+            log_message(f"Failed to read repository version: {e}", "ERROR")
+            return None
+    
+    def _check_version_update_needed(self, temp_dir: str) -> bool:
+        """Check if an update is needed based on version comparison."""
+        local_version = self._get_local_version()
+        repo_version = self._get_repository_version(temp_dir)
+        
+        if not local_version or not repo_version:
+            log_message("Cannot compare versions - missing version information", "WARNING")
+            return False
+        
+        # Use the existing semantic version comparison
+        comparison = compare_schema_versions(repo_version, local_version)
+        
+        if comparison > 0:
+            log_message(f"Update needed: {local_version} → {repo_version}")
+            return True
+        elif comparison == 0:
+            log_message(f"Versions are equal: {local_version}")
+            return False
+        else:
+            log_message(f"Local version is newer: {local_version} > {repo_version}")
+            return False
+    
     def _cleanup_temp_directory(self, temp_dir: str) -> None:
         """Clean up temporary directory."""
         try:
@@ -372,7 +440,7 @@ class WebsiteUpdater:
             log_message(f"Failed to clean up temp directory: {e}", "WARNING")
     
     def update(self) -> Dict[str, Any]:
-        """Perform the complete website update process."""
+        """Perform the complete website update process with version checking."""
         if not self.config['metadata'].get('enabled', True):
             log_message("Website updater is disabled")
             return {"success": True, "message": "Website updater disabled"}
@@ -381,15 +449,7 @@ class WebsiteUpdater:
         temp_dir = None
         
         try:
-            # Step 1: Create backup
-            if not self._backup_current_installation():
-                return {
-                    "success": False,
-                    "error": "Backup creation failed",
-                    "message": "Failed to create backup of current installation"
-                }
-            
-            # Step 2: Clone repository
+            # Step 1: Clone repository first to check versions
             temp_dir = self._clone_repository()
             if not temp_dir:
                 return {
@@ -398,7 +458,24 @@ class WebsiteUpdater:
                     "message": "Failed to clone GitHub repository"
                 }
             
-            # Step 3: Update components
+            # Step 2: Check if update is needed based on version comparison
+            if not self._check_version_update_needed(temp_dir):
+                log_message("No update needed - versions are equal or local is newer")
+                return {
+                    "success": True,
+                    "message": "No update needed - website is already up to date",
+                    "update_performed": False
+                }
+            
+            # Step 3: Create backup before proceeding with update
+            if not self._backup_current_installation():
+                return {
+                    "success": False,
+                    "error": "Backup creation failed",
+                    "message": "Failed to create backup of current installation"
+                }
+            
+            # Step 4: Update components
             if not self._update_components(temp_dir):
                 log_message("Component update failed, rolling back", "ERROR")
                 self._rollback_installation()
@@ -408,7 +485,7 @@ class WebsiteUpdater:
                     "message": "Failed to update website components, rolled back to previous version"
                 }
             
-            # Step 4: Run build process and restart services
+            # Step 5: Run build process and restart services
             if not self._run_build_process():
                 log_message("Build process failed, rolling back", "ERROR")
                 self._rollback_installation()
@@ -418,16 +495,24 @@ class WebsiteUpdater:
                     "message": "npm build or service restart failed, rolled back to previous version"
                 }
             
+            # Get version information for success message
+            local_version = self._get_local_version()
+            repo_version = self._get_repository_version(temp_dir)
+            
             log_message("Website update completed successfully")
             return {
                 "success": True,
-                "message": "Website updated successfully",
-                "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)])
+                "message": f"Website updated successfully from {local_version} to {repo_version}",
+                "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)]),
+                "update_performed": True,
+                "old_version": local_version,
+                "new_version": repo_version
             }
             
         except Exception as e:
             log_message(f"Website update failed: {e}", "ERROR")
-            self._rollback_installation()
+            if temp_dir:  # Only rollback if we had started the update process
+                self._rollback_installation()
             return {
                 "success": False,
                 "error": str(e),
@@ -471,12 +556,38 @@ def main(args=None):
             components = config.get('config', {}).get('target_paths', {}).get('components', {})
             enabled_components = [name for name, comp in components.items() if comp.get('enabled', False)]
             
+            # Also check if a version update is available
+            temp_dir = None
+            update_available = False
+            local_version = None
+            repo_version = None
+            
+            try:
+                temp_dir = updater._clone_repository()
+                if temp_dir:
+                    local_version = updater._get_local_version()
+                    repo_version = updater._get_repository_version(temp_dir)
+                    update_available = updater._check_version_update_needed(temp_dir)
+            except Exception as e:
+                log_message(f"Failed to check for updates: {e}", "WARNING")
+            finally:
+                if temp_dir:
+                    updater._cleanup_temp_directory(temp_dir)
+            
             log_message(f"Website module status: {len(enabled_components)} enabled components")
+            if update_available:
+                log_message(f"Update available: {local_version} → {repo_version}")
+            else:
+                log_message("Website is up to date")
+            
             return {
                 "success": True,
                 "enabled_components": enabled_components,
                 "total_components": len(components),
-                "schema_version": config.get("metadata", {}).get("schema_version", "unknown")
+                "schema_version": config.get("metadata", {}).get("schema_version", "unknown"),
+                "update_available": update_available,
+                "local_version": local_version,
+                "repo_version": repo_version
             }
         
         elif "--version" in args:

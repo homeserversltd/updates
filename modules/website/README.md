@@ -6,6 +6,14 @@ The beating heart of HOMESERVER. Everything you see, touch, and control flows th
 ## What It Is
 The HOMESERVER website isn't just another web app - it's your **complete digital command center**. Every service, every feature, every capability of your HOMESERVER is accessed, monitored, and controlled through this unified interface.
 
+## Automatic Updates
+The website module now includes intelligent version-based updates that:
+- **Check Repository Versions**: Compares version numbers in homeserver.json between local and GitHub repository
+- **Smart Updates**: Only updates when repository has a newer version (semantic versioning)
+- **Safe Deployment**: Full backup and rollback protection with StateManager integration
+- **Service Management**: Automatically rebuilds and restarts gunicorn with validation
+- **Zero Downtime**: Maintains service availability during updates with graceful failure handling
+
 - **Unified Control Panel**: Single interface for all 14+ enterprise services
 - **Real-time Monitoring**: Live system stats, service status, network activity
 - **Administrative Dashboard**: Complete server management from anywhere
