@@ -117,6 +117,108 @@ def compare_schema_versions(version1: str, version2: str) -> int:
     
     return 0
 
+def check_multi_level_version_update(module_config: Dict[str, Any], repo_module_path: str, local_module_path: str) -> Dict[str, Any]:
+    """
+    Check for updates at multiple version levels (schema and content).
+    
+    Args:
+        module_config: Module configuration from index.json
+        repo_module_path: Path to repository module directory
+        local_module_path: Path to local module directory
+        
+    Returns:
+        dict: Update status with schema_update_needed, content_update_needed, and version details
+    """
+    result = {
+        "schema_update_needed": False,
+        "content_update_needed": False,
+        "schema_versions": {"local": None, "repo": None},
+        "content_versions": {"local": None, "repo": None},
+        "update_reason": []
+    }
+    
+    # Load local and repo module configurations
+    local_config = load_module_index(local_module_path) if os.path.exists(local_module_path) else None
+    repo_config = load_module_index(repo_module_path) if os.path.exists(repo_module_path) else None
+    
+    # Check schema version updates
+    if local_config and repo_config:
+        local_schema = local_config.get("metadata", {}).get("schema_version", "0.0.0")
+        repo_schema = repo_config.get("metadata", {}).get("schema_version", "0.0.0")
+        
+        result["schema_versions"]["local"] = local_schema
+        result["schema_versions"]["repo"] = repo_schema
+        
+        if compare_schema_versions(repo_schema, local_schema) > 0:
+            result["schema_update_needed"] = True
+            result["update_reason"].append(f"Schema version update: {local_schema} → {repo_schema}")
+    
+    # Check content version updates if configured
+    version_checking = module_config.get("config", {}).get("version_checking", {})
+    if version_checking.get("enabled", False):
+        content_version_file = version_checking.get("content_version_file")
+        content_version_path = version_checking.get("content_version_path")
+        
+        if content_version_file and content_version_path:
+            # Get local content version
+            local_content_version = None
+            if local_config:
+                local_content_file = os.path.join(local_module_path, content_version_file)
+                if os.path.exists(local_content_file):
+                    try:
+                        with open(local_content_file, 'r') as f:
+                            local_content = json.load(f)
+                        # Navigate the JSON path (e.g., "global.version.release")
+                        local_content_version = local_content
+                        for key in content_version_path.split('.'):
+                            if isinstance(local_content_version, dict) and key in local_content_version:
+                                local_content_version = local_content_version[key]
+                            else:
+                                local_content_version = None
+                                break
+                    except Exception as e:
+                        log_message(f"Failed to read local content version: {e}", "WARNING")
+            
+            # Get repo content version
+            repo_content_version = None
+            if repo_config:
+                repo_content_file = os.path.join(repo_module_path, content_version_file)
+                if os.path.exists(repo_content_file):
+                    try:
+                        with open(repo_content_file, 'r') as f:
+                            repo_content = json.load(f)
+                        # Navigate the JSON path
+                        repo_content_version = repo_content
+                        for key in content_version_path.split('.'):
+                            if isinstance(repo_content_version, dict) and key in repo_content_version:
+                                repo_content_version = repo_content_version[key]
+                            else:
+                                repo_content_version = None
+                                break
+                    except Exception as e:
+                        log_message(f"Failed to read repo content version: {e}", "WARNING")
+            
+            result["content_versions"]["local"] = local_content_version
+            result["content_versions"]["repo"] = repo_content_version
+            
+            if local_content_version and repo_content_version:
+                if compare_schema_versions(repo_content_version, local_content_version) > 0:
+                    result["content_update_needed"] = True
+                    result["update_reason"].append(f"Content version update: {local_content_version} → {repo_content_version}")
+    
+    # Determine if update is needed based on configuration
+    check_both = version_checking.get("check_both_versions", True)
+    require_content = version_checking.get("require_content_update", False)
+    
+    if check_both:
+        result["update_needed"] = result["schema_update_needed"] or result["content_update_needed"]
+    elif require_content:
+        result["update_needed"] = result["content_update_needed"]
+    else:
+        result["update_needed"] = result["schema_update_needed"]
+    
+    return result
+
 def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool:
     """
     Sync updates from a Git repository.
@@ -199,7 +301,7 @@ def make_shell_scripts_executable(directory_path: str) -> None:
 
 def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> List[str]:
     """
-    Detect which modules need updates by comparing schema versions.
+    Detect which modules need updates by comparing schema versions and content versions.
     
     Args:
         local_modules_path: Path to local modules directory
@@ -238,30 +340,47 @@ def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> Li
             log_message(f"No valid index.json found for repo module: {module_name}", "WARNING")
             continue
         
-        repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
-        if not repo_schema_version:
-            log_message(f"No schema_version found in repo module: {module_name}", "WARNING")
-            continue
-        
         # Load local module index (if exists)
-        local_schema_version = "0.0.0"  # Default for new modules
         local_index = None
         if os.path.exists(local_module_path):
             local_index = load_module_index(local_module_path)
-            if local_index:
-                local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
         
         # Check if local module is disabled - skip entirely if so
         if local_index and not local_index.get("metadata", {}).get("enabled", True):
             log_message(f"Module {module_name} is disabled, skipping update check")
             continue
         
-        # Compare versions
-        if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
-            log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
-            modules_to_update.append(module_name)
+        # Use multi-level version checking if configured, otherwise fall back to schema-only
+        version_checking = repo_index.get("config", {}).get("version_checking", {})
+        if version_checking.get("enabled", False):
+            # Use enhanced multi-level version checking
+            update_status = check_multi_level_version_update(repo_index, repo_module_path, local_module_path)
+            
+            if update_status["update_needed"]:
+                reasons = ", ".join(update_status["update_reason"])
+                log_message(f"Module {module_name} needs update: {reasons}")
+                modules_to_update.append(module_name)
+            else:
+                schema_local = update_status["schema_versions"]["local"] or "0.0.0"
+                schema_repo = update_status["schema_versions"]["repo"] or "0.0.0"
+                log_message(f"Module {module_name} is up to date: schema {schema_local}, content versions match")
         else:
-            log_message(f"Module {module_name} is up to date: {local_schema_version}")
+            # Fall back to original schema-only checking
+            repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
+            if not repo_schema_version:
+                log_message(f"No schema_version found in repo module: {module_name}", "WARNING")
+                continue
+            
+            local_schema_version = "0.0.0"  # Default for new modules
+            if local_index:
+                local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
+            
+            # Compare versions
+            if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
+                log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
+                modules_to_update.append(module_name)
+            else:
+                log_message(f"Module {module_name} is up to date: {local_schema_version}")
     
     return modules_to_update
 

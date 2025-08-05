@@ -409,25 +409,28 @@ class WebsiteUpdater:
             return None
     
     def _check_version_update_needed(self, temp_dir: str) -> bool:
-        """Check if an update is needed based on version comparison."""
-        local_version = self._get_local_version()
-        repo_version = self._get_repository_version(temp_dir)
+        """Check if an update is needed based on multi-level version comparison."""
+        # Use the new multi-level version checking system
+        from updates import check_multi_level_version_update
         
-        if not local_version or not repo_version:
-            log_message("Cannot compare versions - missing version information", "WARNING")
-            return False
+        # Get module paths
+        repo_module_path = temp_dir
+        local_module_path = "/usr/local/lib/updates/modules/website"
         
-        # Use the existing semantic version comparison
-        comparison = compare_schema_versions(repo_version, local_version)
+        # Check for updates using the enhanced system
+        update_status = check_multi_level_version_update(self.config, repo_module_path, local_module_path)
         
-        if comparison > 0:
-            log_message(f"Update needed: {local_version} → {repo_version}")
+        if update_status["update_needed"]:
+            reasons = ", ".join(update_status["update_reason"])
+            log_message(f"Update needed: {reasons}")
             return True
-        elif comparison == 0:
-            log_message(f"Versions are equal: {local_version}")
-            return False
         else:
-            log_message(f"Local version is newer: {local_version} > {repo_version}")
+            schema_local = update_status["schema_versions"]["local"] or "0.0.0"
+            schema_repo = update_status["schema_versions"]["repo"] or "0.0.0"
+            content_local = update_status["content_versions"]["local"] or "unknown"
+            content_repo = update_status["content_versions"]["repo"] or "unknown"
+            
+            log_message(f"Versions are up to date: schema {schema_local}, content {content_local}")
             return False
     
     def _cleanup_temp_directory(self, temp_dir: str) -> None:
@@ -556,18 +559,26 @@ def main(args=None):
             components = config.get('config', {}).get('target_paths', {}).get('components', {})
             enabled_components = [name for name, comp in components.items() if comp.get('enabled', False)]
             
-            # Also check if a version update is available
+            # Use the new multi-level version checking system
+            from updates import check_multi_level_version_update
+            
             temp_dir = None
-            update_available = False
-            local_version = None
-            repo_version = None
+            update_status = {
+                "update_needed": False,
+                "schema_versions": {"local": None, "repo": None},
+                "content_versions": {"local": None, "repo": None},
+                "update_reason": []
+            }
             
             try:
                 temp_dir = updater._clone_repository()
                 if temp_dir:
-                    local_version = updater._get_local_version()
-                    repo_version = updater._get_repository_version(temp_dir)
-                    update_available = updater._check_version_update_needed(temp_dir)
+                    # Get module paths
+                    repo_module_path = temp_dir
+                    local_module_path = "/usr/local/lib/updates/modules/website"
+                    
+                    # Check for updates using the enhanced system
+                    update_status = check_multi_level_version_update(config, repo_module_path, local_module_path)
             except Exception as e:
                 log_message(f"Failed to check for updates: {e}", "WARNING")
             finally:
@@ -575,19 +586,24 @@ def main(args=None):
                     updater._cleanup_temp_directory(temp_dir)
             
             log_message(f"Website module status: {len(enabled_components)} enabled components")
-            if update_available:
-                log_message(f"Update available: {local_version} → {repo_version}")
+            if update_status["update_needed"]:
+                reasons = ", ".join(update_status["update_reason"])
+                log_message(f"Update available: {reasons}")
             else:
-                log_message("Website is up to date")
+                schema_local = update_status["schema_versions"]["local"] or "0.0.0"
+                content_local = update_status["content_versions"]["local"] or "unknown"
+                log_message(f"Website is up to date: schema {schema_local}, content {content_local}")
             
             return {
                 "success": True,
                 "enabled_components": enabled_components,
                 "total_components": len(components),
                 "schema_version": config.get("metadata", {}).get("schema_version", "unknown"),
-                "update_available": update_available,
-                "local_version": local_version,
-                "repo_version": repo_version
+                "content_version": config.get("metadata", {}).get("content_version", "unknown"),
+                "update_available": update_status["update_needed"],
+                "schema_versions": update_status["schema_versions"],
+                "content_versions": update_status["content_versions"],
+                "update_reasons": update_status["update_reason"]
             }
         
         elif "--version" in args:
