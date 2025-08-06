@@ -409,28 +409,30 @@ class WebsiteUpdater:
             return None
     
     def _check_version_update_needed(self, temp_dir: str) -> bool:
-        """Check if an update is needed based on multi-level version comparison."""
-        # Use the new multi-level version checking system
-        from updates import check_multi_level_version_update
-        
-        # Get module paths
-        repo_module_path = temp_dir
-        local_module_path = "/usr/local/lib/updates/modules/website"
-        
-        # Check for updates using the enhanced system
-        update_status = check_multi_level_version_update(self.config, repo_module_path, local_module_path)
-        
-        if update_status["update_needed"]:
-            reasons = ", ".join(update_status["update_reason"])
-            log_message(f"Update needed: {reasons}")
-            return True
-        else:
-            schema_local = update_status["schema_versions"]["local"] or "0.0.0"
-            schema_repo = update_status["schema_versions"]["repo"] or "0.0.0"
-            content_local = update_status["content_versions"]["local"] or "unknown"
-            content_repo = update_status["content_versions"]["repo"] or "unknown"
+        """Check if an update is needed by comparing actual website versions."""
+        try:
+            # Get the actual versions from homeserver.json files
+            local_version = self._get_local_version()
+            repo_version = self._get_repository_version(temp_dir)
             
-            log_message(f"Versions are up to date: schema {schema_local}, content {content_local}")
+            log_message(f"Version comparison: local={local_version}, repo={repo_version}")
+            
+            if not local_version or not repo_version:
+                log_message("Could not determine versions, skipping update", "WARNING")
+                return False
+            
+            # Compare versions using semantic versioning
+            from updates import compare_schema_versions
+            
+            if compare_schema_versions(repo_version, local_version) > 0:
+                log_message(f"Update needed: {local_version} → {repo_version}")
+                return True
+            else:
+                log_message(f"Website is up to date: {local_version}")
+                return False
+                
+        except Exception as e:
+            log_message(f"Error checking version update: {e}", "ERROR")
             return False
     
     def _cleanup_temp_directory(self, temp_dir: str) -> None:
@@ -441,6 +443,31 @@ class WebsiteUpdater:
                 log_message(f"Cleaned up temporary directory: {temp_dir}")
         except Exception as e:
             log_message(f"Failed to clean up temp directory: {e}", "WARNING")
+    
+    def _update_module_content_version(self, new_version: str) -> bool:
+        """Update the module's content_version to match the newly installed website version."""
+        try:
+            # Read current module config
+            with open(self.index_file, 'r') as f:
+                config = json.load(f)
+            
+            # Update the content_version in metadata
+            if "metadata" not in config:
+                config["metadata"] = {}
+            
+            old_version = config["metadata"].get("content_version", "unknown")
+            config["metadata"]["content_version"] = new_version
+            
+            # Write updated config back to file
+            with open(self.index_file, 'w') as f:
+                json.dump(config, f, indent=4)
+            
+            log_message(f"Updated module content_version: {old_version} → {new_version}")
+            return True
+            
+        except Exception as e:
+            log_message(f"Failed to update module content_version: {e}", "ERROR")
+            return False
     
     def update(self) -> Dict[str, Any]:
         """Perform the complete website update process with version checking."""
@@ -501,6 +528,10 @@ class WebsiteUpdater:
             # Get version information for success message
             local_version = self._get_local_version()
             repo_version = self._get_repository_version(temp_dir)
+            
+            # Update the module's content_version to match the newly installed version
+            if repo_version:
+                self._update_module_content_version(repo_version)
             
             log_message("Website update completed successfully")
             return {
