@@ -474,7 +474,7 @@ class WebsiteUpdater:
             return None
     
     def _check_version_update_needed(self, temp_dir: str) -> bool:
-        """Check if an update is needed by comparing actual website versions."""
+        """Check if an update is needed by comparing actual website versions using semantic versioning."""
         try:
             # Get the actual versions from homeserver.json files
             local_version = self._get_local_version()
@@ -486,10 +486,18 @@ class WebsiteUpdater:
                 log_message("Could not determine versions, skipping update", "WARNING")
                 return False
             
-            # Simple version comparison - if they're different, update is needed
-            if repo_version != local_version:
-                log_message(f"Update needed: {local_version} → {repo_version}")
+            # Import semantic version comparison function
+            from updates.index import compare_schema_versions
+            
+            # Use semantic version comparison: returns 1 if repo_version > local_version
+            version_comparison = compare_schema_versions(repo_version, local_version)
+            
+            if version_comparison > 0:
+                log_message(f"Update needed: {local_version} → {repo_version} (repo version is newer)")
                 return True
+            elif version_comparison < 0:
+                log_message(f"Local version is newer than repo: {local_version} > {repo_version}")
+                return False
             else:
                 log_message(f"Website is up to date: {local_version}")
                 return False
@@ -653,9 +661,6 @@ def main(args=None):
             components = config.get('config', {}).get('target_paths', {}).get('components', {})
             enabled_components = [name for name, comp in components.items() if comp.get('enabled', False)]
             
-            # Use the new multi-level version checking system
-            from updates import check_multi_level_version_update
-            
             temp_dir = None
             update_status = {
                 "update_needed": False,
@@ -667,12 +672,45 @@ def main(args=None):
             try:
                 temp_dir = updater._clone_repository()
                 if temp_dir:
-                    # Get module paths
-                    repo_module_path = temp_dir
+                    # Check schema version (module version)
                     local_module_path = "/usr/local/lib/updates/modules/website"
+                    local_config = None
+                    if os.path.exists(os.path.join(local_module_path, "index.json")):
+                        with open(os.path.join(local_module_path, "index.json"), 'r') as f:
+                            local_config = json.load(f)
                     
-                    # Check for updates using the enhanced system
-                    update_status = check_multi_level_version_update(config, repo_module_path, local_module_path)
+                    repo_config = None
+                    if os.path.exists(os.path.join(temp_dir, "index.json")):
+                        with open(os.path.join(temp_dir, "index.json"), 'r') as f:
+                            repo_config = json.load(f)
+                    
+                    # Check schema versions
+                    if local_config and repo_config:
+                        local_schema = local_config.get("metadata", {}).get("schema_version", "0.0.0")
+                        repo_schema = repo_config.get("metadata", {}).get("schema_version", "0.0.0")
+                        
+                        update_status["schema_versions"]["local"] = local_schema
+                        update_status["schema_versions"]["repo"] = repo_schema
+                        
+                        from updates.index import compare_schema_versions
+                        if compare_schema_versions(repo_schema, local_schema) > 0:
+                            update_status["update_reason"].append(f"Schema version update: {local_schema} → {repo_schema}")
+                    
+                    # Check content versions (actual website versions from homeserver.json)
+                    local_content_version = updater._get_local_version()
+                    repo_content_version = updater._get_repository_version(temp_dir)
+                    
+                    update_status["content_versions"]["local"] = local_content_version
+                    update_status["content_versions"]["repo"] = repo_content_version
+                    
+                    if local_content_version and repo_content_version:
+                        from updates.index import compare_schema_versions
+                        if compare_schema_versions(repo_content_version, local_content_version) > 0:
+                            update_status["update_reason"].append(f"Content version update: {local_content_version} → {repo_content_version}")
+                    
+                    # Determine if update is needed
+                    update_status["update_needed"] = len(update_status["update_reason"]) > 0
+                    
             except Exception as e:
                 log_message(f"Failed to check for updates: {e}", "WARNING")
             finally:
