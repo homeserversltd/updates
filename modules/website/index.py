@@ -241,6 +241,13 @@ class WebsiteUpdater:
         """Update all enabled components from the cloned repository."""
         components = self.config['config']['target_paths']['components']
         
+        # Files that should be preserved during updates
+        preserve_files = [
+            "/var/www/homeserver/src/config/homeserver.json",
+            "/var/www/homeserver/package-lock.json",
+            "/var/www/homeserver/node_modules"
+        ]
+        
         for component_name, component_config in components.items():
             if not component_config.get('enabled', False):
                 log_message(f"Component {component_name} is disabled, skipping")
@@ -252,6 +259,12 @@ class WebsiteUpdater:
                 
                 if not os.path.exists(source_path):
                     log_message(f"Source path {source_path} does not exist, skipping {component_name}", "WARNING")
+                    continue
+                
+                # Special handling for src directory to preserve homeserver.json
+                if component_name == 'frontend' and target_path.endswith('/src'):
+                    self._update_src_directory(source_path, target_path)
+                    log_message(f"Updated {component_name}: {source_path} → {target_path} (preserved config)")
                     continue
                 
                 # Remove existing target if it's a directory
@@ -277,6 +290,34 @@ class WebsiteUpdater:
         
         log_message("All enabled components updated successfully")
         return True
+    
+    def _update_src_directory(self, source_path: str, target_path: str) -> None:
+        """Update src directory while preserving homeserver.json."""
+        config_backup = None
+        config_path = os.path.join(target_path, 'config', 'homeserver.json')
+        
+        try:
+            # Backup existing homeserver.json if it exists
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config_backup = f.read()
+                log_message("Backed up existing homeserver.json")
+            
+            # Remove and replace src directory
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path)
+            shutil.copytree(source_path, target_path)
+            
+            # Restore homeserver.json if we had a backup
+            if config_backup:
+                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                with open(config_path, 'w') as f:
+                    f.write(config_backup)
+                log_message("Restored homeserver.json from backup")
+            
+        except Exception as e:
+            log_message(f"Error updating src directory: {e}", "ERROR")
+            raise
     
     def _run_build_process(self) -> bool:
         """Run the npm build process and restart services."""

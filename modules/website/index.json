@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.9",
+        "schema_version": "0.1.10",
         "content_version": "0.9.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",
@@ -46,11 +46,41 @@
                     "target_path": "/var/www/homeserver/public",
                     "description": "Static public assets"
                 },
-                "config": {
+                "flask_config": {
+                    "enabled": true,
+                    "source_path": "config.py",
+                    "target_path": "/var/www/homeserver/config.py",
+                    "description": "Flask configuration file"
+                },
+                "flask_main": {
+                    "enabled": true,
+                    "source_path": "main.py",
+                    "target_path": "/var/www/homeserver/main.py",
+                    "description": "Flask main application file"
+                },
+                "python_requirements": {
+                    "enabled": true,
+                    "source_path": "requirements.txt",
+                    "target_path": "/var/www/homeserver/requirements.txt",
+                    "description": "Python dependencies"
+                },
+                "typescript_config": {
+                    "enabled": true,
+                    "source_path": "tsconfig.json",
+                    "target_path": "/var/www/homeserver/tsconfig.json",
+                    "description": "TypeScript configuration"
+                },
+                "package_config": {
                     "enabled": true,
                     "source_path": "package.json",
                     "target_path": "/var/www/homeserver/package.json",
                     "description": "NPM package configuration"
+                },
+                "license": {
+                    "enabled": true,
+                    "source_path": "license",
+                    "target_path": "/var/www/homeserver/license",
+                    "description": "License file"
                 }
             }
         }
