@@ -373,7 +373,7 @@ class WebsiteUpdater:
             with open(local_config_path, 'r') as f:
                 config = json.load(f)
             
-            version = config.get('global', {}).get('version', {}).get('release')
+            version = config.get('global', {}).get('version', {}).get('version')
             if version:
                 log_message(f"Local version: {version}")
                 return version
@@ -396,7 +396,7 @@ class WebsiteUpdater:
             with open(repo_config_path, 'r') as f:
                 config = json.load(f)
             
-            version = config.get('global', {}).get('version', {}).get('release')
+            version = config.get('global', {}).get('version', {}).get('version')
             if version:
                 log_message(f"Repository version: {version}")
                 return version
