@@ -475,8 +475,13 @@ class WebsiteUpdater:
             log_message(f"Failed to read repository version: {e}", "ERROR")
             return None
     
-    def _check_version_update_needed(self, temp_dir: str) -> bool:
-        """Check if an update is needed by comparing actual website versions using semantic versioning."""
+    def _check_version_update_needed(self, temp_dir: str) -> Tuple[bool, bool]:
+        """
+        Check if an update is needed by comparing actual website versions using semantic versioning.
+        
+        Returns:
+            Tuple[bool, bool]: (update_needed, nuclear_restore_needed)
+        """
         try:
             # Get the actual versions from homeserver.json files
             local_version = self._get_local_version()
@@ -484,9 +489,28 @@ class WebsiteUpdater:
             
             log_message(f"Version comparison: local={local_version}, repo={repo_version}")
             
+            # Check if we need nuclear restore (critical files missing)
+            homeserver_json_path = "/var/www/homeserver/src/config/homeserver.json"
+            src_dir_path = "/var/www/homeserver/src"
+            
+            nuclear_restore_needed = False
+            
+            if not os.path.exists(homeserver_json_path):
+                log_message("Critical file missing: homeserver.json - nuclear restore required", "WARNING")
+                nuclear_restore_needed = True
+            
+            if not os.path.exists(src_dir_path) or len(os.listdir(src_dir_path)) < 3:
+                log_message("Source directory missing or nearly empty - nuclear restore required", "WARNING") 
+                nuclear_restore_needed = True
+            
+            if nuclear_restore_needed:
+                log_message("Nuclear restore mode: Will copy entire repository and rebuild from scratch")
+                return True, True
+            
+            # Normal version comparison logic
             if not local_version or not repo_version:
                 log_message("Could not determine versions, skipping update", "WARNING")
-                return False
+                return False, False
             
             # Import semantic version comparison function
             from updates.index import compare_schema_versions
@@ -496,17 +520,17 @@ class WebsiteUpdater:
             
             if version_comparison > 0:
                 log_message(f"Update needed: {local_version} → {repo_version} (repo version is newer)")
-                return True
+                return True, False
             elif version_comparison < 0:
                 log_message(f"Local version is newer than repo: {local_version} > {repo_version}")
-                return False
+                return False, False
             else:
                 log_message(f"Website is up to date: {local_version}")
-                return False
+                return False, False
                 
         except Exception as e:
             log_message(f"Error checking version update: {e}", "ERROR")
-            return False
+            return False, False
     
     def _cleanup_temp_directory(self, temp_dir: str) -> None:
         """Clean up temporary directory."""
@@ -542,6 +566,58 @@ class WebsiteUpdater:
             log_message(f"Failed to update module content_version: {e}", "ERROR")
             return False
     
+    def _nuclear_restore(self, source_dir: str) -> bool:
+        """
+        Nuclear restore: Copy entire repository to website directory when critical files are missing.
+        This is used when the website is in a broken state and needs complete restoration.
+        """
+        try:
+            log_message("Starting nuclear restore - copying entire repository")
+            
+            base_dir = self.config['config']['target_paths']['base_directory']
+            
+            # Ensure base directory exists
+            os.makedirs(base_dir, exist_ok=True)
+            
+            # Copy all components from repository
+            components = self.config['config']['target_paths']['components']
+            
+            for component_name, component_config in components.items():
+                if not component_config.get('enabled', False):
+                    continue
+                
+                source_path = os.path.join(source_dir, component_config['source_path'])
+                target_path = component_config['target_path']
+                
+                if not os.path.exists(source_path):
+                    log_message(f"Source path {source_path} does not exist, skipping {component_name}", "WARNING")
+                    continue
+                
+                # Remove existing target completely
+                if os.path.exists(target_path):
+                    if os.path.isdir(target_path):
+                        shutil.rmtree(target_path)
+                    else:
+                        os.remove(target_path)
+                
+                # Ensure parent directory exists
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                
+                # Copy from repository
+                if os.path.isdir(source_path):
+                    shutil.copytree(source_path, target_path)
+                else:
+                    shutil.copy2(source_path, target_path)
+                
+                log_message(f"Nuclear restore: {component_name} copied from {source_path} → {target_path}")
+            
+            log_message("Nuclear restore completed - all components copied from repository")
+            return True
+            
+        except Exception as e:
+            log_message(f"Nuclear restore failed: {e}", "ERROR")
+            return False
+
     def _update_homeserver_json_metadata(self, new_version: str) -> bool:
         """Update the user's homeserver.json with new version and last_updated timestamp."""
         homeserver_json_path = "/var/www/homeserver/src/config/homeserver.json"
@@ -585,6 +661,7 @@ class WebsiteUpdater:
         
         log_message("Starting website update process")
         temp_dir = None
+        nuclear_restore = False
         
         try:
             # Step 1: Clone repository first to check versions
@@ -597,7 +674,8 @@ class WebsiteUpdater:
                 }
             
             # Step 2: Check if update is needed based on version comparison
-            if not self._check_version_update_needed(temp_dir):
+            update_needed, nuclear_restore = self._check_version_update_needed(temp_dir)
+            if not update_needed:
                 log_message("No update needed - versions are equal or local is newer")
                 return {
                     "success": True,
@@ -605,33 +683,54 @@ class WebsiteUpdater:
                     "update_performed": False
                 }
             
-            # Step 3: Create backup before proceeding with update
-            if not self._backup_current_installation():
-                return {
-                    "success": False,
-                    "error": "Backup creation failed",
-                    "message": "Failed to create backup of current installation"
-                }
+            # Step 3: Create backup before proceeding with update (skip for nuclear restore)
+            if not nuclear_restore:
+                if not self._backup_current_installation():
+                    return {
+                        "success": False,
+                        "error": "Backup creation failed",
+                        "message": "Failed to create backup of current installation"
+                    }
+            else:
+                log_message("Nuclear restore mode - skipping backup of broken installation")
             
-            # Step 4: Update components
-            if not self._update_components(temp_dir):
-                log_message("Component update failed, rolling back", "ERROR")
-                self._rollback_installation()
-                return {
-                    "success": False,
-                    "error": "Component update failed",
-                    "message": "Failed to update website components, rolled back to previous version"
-                }
+            # Step 4: Update components (use nuclear restore if needed)
+            if nuclear_restore:
+                if not self._nuclear_restore(temp_dir):
+                    log_message("Nuclear restore failed", "ERROR")
+                    return {
+                        "success": False,
+                        "error": "Nuclear restore failed",
+                        "message": "Failed to restore website from repository"
+                    }
+                log_message("Nuclear restore completed successfully")
+            else:
+                if not self._update_components(temp_dir):
+                    log_message("Component update failed, rolling back", "ERROR")
+                    self._rollback_installation()
+                    return {
+                        "success": False,
+                        "error": "Component update failed",
+                        "message": "Failed to update website components, rolled back to previous version"
+                    }
             
             # Step 5: Run build process and restart services
             if not self._run_build_process():
-                log_message("Build process failed, rolling back", "ERROR")
-                self._rollback_installation()
-                return {
-                    "success": False,
-                    "error": "Build process failed",
-                    "message": "npm build or service restart failed, rolled back to previous version"
-                }
+                log_message("Build process failed", "ERROR")
+                if not nuclear_restore:
+                    log_message("Rolling back to previous version", "ERROR") 
+                    self._rollback_installation()
+                    return {
+                        "success": False,
+                        "error": "Build process failed",
+                        "message": "npm build or service restart failed, rolled back to previous version"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": "Build process failed during nuclear restore",
+                        "message": "npm build or service restart failed during nuclear restore - manual intervention required"
+                    }
             
             # Get version information for success message
             local_version = self._get_local_version()
@@ -642,25 +741,44 @@ class WebsiteUpdater:
                 self._update_module_content_version(repo_version)
                 self._update_homeserver_json_metadata(repo_version)
             
-            log_message("Website update completed successfully")
-            return {
-                "success": True,
-                "message": f"Website updated successfully from {local_version} to {repo_version}",
-                "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)]),
-                "update_performed": True,
-                "old_version": local_version,
-                "new_version": repo_version
-            }
+            if nuclear_restore:
+                log_message("Website nuclear restore completed successfully")
+                return {
+                    "success": True,
+                    "message": f"Website restored from repository (nuclear restore) - version {repo_version}",
+                    "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)]),
+                    "update_performed": True,
+                    "nuclear_restore": True,
+                    "old_version": "missing/corrupted",
+                    "new_version": repo_version
+                }
+            else:
+                log_message("Website update completed successfully")
+                return {
+                    "success": True,
+                    "message": f"Website updated successfully from {local_version} to {repo_version}",
+                    "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)]),
+                    "update_performed": True,
+                    "nuclear_restore": False,
+                    "old_version": local_version,
+                    "new_version": repo_version
+                }
             
         except Exception as e:
             log_message(f"Website update failed: {e}", "ERROR")
-            if temp_dir:  # Only rollback if we had started the update process
+            if temp_dir and not nuclear_restore:  # Only rollback if we had started the update process and not in nuclear mode
                 self._rollback_installation()
-            return {
-                "success": False,
-                "error": str(e),
-                "message": "Website update encountered an unexpected error, rolled back to previous version"
-            }
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": "Website update encountered an unexpected error, rolled back to previous version"
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "message": "Website nuclear restore encountered an unexpected error - manual intervention required"
+                }
             
         finally:
             # Always cleanup temp directory
