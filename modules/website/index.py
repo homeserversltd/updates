@@ -292,32 +292,109 @@ class WebsiteUpdater:
         return True
     
     def _update_src_directory(self, source_path: str, target_path: str) -> None:
-        """Update src directory while preserving homeserver.json."""
+        """Update src directory while preserving homeserver.json and homeserver.factory."""
         config_backup = None
+        factory_backup = None
         config_path = os.path.join(target_path, 'config', 'homeserver.json')
+        factory_path = os.path.join(target_path, 'config', 'homeserver.factory')
         
         try:
-            # Backup existing homeserver.json if it exists
+            # Backup existing config files if they exist
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config_backup = f.read()
                 log_message("Backed up existing homeserver.json")
             
-            # Remove and replace src directory
-            if os.path.exists(target_path):
-                shutil.rmtree(target_path)
-            shutil.copytree(source_path, target_path)
+            if os.path.exists(factory_path):
+                with open(factory_path, 'r') as f:
+                    factory_backup = f.read()
+                log_message("Backed up existing homeserver.factory")
             
-            # Restore homeserver.json if we had a backup
+            # Smart directory replacement - work around protected files
+            self._replace_directory_contents(source_path, target_path)
+            
+            # Restore config files if we had backups
+            config_dir = os.path.join(target_path, 'config')
+            os.makedirs(config_dir, exist_ok=True)
+            
             if config_backup:
-                os.makedirs(os.path.dirname(config_path), exist_ok=True)
                 with open(config_path, 'w') as f:
                     f.write(config_backup)
                 log_message("Restored homeserver.json from backup")
             
+            if factory_backup:
+                with open(factory_path, 'w') as f:
+                    f.write(factory_backup)
+                log_message("Restored homeserver.factory from backup")
+            
         except Exception as e:
             log_message(f"Error updating src directory: {e}", "ERROR")
             raise
+    
+    def _replace_directory_contents(self, source_path: str, target_path: str) -> None:
+        """Replace directory contents while working around protected files."""
+        try:
+            # If target doesn't exist, just copy everything
+            if not os.path.exists(target_path):
+                shutil.copytree(source_path, target_path)
+                return
+            
+            # Target exists - need to carefully replace contents
+            # First, try to remove non-protected files
+            for item in os.listdir(target_path):
+                item_path = os.path.join(target_path, item)
+                
+                # Skip protected config directory for now
+                if item == 'config':
+                    continue
+                    
+                try:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                    else:
+                        os.remove(item_path)
+                except (OSError, PermissionError) as e:
+                    log_message(f"Could not remove {item_path}: {e}", "WARNING")
+            
+            # Copy new contents from source
+            for item in os.listdir(source_path):
+                source_item = os.path.join(source_path, item)
+                target_item = os.path.join(target_path, item)
+                
+                if item == 'config':
+                    # Handle config directory specially - merge contents
+                    self._merge_config_directory(source_item, target_item)
+                else:
+                    # Copy other items normally
+                    if os.path.isdir(source_item):
+                        if os.path.exists(target_item):
+                            shutil.rmtree(target_item)
+                        shutil.copytree(source_item, target_item)
+                    else:
+                        shutil.copy2(source_item, target_item)
+                        
+        except Exception as e:
+            log_message(f"Error replacing directory contents: {e}", "ERROR")
+            raise
+    
+    def _merge_config_directory(self, source_config: str, target_config: str) -> None:
+        """Merge config directory contents, preserving protected files."""
+        os.makedirs(target_config, exist_ok=True)
+        
+        # Copy all files from source config except protected ones
+        for item in os.listdir(source_config):
+            if item in ['homeserver.json', 'homeserver.factory']:
+                continue  # Skip - will be restored from backup
+                
+            source_item = os.path.join(source_config, item)
+            target_item = os.path.join(target_config, item)
+            
+            if os.path.isdir(source_item):
+                if os.path.exists(target_item):
+                    shutil.rmtree(target_item)
+                shutil.copytree(source_item, target_item)
+            else:
+                shutil.copy2(source_item, target_item)
     
     def _run_build_process(self) -> bool:
         """Run the npm build process and restart services."""
