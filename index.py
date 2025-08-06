@@ -1078,25 +1078,34 @@ def main():
             if args.check_only:
                 log_message("Check-only mode: detecting updates without applying...")
                 
+                # Step 0: Check orchestrator update first
+                orchestrator_update_available = False
+                if sync_from_repo(args.repo_url, args.local_repo, args.branch):
+                    orchestrator_needs_update = check_orchestrator_update(args.modules_path, args.local_repo)
+                    if orchestrator_needs_update:
+                        orchestrator_update_available = True
+                        log_message("Orchestrator update available")
+                    else:
+                        log_message("Orchestrator is up to date")
+                else:
+                    log_message("Failed to sync repository for orchestrator check", "ERROR")
+                    return
+                
                 # Step 1: Schema-level check (existing functionality)
                 schema_updates_available = []
-                if sync_from_repo(args.repo_url, args.local_repo, args.branch):
-                    repo_modules_path = os.path.join(args.local_repo, "modules")
-                    if not os.path.exists(repo_modules_path):
-                        repo_modules_path = args.local_repo
-                    
-                    modules_to_update = detect_module_updates(args.modules_path, repo_modules_path)
-                    schema_updates_available = modules_to_update
-                    
-                    if modules_to_update:
-                        log_message("Schema updates available:")
-                        for module in modules_to_update:
-                            log_message(f"  - {module} (schema update needed)")
-                    else:
-                        log_message("All module schemas are up to date")
+                repo_modules_path = os.path.join(args.local_repo, "modules")
+                if not os.path.exists(repo_modules_path):
+                    repo_modules_path = args.local_repo
+                
+                modules_to_update = detect_module_updates(args.modules_path, repo_modules_path)
+                schema_updates_available = modules_to_update
+                
+                if modules_to_update:
+                    log_message("Schema updates available:")
+                    for module in modules_to_update:
+                        log_message(f"  - {module} (schema update needed)")
                 else:
-                    log_message("Failed to sync repository for schema check", "ERROR")
-                    return
+                    log_message("All module schemas are up to date")
                 
                 # Step 2: OS module content check (focused approach)
                 log_message("Checking OS module for available package updates...")
@@ -1128,13 +1137,15 @@ def main():
                 
                 # Summary
                 log_message("Check summary:")
+                if orchestrator_update_available:
+                    log_message("  - Orchestrator update available")
                 if schema_updates_available:
                     log_message(f"  - Schema updates: {len(schema_updates_available)} modules")
                 if content_updates_available:
                     total_content_items = sum(item["count"] for item in content_updates_available)
                     log_message(f"  - Content updates: {total_content_items} items across {len(content_updates_available)} modules")
                 
-                if not schema_updates_available and not content_updates_available:
+                if not orchestrator_update_available and not schema_updates_available and not content_updates_available:
                     log_message("  - No updates available")
                 else:
                     log_message("  - Updates are available - run without --check to apply them")
