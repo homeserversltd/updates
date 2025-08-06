@@ -353,17 +353,72 @@ def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> Li
         # Use multi-level version checking if configured, otherwise fall back to schema-only
         version_checking = repo_index.get("config", {}).get("version_checking", {})
         if version_checking.get("enabled", False):
-            # Use enhanced multi-level version checking
-            update_status = check_multi_level_version_update(repo_index, repo_module_path, local_module_path)
-            
-            if update_status["update_needed"]:
-                reasons = ", ".join(update_status["update_reason"])
-                log_message(f"Module {module_name} needs update: {reasons}")
-                modules_to_update.append(module_name)
+            # Special handling for website module - use its own version checking
+            if module_name == "website":
+                try:
+                    # Import and run the website module's check function
+                    import importlib.util
+                    import sys
+                    
+                    # Load the website module
+                    spec = importlib.util.spec_from_file_location(
+                        "website_module", 
+                        os.path.join(local_module_path, "index.py")
+                    )
+                    if spec and spec.loader:
+                        website_module = importlib.util.module_from_spec(spec)
+                        sys.modules["website_module"] = website_module
+                        spec.loader.exec_module(website_module)
+                        
+                        # Run the website module's check
+                        check_result = website_module.main(["--check"])
+                        
+                        if check_result.get("update_available", False):
+                            reasons = ", ".join(check_result.get("update_reasons", []))
+                            log_message(f"Module {module_name} needs update: {reasons}")
+                            modules_to_update.append(module_name)
+                        else:
+                            content_version = check_result.get("content_version", "unknown")
+                            log_message(f"Module {module_name} is up to date: content {content_version}")
+                    else:
+                        log_message(f"Could not load website module for version checking", "WARNING")
+                        # Fall back to schema-only checking
+                        repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
+                        local_schema_version = "0.0.0"
+                        if local_index:
+                            local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
+                        
+                        if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
+                            log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
+                            modules_to_update.append(module_name)
+                        else:
+                            log_message(f"Module {module_name} is up to date: {local_schema_version}")
+                            
+                except Exception as e:
+                    log_message(f"Error checking website module updates: {e}", "WARNING")
+                    # Fall back to schema-only checking
+                    repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
+                    local_schema_version = "0.0.0"
+                    if local_index:
+                        local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
+                    
+                    if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
+                        log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
+                        modules_to_update.append(module_name)
+                    else:
+                        log_message(f"Module {module_name} is up to date: {local_schema_version}")
             else:
-                schema_local = update_status["schema_versions"]["local"] or "0.0.0"
-                schema_repo = update_status["schema_versions"]["repo"] or "0.0.0"
-                log_message(f"Module {module_name} is up to date: schema {schema_local}, content versions match")
+                # Use enhanced multi-level version checking for other modules
+                update_status = check_multi_level_version_update(repo_index, repo_module_path, local_module_path)
+                
+                if update_status["update_needed"]:
+                    reasons = ", ".join(update_status["update_reason"])
+                    log_message(f"Module {module_name} needs update: {reasons}")
+                    modules_to_update.append(module_name)
+                else:
+                    schema_local = update_status["schema_versions"]["local"] or "0.0.0"
+                    schema_repo = update_status["schema_versions"]["repo"] or "0.0.0"
+                    log_message(f"Module {module_name} is up to date: schema {schema_local}, content versions match")
         else:
             # Fall back to original schema-only checking
             repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
