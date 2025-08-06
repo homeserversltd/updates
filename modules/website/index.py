@@ -421,10 +421,8 @@ class WebsiteUpdater:
                 log_message("Could not determine versions, skipping update", "WARNING")
                 return False
             
-            # Compare versions using semantic versioning
-            from updates import compare_schema_versions
-            
-            if compare_schema_versions(repo_version, local_version) > 0:
+            # Simple version comparison - if they're different, update is needed
+            if repo_version != local_version:
                 log_message(f"Update needed: {local_version} → {repo_version}")
                 return True
             else:
