@@ -263,8 +263,8 @@ class WebsiteUpdater:
                 
                 # Special handling for src directory to preserve protected files
                 if component_name == 'frontend' and target_path.endswith('/src'):
-                    self._brutal_src_update(source_path, target_path)
-                    log_message(f"Updated {component_name}: {source_path} → {target_path} (brutal method)")
+                    self._selective_src_update(source_path, target_path)
+                    log_message(f"Updated {component_name}: {source_path} → {target_path} (selective method)")
                     continue
                 
                 # Remove existing target if it's a directory
@@ -291,15 +291,15 @@ class WebsiteUpdater:
         log_message("All enabled components updated successfully")
         return True
     
-    def _brutal_src_update(self, source_path: str, target_path: str) -> None:
-        """Brutally update src directory - backup protected files, nuke everything, restore protected files."""
+    def _selective_src_update(self, source_path: str, target_path: str) -> None:
+        """Update src directory while preserving user configuration files."""
         config_backup = None
         factory_backup = None
         config_path = os.path.join(target_path, 'config', 'homeserver.json')
-        factory_path = os.path.join(target_path, 'config', 'homeserver.factory')
+        factory_path = '/etc/homeserver.factory'
         
         try:
-            # STEP 1: Backup protected files FIRST
+            # STEP 1: Backup configuration files
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config_backup = f.read()
@@ -310,20 +310,16 @@ class WebsiteUpdater:
                     factory_backup = f.read()
                 log_message("Backed up homeserver.factory")
             
-            # STEP 2: Try to nuke the entire directory (will fail on protected files - WE DON'T CARE)
+            # STEP 2: Remove existing directory
             if os.path.exists(target_path):
-                try:
-                    shutil.rmtree(target_path)
-                    log_message("Successfully nuked old src directory")
-                except (OSError, PermissionError) as e:
-                    log_message(f"Couldn't fully remove src directory (expected): {e}", "WARNING")
-                    # Continue anyway - we'll copy over whatever's left
+                shutil.rmtree(target_path)
+                log_message("Removed old src directory")
             
-            # STEP 3: Copy the entire new directory fresh
-            shutil.copytree(source_path, target_path, dirs_exist_ok=True)
+            # STEP 3: Copy new directory
+            shutil.copytree(source_path, target_path)
             log_message("Copied new src directory")
             
-            # STEP 4: Restore protected files from backup
+            # STEP 4: Restore configuration files
             config_dir = os.path.join(target_path, 'config')
             os.makedirs(config_dir, exist_ok=True)
             
@@ -338,7 +334,7 @@ class WebsiteUpdater:
                 log_message("Restored homeserver.factory from backup")
             
         except Exception as e:
-            log_message(f"Brutal src update failed: {e}", "ERROR")
+            log_message(f"Selective src update failed: {e}", "ERROR")
             raise
     
 
@@ -394,6 +390,12 @@ class WebsiteUpdater:
             if not self._execute_command(['systemctl', 'is-active', 'gunicorn.service']):
                 log_message("gunicorn service is not active after restart", "ERROR")
                 return False
+            
+            # Final verification - ensure both services are running properly
+            log_message("Final service verification")
+            if not self._execute_command(['systemctl', 'status', 'gunicorn.service', '--no-pager', '-l']):
+                log_message("gunicorn service status check failed", "WARNING")
+                # Don't fail the entire process, but log the issue
             
             log_message("Build process and service restarts completed successfully")
             return True
@@ -540,6 +542,41 @@ class WebsiteUpdater:
             log_message(f"Failed to update module content_version: {e}", "ERROR")
             return False
     
+    def _update_homeserver_json_metadata(self, new_version: str) -> bool:
+        """Update the user's homeserver.json with new version and last_updated timestamp."""
+        homeserver_json_path = "/var/www/homeserver/src/config/homeserver.json"
+        
+        try:
+            # Read current homeserver.json
+            with open(homeserver_json_path, 'r') as f:
+                config = json.load(f)
+            
+            # Update version information
+            if "global" not in config:
+                config["global"] = {}
+            if "version" not in config["global"]:
+                config["global"]["version"] = {}
+            
+            old_version = config["global"]["version"].get("version", "unknown")
+            config["global"]["version"]["version"] = new_version
+            
+            # Update last_updated timestamp (ISO format)
+            import datetime
+            current_time = datetime.datetime.now().isoformat()
+            config["global"]["version"]["last_updated"] = current_time
+            
+            # Write updated config back to file
+            with open(homeserver_json_path, 'w') as f:
+                json.dump(config, f, indent=4)
+            
+            log_message(f"Updated homeserver.json version: {old_version} → {new_version}")
+            log_message(f"Updated homeserver.json last_updated: {current_time}")
+            return True
+            
+        except Exception as e:
+            log_message(f"Failed to update homeserver.json metadata: {e}", "ERROR")
+            return False
+    
     def update(self) -> Dict[str, Any]:
         """Perform the complete website update process with version checking."""
         if not self.config['metadata'].get('enabled', True):
@@ -600,9 +637,10 @@ class WebsiteUpdater:
             local_version = self._get_local_version()
             repo_version = self._get_repository_version(temp_dir)
             
-            # Update the module's content_version to match the newly installed version
+            # Update both the module's content_version and the user's homeserver.json metadata
             if repo_version:
                 self._update_module_content_version(repo_version)
+                self._update_homeserver_json_metadata(repo_version)
             
             log_message("Website update completed successfully")
             return {
