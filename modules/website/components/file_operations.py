@@ -72,6 +72,14 @@ class FileOperations:
                     self._selective_src_update(source_path, target_path)
                     log_message(f"[FILE] ✓ Frontend component updated via selective method")
                     continue
+
+                # Special handling for premium directory to preserve installed tabs
+                # Only update core files (README.md, installer.py) and the utils/ directory.
+                if component_name == 'premium' and target_path.endswith('/premium'):
+                    log_message(f"[FILE] Using selective update for premium core while preserving installed tabs")
+                    self._update_premium_core(source_path, target_path)
+                    log_message(f"[FILE] ✓ Premium core updated without touching installed tabs")
+                    continue
                 
                 # Standard component update for non-src components
                 self._update_standard_component(component_name, source_path, target_path)
@@ -207,6 +215,57 @@ class FileOperations:
             log_message(f"[FILE_COPY_DEBUG] Source exists: {os.path.exists(source_path) if source_path else 'None'}", "ERROR")
             log_message(f"[FILE_COPY_DEBUG] Target exists: {os.path.exists(target_path) if target_path else 'None'}", "ERROR")
             raise
+
+    def _update_premium_core(self, source_path: str, target_path: str) -> None:
+        """
+        Update only the premium core files and directories, preserving user-installed tabs.
+        
+        Core items include top-level files like README.md and installer.py, and the utils/ directory.
+        Any other subdirectories present under the target premium directory are considered installed tabs
+        and must not be modified or deleted.
+        """
+        # Determine core items list, allowing optional override from config
+        core_items = (
+            self.config.get('config', {})
+            .get('target_paths', {})
+            .get('components', {})
+            .get('premium', {})
+            .get('core_items', [
+                'README.md',
+                'installer.py',
+                'utils',
+            ])
+        )
+
+        log_message(f"[FILE] Premium core items to update: {core_items}")
+
+        # Ensure target directory exists
+        os.makedirs(target_path, exist_ok=True)
+
+        # Copy/update each core item individually
+        for item in core_items:
+            src_item_path = os.path.join(source_path, item)
+            dst_item_path = os.path.join(target_path, item)
+
+            if not os.path.exists(src_item_path):
+                log_message(f"[FILE] Premium core item missing in source, skipping: {src_item_path}", "WARNING")
+                continue
+
+            try:
+                if os.path.isdir(src_item_path):
+                    # For directories (e.g., utils), replace that directory only
+                    if os.path.exists(dst_item_path):
+                        shutil.rmtree(dst_item_path)
+                    shutil.copytree(src_item_path, dst_item_path)
+                    log_message(f"[FILE] ✓ Updated premium core directory: {item}")
+                else:
+                    # For files, copy (overwrite) without touching siblings
+                    os.makedirs(os.path.dirname(dst_item_path), exist_ok=True)
+                    shutil.copy2(src_item_path, dst_item_path)
+                    log_message(f"[FILE] ✓ Updated premium core file: {item}")
+            except Exception as e:
+                log_message(f"[FILE] ✗ Failed updating premium core item '{item}': {e}", "ERROR")
+                raise
     
     def validate_file_operations(self, source_dir: str) -> bool:
         """
