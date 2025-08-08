@@ -33,41 +33,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def setup_global_update_logging():
     """
-    Set up centralized logging that captures ALL update process output.
-    This creates a single log file and also logs to stdout.
+    Log to stdout only; the shell wrapper owns file truncation/redirection.
     """
-    # Paths
-    update_log_file = "/var/log/homeserver/update.log"
-
-    # Ensure log directory exists
-    os.makedirs(os.path.dirname(update_log_file), exist_ok=True)
-
-    # File handler (append; wrapper decides when to truncate)
-    file_handler = logging.FileHandler(update_log_file, mode='a')
-    file_handler.setLevel(logging.DEBUG)
-
-    # Console handler (stdout)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
-    
-    # Unified bracketed format with explicit datefmt to match shell wrapper
     unified_format = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s',
                                        datefmt='%Y-%m-%d %H:%M:%S')
-    console_formatter = unified_format
-    
-    file_handler.setFormatter(unified_format)
-    console_handler.setFormatter(console_formatter)
-    
-    # Configure root logger
+    console_handler.setFormatter(unified_format)
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    # Reset handlers to avoid duplicates
     for h in list(root_logger.handlers):
         root_logger.removeHandler(h)
-    root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
-    
-    # Log session start
     logging.info("="*80)
     logging.info("HOMESERVER UPDATE SESSION STARTED")
     logging.info(f"Command: {' '.join(sys.argv)}")
