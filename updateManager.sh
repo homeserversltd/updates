@@ -9,6 +9,8 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 # Paths
 PYTHON_UPDATES_DIR="/usr/local/lib/updates"
 PYTHON_ORCHESTRATOR="$PYTHON_UPDATES_DIR/index.py"
+LOG_DIR="/var/log/homeserver"
+LOG_FILE="$LOG_DIR/update.log"
 
 # Function to log messages with timestamps
 log_message() {
@@ -21,6 +23,21 @@ log_message() {
         echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
     else
         echo "[$(python3 -c "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")] $1"
+    fi
+}
+
+# Ensure the centralized update log exists before Python sets up handlers
+ensure_log_file() {
+    # Create directory if missing
+    if [ ! -d "$LOG_DIR" ]; then
+        mkdir -p "$LOG_DIR" 2>/dev/null || true
+    
+    fi
+    # Touch the log file if missing
+    if [ ! -f "$LOG_FILE" ]; then
+        touch "$LOG_FILE" 2>/dev/null || true
+        # Best-effort sane permissions
+        chmod 664 "$LOG_FILE" 2>/dev/null || true
     fi
 }
 
@@ -239,6 +256,7 @@ main() {
     done
     
     log_message "Starting HOMESERVER update manager..."
+    ensure_log_file
     
     # Check if Python system is available
     if ! check_python_system; then
