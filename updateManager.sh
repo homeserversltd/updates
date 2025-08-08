@@ -16,14 +16,16 @@ LOG_FILE="$LOG_DIR/update.log"
 log_message() {
     # Try multiple date command locations for robustness
     if command -v date >/dev/null 2>&1; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+        timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
     elif [ -x "/usr/bin/date" ]; then
-        echo "[$(/usr/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
+        timestamp="$(/usr/bin/date '+%Y-%m-%d %H:%M:%S')"
     elif [ -x "/bin/date" ]; then
-        echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] $1"
+        timestamp="$(:; /bin/date '+%Y-%m-%d %H:%M:%S')"
     else
-        echo "[$(python3 -c "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")] $1"
+        timestamp="$(python3 -c "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")"
     fi
+    # Echo to console AND append to central log
+    echo "[${timestamp}] $1" | tee -a "$LOG_FILE" >/dev/null
 }
 
 # Ensure the centralized update log exists before Python sets up handlers
@@ -39,6 +41,9 @@ ensure_log_file() {
         # Best-effort sane permissions
         chmod 664 "$LOG_FILE" 2>/dev/null || true
     fi
+
+    # Truncate the log at the start of each run to avoid infinite growth
+    : > "$LOG_FILE" 2>/dev/null || true
 }
 
 # Function to check if Python system is available

@@ -26,7 +26,7 @@ import logging
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from . import compare_schema_versions, run_update, load_module_index, log_message, sync_from_repo, detect_module_updates, update_modules
+from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, detect_module_updates, update_modules
 
 # Add current directory to path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,8 +42,8 @@ def setup_global_update_logging():
     # Create log directory if it doesn't exist
     os.makedirs(os.path.dirname(UPDATE_LOG_FILE), exist_ok=True)
     
-    # Set up file handler for update logging
-    file_handler = logging.FileHandler(UPDATE_LOG_FILE, mode='w')
+    # Set up file handler for update logging (append so we don't nuke prior content)
+    file_handler = logging.FileHandler(UPDATE_LOG_FILE, mode='a')
     file_handler.setLevel(logging.DEBUG)
     
     # Set up console handler to maintain current behavior
@@ -70,6 +70,15 @@ def setup_global_update_logging():
     logging.info(f"Working Directory: {os.getcwd()}")
     logging.info(f"Python Version: {sys.version}")
     logging.info("="*80)
+
+def log_message(message: str, level: str = "INFO"):
+    """Unified logger used throughout the orchestrator and helpers."""
+    if level == "ERROR":
+        logging.error(message)
+    elif level == "WARNING":
+        logging.warning(message)
+    else:
+        logging.info(message)
 
 def log_to_file(message: str, level: str = "INFO"):
     """
@@ -641,6 +650,9 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
     log_to_file(f"Branch: {branch}")
     log_to_file(f"Local modules: {modules_path}")
     log_to_file(f"Sync path: {local_repo_path}")
+    # If we are running after an orchestrator self-restart, make that explicit
+    if os.environ.get("HS_UPDATER_RESTARTED") == "1":
+        log_message("Updater restart complete; proceeding with module updates")
     
     results = {
         "sync_success": False,
@@ -665,14 +677,14 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         # Step 1.5: Check if orchestrator itself needs updating
         log_to_file("Step 1.5: Checking orchestrator schema version...")
         orchestrator_needs_update = check_orchestrator_update(modules_path, local_repo_path)
-        if orchestrator_needs_update:
+        if orchestrator_needs_update and os.environ.get("HS_UPDATER_RESTARTED") != "1":
             log_to_file("CRITICAL: Orchestrator update detected - updating orchestrator first")
             
-            # Update orchestrator IMMEDIATELY and restart with new version
+            # Update orchestrator IMMEDIATELY and restart once via exec
             log_message("Step 1.6: Updating orchestrator system...")
             orchestrator_success = update_orchestrator(modules_path, local_repo_path)
             if orchestrator_success:
-                log_message("Orchestrator updated successfully - restarting with new version")
+                log_message("Orchestrator updated successfully; restarting updater once before applying module updates…")
                 
                 # Update global index with new orchestrator version
                 update_global_index(modules_path, [], True)
@@ -680,45 +692,32 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
                 # Update homeserver config timestamp for orchestrator update
                 update_homeserver_config_timestamp()
                 
-                # Re-exec with the updated orchestrator via shell script
-                log_message("RESTART: Re-executing with updated orchestrator...")
-                import subprocess
-                import sys
-                
-                # Find the shell script that originally invoked us
+                # Prepare exec to replace current process
                 shell_script_path = os.path.join(modules_path, "updateManager.sh")
-                
-                # Convert Python args back to shell script args
-                shell_args = []
                 current_args = sys.argv[1:]  # Skip script name
-                
-                # Map Python args to shell args
+                shell_args = []
                 for arg in current_args:
                     if arg == "--check-only":
                         shell_args.append("--check")
                     elif arg == "--legacy":
                         shell_args.append("--legacy")
-                    # Add other arg mappings as needed
+                # Set env flag to avoid restart loops
+                env = os.environ.copy()
+                env["HS_UPDATER_RESTARTED"] = "1"
                 
-                # Re-execute via the shell script (which properly invokes the Python module)
+                # Exec the shell script if available; else exec python -m updates.index
                 try:
                     if os.path.exists(shell_script_path):
-                        result = subprocess.run([shell_script_path] + shell_args, 
-                                              check=True, capture_output=False)
+                        log_message("Executing updated updateManager.sh (exec)")
+                        os.execve(shell_script_path, [shell_script_path] + shell_args, env)
                     else:
-                        # Fallback: run as module from correct directory
-                        result = subprocess.run([
-                            sys.executable, "-m", "updates.index"
-                        ] + current_args, 
-                        cwd="/usr/local/lib", check=True, capture_output=False)
-                    
-                    # If we get here, the new orchestrator completed successfully
-                    results["orchestrator_updated"] = True
-                    results["orchestrator_restarted"] = True
-                    return results
-                except subprocess.CalledProcessError as e:
-                    log_message(f"Failed to restart with updated orchestrator: {e}", "ERROR")
-                    results["errors"].append("Failed to restart with updated orchestrator")
+                        log_message("Shell wrapper not found; exec Python module directly (exec)")
+                        exec_argv = [sys.executable, "-m", "updates.index"] + current_args
+                        os.execve(sys.executable, exec_argv, env)
+                except Exception as e:
+                    # If exec fails, treat as critical error
+                    log_message(f"Failed to exec updated orchestrator: {e}", "ERROR")
+                    results["errors"].append("Failed to exec updated orchestrator")
                     return results
             else:
                 results["errors"].append("Failed to update orchestrator")
