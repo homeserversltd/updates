@@ -32,7 +32,7 @@ from . import compare_schema_versions, run_update, load_module_index, log_messag
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Global Update Logging Configuration
-UPDATE_LOG_FILE = "/var/log/update.log"
+UPDATE_LOG_FILE = "/var/log/homeserver/update.log"
 
 def setup_global_update_logging():
     """
@@ -43,7 +43,7 @@ def setup_global_update_logging():
     os.makedirs(os.path.dirname(UPDATE_LOG_FILE), exist_ok=True)
     
     # Set up file handler for update logging
-    file_handler = logging.FileHandler(UPDATE_LOG_FILE, mode='a')
+    file_handler = logging.FileHandler(UPDATE_LOG_FILE, mode='w')
     file_handler.setLevel(logging.DEBUG)
     
     # Set up console handler to maintain current behavior

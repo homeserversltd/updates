@@ -29,7 +29,7 @@ from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
 
 # Import our new components
-from .components import GitOperations, FileOperations, BuildManager
+from .components import GitOperations, FileOperations, BuildManager, MaintenanceManager
 
 
 class WebsiteUpdateError(Exception):
@@ -61,6 +61,7 @@ class WebsiteUpdater:
         self.git = GitOperations(self.config)
         self.files = FileOperations(self.config)
         self.build = BuildManager(self.config)
+        self.maintenance = MaintenanceManager(self.config)
         
         # Initialize existing utilities
         self.state_manager = StateManager("/var/backups/website")
@@ -336,6 +337,14 @@ class WebsiteUpdater:
         temp_dir = None
         
         try:
+            # Step 0: Always run maintenance tasks (agnostic of building)
+            log_message("Step 0: Running maintenance tasks…")
+            try:
+                self.maintenance.update_browserslist()
+            except Exception as maint_err:
+                # Never fail the update due to maintenance tasks
+                log_message(f"Maintenance task error (non-fatal): {maint_err}", "WARNING")
+
             # Step 1: Clone repository
             log_message("Step 1: Cloning repository...")
             temp_dir = self.git.clone_repository()

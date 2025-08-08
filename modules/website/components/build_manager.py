@@ -99,12 +99,17 @@ class BuildManager:
         log_message("[BUILD] Installing NPM dependencies...")
         
         try:
+            env = os.environ.copy()
+            # Reduce npm verbosity
+            env["NPM_CONFIG_LOGLEVEL"] = "error"
+            env["LOGLEVEL"] = "error"
             result = subprocess.run(
-                ['npm', 'install'],
+                ['npm', 'install', '--silent', '--no-fund', '--no-audit'],
                 cwd=self.base_dir,
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=300,  # 5 minute timeout
+                env=env
             )
             
             if result.returncode != 0:
@@ -133,12 +138,17 @@ class BuildManager:
         log_message("[BUILD] Building frontend application...")
         
         try:
+            env = os.environ.copy()
+            # Silence CRA eslint output during build and avoid CI treating warnings as errors
+            env["DISABLE_ESLINT_PLUGIN"] = "true"
+            env.setdefault("CI", "false")
             result = subprocess.run(
-                ['npm', 'run', 'build'],
+                ['npm', 'run', 'build', '--silent'],
                 cwd=self.base_dir,
                 capture_output=True,
                 text=True,
-                timeout=600  # 10 minute timeout for builds
+                timeout=600,  # 10 minute timeout for builds
+                env=env
             )
             
             if result.returncode != 0:

@@ -60,6 +60,9 @@ Schema Same  + Content Same  = No Update Needed
 - **Permission Restoration**: Ensures correct file ownership after all operations
 - **Service Validation**: Confirms services are running before marking success
 
+### Continuous Maintenance (Agnostic of Builds)
+- **Browserslist DB Refresh**: On every module run, the updater executes `npx update-browserslist-db@latest` (non-interactive) from `/var/www/homeserver` to keep `caniuse-lite` data current. This runs even when no content update or build occurs, ensuring modern browser coverage and avoiding outdated target lists.
+
 ### Practical Examples
 
 **Scenario 1: Schema-Only Update**
