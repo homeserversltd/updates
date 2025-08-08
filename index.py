@@ -42,7 +42,7 @@ def setup_global_update_logging():
     # Create log directory if it doesn't exist
     os.makedirs(os.path.dirname(UPDATE_LOG_FILE), exist_ok=True)
     
-    # Set up file handler for update logging (append so we don't nuke prior content)
+    # Single file; append into the file that shell has just truncated
     file_handler = logging.FileHandler(UPDATE_LOG_FILE, mode='a')
     file_handler.setLevel(logging.DEBUG)
     
@@ -50,9 +50,11 @@ def setup_global_update_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     
-    # Create formatters
-    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_formatter = logging.Formatter('%(message)s')
+    # Unified bracketed format with explicit datefmt to match shell wrapper
+    unified_format = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s',
+                                       datefmt='%Y-%m-%d %H:%M:%S')
+    file_formatter = unified_format
+    console_formatter = unified_format
     
     file_handler.setFormatter(file_formatter)
     console_handler.setFormatter(console_formatter)
@@ -1017,6 +1019,9 @@ def list_modules(modules_path: str) -> bool:
         for item in os.listdir(modules_search_path):
             item_path = os.path.join(modules_search_path, item)
             if os.path.isdir(item_path):
+                # Exclude backup directories from listing
+                if item.endswith('.backup'):
+                    continue
                 index_file = os.path.join(item_path, "index.json")
                 if os.path.exists(index_file):
                     try:

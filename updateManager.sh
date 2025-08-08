@@ -24,8 +24,8 @@ log_message() {
     else
         timestamp="$(python3 -c "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")"
     fi
-    # Echo to console AND append to central log
-    echo "[${timestamp}] $1" | tee -a "$LOG_FILE" >/dev/null
+    # Echo to console AND append to central log in unified format
+    echo "[${timestamp}] [INFO] $1" | tee -a "$LOG_FILE" >/dev/null
 }
 
 # Ensure the centralized update log exists before Python sets up handlers
@@ -42,7 +42,7 @@ ensure_log_file() {
         chmod 664 "$LOG_FILE" 2>/dev/null || true
     fi
 
-    # Truncate the log at the start of each run to avoid infinite growth
+    # Truncate at the start of each run (explicit requirement)
     : > "$LOG_FILE" 2>/dev/null || true
 }
 
