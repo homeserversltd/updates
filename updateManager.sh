@@ -24,8 +24,8 @@ log_message() {
     else
         timestamp="$(python3 -c "import datetime; print(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))")"
     fi
-    # Echo to console AND append to central log in unified format
-    echo "[${timestamp}] [INFO] $1" | tee -a "$LOG_FILE" >/dev/null
+    # Echo to stdout only; update runs may redirect this to the log file
+    echo "[${timestamp}] [INFO] $1"
 }
 
 # Ensure the centralized update log exists before Python sets up handlers
@@ -42,8 +42,7 @@ ensure_log_file() {
         chmod 664 "$LOG_FILE" 2>/dev/null || true
     fi
 
-    # Truncate at the start of each run (explicit requirement)
-    : > "$LOG_FILE" 2>/dev/null || true
+    # Do not truncate here; truncation happens only for actual update runs
 }
 
 # Function to check if Python system is available
@@ -260,8 +259,16 @@ main() {
         esac
     done
     
+    # If this is an actual update run (no module-management operation and not --check),
+    # clear the log and redirect all output (stdout+stderr) to the log file.
+    if [ -z "$operation" ] && [ "$mode" != "check" ]; then
+        ensure_log_file
+        : > "$LOG_FILE" 2>/dev/null || true
+        export PYTHONUNBUFFERED=1
+        exec > "$LOG_FILE" 2>&1
+    fi
+
     log_message "Starting HOMESERVER update manager..."
-    ensure_log_file
     
     # Check if Python system is available
     if ! check_python_system; then
