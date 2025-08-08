@@ -98,10 +98,8 @@ class FileOperations:
         if os.path.exists(target_path):
             if os.path.isdir(target_path):
                 shutil.rmtree(target_path)
-                log_message(f"[FILE] Removed existing directory: {target_path}")
             else:
                 os.remove(target_path)
-                log_message(f"[FILE] Removed existing file: {target_path}")
         
         # Ensure parent directory exists
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
@@ -109,10 +107,13 @@ class FileOperations:
         # Copy new content
         if os.path.isdir(source_path):
             shutil.copytree(source_path, target_path)
-            log_message(f"[FILE] ✓ Copied directory: {source_path} -> {target_path}")
+            kind = "dir"
         else:
             shutil.copy2(source_path, target_path)
-            log_message(f"[FILE] ✓ Copied file: {source_path} -> {target_path}")
+            kind = "file"
+        
+        # Summarize instead of per-action details
+        log_message(f"[FILE] ✓ Updated component: {component_name} ({kind})")
     
     def _selective_src_update(self, source_path: str, target_path: str) -> None:
         """
@@ -152,20 +153,20 @@ class FileOperations:
             os.makedirs(target_path, exist_ok=True)
             log_message(f"[FILE_COPY_DEBUG] ✓ Target directory ensured: {target_path}")
             
-            # Copy files from source to target, preserving what we can
-            log_message(f"[FILE_COPY_DEBUG] Starting file sync from {source_path} to {target_path}")
+            # Copy files from source to target, preserving what we can (quiet summary)
+            log_message(f"[FILE] Syncing src directory (quiet)…")
             
+            dirs_created = 0
+            files_copied = 0
             for root, dirs, files in os.walk(source_path):
                 # Calculate relative path from source
                 rel_path = os.path.relpath(root, source_path)
-                if rel_path == '.':
-                    target_dir = target_path
-                else:
-                    target_dir = os.path.join(target_path, rel_path)
-                
-                # Create target directory
-                os.makedirs(target_dir, exist_ok=True)
-                log_message(f"[FILE_COPY_DEBUG] Created dir: {target_dir}")
+                target_dir = target_path if rel_path == '.' else os.path.join(target_path, rel_path)
+
+                # Create target directory if missing
+                if not os.path.exists(target_dir):
+                    os.makedirs(target_dir, exist_ok=True)
+                    dirs_created += 1
                 
                 # Copy files
                 for file in files:
@@ -174,17 +175,16 @@ class FileOperations:
                     
                     # Skip homeserver.json - we'll restore it later
                     if dst_file == config_path:
-                        log_message(f"[FILE_COPY_DEBUG] Skipping {file} (will restore from backup)")
                         continue
                     
                     try:
                         shutil.copy2(src_file, dst_file)
-                        log_message(f"[FILE_COPY_DEBUG] ✓ Copied: {src_file} -> {dst_file}")
+                        files_copied += 1
                     except Exception as copy_error:
-                        log_message(f"[FILE_COPY_DEBUG] ✗ Failed to copy {src_file}: {copy_error}", "ERROR")
+                        log_message(f"[FILE] ✗ Failed to copy {src_file}: {copy_error}", "ERROR")
                         raise
             
-            log_message("[FILE_COPY_DEBUG] ✓ File sync completed")
+            log_message(f"[FILE] ✓ File sync completed ({dirs_created} dirs, {files_copied} files)")
             
             # STEP 4: Restore user configuration file
             config_dir = os.path.join(target_path, 'config')
