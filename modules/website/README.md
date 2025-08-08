@@ -7,12 +7,94 @@ The beating heart of HOMESERVER. Everything you see, touch, and control flows th
 The HOMESERVER website isn't just another web app - it's your **complete digital command center**. Every service, every feature, every capability of your HOMESERVER is accessed, monitored, and controlled through this unified interface.
 
 ## Automatic Updates
-The website module now includes intelligent version-based updates that:
-- **Check Repository Versions**: Compares version numbers in homeserver.json between local and GitHub repository
-- **Smart Updates**: Only updates when repository has a newer version (semantic versioning)
-- **Safe Deployment**: Full backup and rollback protection with StateManager integration
-- **Service Management**: Automatically rebuilds and restarts gunicorn with validation
-- **Zero Downtime**: Maintains service availability during updates with graceful failure handling
+The website module now includes intelligent dual-version update system that distinguishes between schema and content updates:
+
+### Version Types
+- **Schema Version**: Module configuration changes (in `index.json`) - affects update behavior, component settings, etc.
+- **Content Version**: Actual website code changes (in `homeserver.json`) - affects frontend/backend functionality
+
+### Update Logic Step-by-Step
+
+#### 1. Version Detection Phase
+1. **Clone Repository**: Download latest code from GitHub to temporary directory
+2. **Check Critical Files**: Verify `homeserver.json` and `/src` directory exist (nuclear restore if missing)
+3. **Schema Version Check**: Compare module's `index.json` schema_version (local vs repo)
+4. **Content Version Check**: Compare website's `homeserver.json` version (local vs repo)
+5. **Determine Update Type**: Schema-only, content-only, both, or neither
+
+#### 2. Update Decision Matrix
+```
+Schema Newer + Content Newer = Full Update (both schema + content)
+Schema Newer + Content Same  = Schema-Only Update
+Schema Same  + Content Newer = Content-Only Update  
+Schema Same  + Content Same  = No Update Needed
+```
+
+#### 3. Update Execution Phase
+**Schema-Only Updates:**
+- Updates module configuration files
+- Preserves user's `homeserver.json` content version
+- Updates only `index.json` schema_version
+- No npm rebuild required
+
+**Content Updates:**
+- Updates actual website files (src/, backend/, etc.)
+- Updates user's `homeserver.json` version + timestamp
+- Updates module's content_version to match
+- Requires full npm build + service restart
+
+**Nuclear Restore:**
+- Triggered when critical files missing/corrupted
+- Complete repository copy + full rebuild
+- Updates both schema and content versions
+
+#### 4. Version Preservation Logic
+- **Schema updates NEVER modify** user's `homeserver.json` version
+- **Content version only updated** when actual website code changes
+- **User's configuration always preserved** during schema-only updates
+- **Module tracking stays accurate** to actual deployed content
+
+### Safety Features
+- **Backup Before Changes**: StateManager creates restore points before content updates
+- **Rollback on Failure**: Automatic restoration if build/deployment fails
+- **Permission Restoration**: Ensures correct file ownership after all operations
+- **Service Validation**: Confirms services are running before marking success
+
+### Practical Examples
+
+**Scenario 1: Schema-Only Update**
+```
+Local:  schema_version="0.1.15", content_version="0.9.0" 
+Repo:   schema_version="0.1.16", content_version="0.9.0"
+Result: Updates index.json to 0.1.16, preserves homeserver.json at 0.9.0
+Action: Configuration update only, no website rebuild
+```
+
+**Scenario 2: Content-Only Update**
+```
+Local:  schema_version="0.1.16", content_version="0.9.0"
+Repo:   schema_version="0.1.16", content_version="0.9.1" 
+Result: Updates homeserver.json to 0.9.1, updates index.json content_version to 0.9.1
+Action: Full website update + npm build + service restart
+```
+
+**Scenario 3: Full Update**
+```
+Local:  schema_version="0.1.15", content_version="0.9.0"
+Repo:   schema_version="0.1.16", content_version="0.9.1"
+Result: Updates both schema to 0.1.16 and content to 0.9.1
+Action: Configuration + website update + rebuild
+```
+
+**Scenario 4: No Update Needed**
+```
+Local:  schema_version="0.1.16", content_version="0.9.1"
+Repo:   schema_version="0.1.16", content_version="0.9.1"
+Result: No changes made, all versions current
+Action: Skip update process entirely
+```
+
+This ensures your `homeserver.json` version always reflects the actual website code deployed, never artificially incremented by module configuration changes.
 
 - **Unified Control Panel**: Single interface for all 14+ enterprise services
 - **Real-time Monitoring**: Live system stats, service status, network activity

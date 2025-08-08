@@ -22,12 +22,66 @@ import json
 import os
 import sys
 import argparse
+import logging
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from . import compare_schema_versions, run_update, load_module_index, log_message, sync_from_repo, detect_module_updates, update_modules
 
 # Add current directory to path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Global Update Logging Configuration
+UPDATE_LOG_FILE = "/var/log/update.log"
+
+def setup_global_update_logging():
+    """
+    Set up centralized logging that captures ALL update process output.
+    This creates a single log file that streams all module output and orchestrator operations.
+    """
+    # Create log directory if it doesn't exist
+    os.makedirs(os.path.dirname(UPDATE_LOG_FILE), exist_ok=True)
+    
+    # Set up file handler for update logging
+    file_handler = logging.FileHandler(UPDATE_LOG_FILE, mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Set up console handler to maintain current behavior
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    
+    # Create formatters
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    console_formatter = logging.Formatter('%(message)s')
+    
+    file_handler.setFormatter(file_formatter)
+    console_handler.setFormatter(console_formatter)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Log session start
+    logging.info("="*80)
+    logging.info("HOMESERVER UPDATE SESSION STARTED")
+    logging.info(f"Command: {' '.join(sys.argv)}")
+    logging.info(f"Working Directory: {os.getcwd()}")
+    logging.info(f"Python Version: {sys.version}")
+    logging.info("="*80)
+
+def log_to_file(message: str, level: str = "INFO"):
+    """
+    Enhanced logging function that writes to both console and file.
+    Replaces the original log_message for orchestrator operations.
+    """
+    if level == "ERROR":
+        logging.error(message)
+    elif level == "WARNING":
+        logging.warning(message)
+    else:
+        logging.info(message)
 
 # Configuration
 DEFAULT_REPO_URL = "https://github.com/homeserversltd/updates.git"
@@ -388,22 +442,88 @@ def get_enabled_modules(modules_path: str) -> list:
         log_message(f"Failed to get enabled modules: {e}", "ERROR")
         return enabled_modules
 
+def run_update_with_logging(module_path: str, args=None):
+    """
+    Enhanced version of run_update that captures and logs all subprocess output.
+    This ensures ALL module output gets streamed to the centralized log file.
+    """
+    try:
+        # Import the module dynamically
+        module_parts = module_path.split('.')
+        module = __import__(module_path, fromlist=[module_parts[-1]])
+        
+        # Check if module has a main function
+        if hasattr(module, 'main'):
+            log_to_file(f"Calling {module_path}.main() with output capture...")
+            
+            # Capture the module's output by temporarily redirecting stdout/stderr
+            import io
+            import contextlib
+            
+            # Create string buffers to capture output
+            stdout_buffer = io.StringIO()
+            stderr_buffer = io.StringIO()
+            
+            # Redirect stdout and stderr to our buffers
+            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                try:
+                    result = module.main(args)
+                except Exception as module_error:
+                    log_to_file(f"Module {module_path} raised exception: {module_error}", "ERROR")
+                    result = {"success": False, "error": str(module_error)}
+            
+            # Get captured output
+            stdout_content = stdout_buffer.getvalue()
+            stderr_content = stderr_buffer.getvalue()
+            
+            # Log captured output to our centralized log
+            if stdout_content.strip():
+                log_to_file("STDOUT from module:")
+                for line in stdout_content.strip().split('\n'):
+                    log_to_file(f"  {line}")
+            
+            if stderr_content.strip():
+                log_to_file("STDERR from module:", "WARNING")
+                for line in stderr_content.strip().split('\n'):
+                    log_to_file(f"  {line}", "WARNING")
+            
+            log_to_file(f"Module {module_path} completed with result: {result}")
+            return result
+            
+        else:
+            log_to_file(f"Module {module_path} has no main function", "WARNING")
+            return None
+            
+    except ImportError as e:
+        log_to_file(f"Failed to import module {module_path}: {e}", "ERROR")
+        return None
+    except Exception as e:
+        log_to_file(f"Failed to execute module {module_path}: {e}", "ERROR")
+        return None
+
 def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     """Run all enabled modules after schema updates are complete."""
     results = {}
     
     if not enabled_modules:
-        log_message("No enabled modules to run")
+        log_to_file("No enabled modules to run")
         return results
     
-    log_message(f"Running {len(enabled_modules)} enabled modules...")
+    log_to_file(f"Running {len(enabled_modules)} enabled modules...")
     
     for module_name in enabled_modules:
         try:
-            log_message(f"Executing module: {module_name}")
+            log_to_file(f"Executing module: {module_name}")
+            log_to_file("-" * 60)
+            log_to_file(f"MODULE: {module_name} - START")
+            log_to_file("-" * 60)
             
-            # Run the module's main function
-            result = run_update(f"modules.{module_name}")
+            # Run the module's main function with output capture
+            result = run_update_with_logging(f"modules.{module_name}")
+            
+            log_to_file("-" * 60)
+            log_to_file(f"MODULE: {module_name} - END")
+            log_to_file("-" * 60)
             
             # Enhanced result interpretation
             module_result = {
@@ -516,11 +636,11 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         global_index = load_global_index(modules_path)
         branch = global_index.get("metadata", {}).get("branch", "master")
     
-    log_message("Starting schema-based update orchestration")
-    log_message(f"Repository: {repo_url}")
-    log_message(f"Branch: {branch}")
-    log_message(f"Local modules: {modules_path}")
-    log_message(f"Sync path: {local_repo_path}")
+    log_to_file("Starting schema-based update orchestration")
+    log_to_file(f"Repository: {repo_url}")
+    log_to_file(f"Branch: {branch}")
+    log_to_file(f"Local modules: {modules_path}")
+    log_to_file(f"Sync path: {local_repo_path}")
     
     results = {
         "sync_success": False,
@@ -535,7 +655,7 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
     
     try:
         # Step 1: Sync from repository
-        log_message("Step 1: Syncing from repository...")
+        log_to_file("Step 1: Syncing from repository...")
         if not sync_from_repo(repo_url, local_repo_path, branch):
             results["errors"].append("Failed to sync from repository")
             return results
@@ -543,10 +663,10 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         results["sync_success"] = True
         
         # Step 1.5: Check if orchestrator itself needs updating
-        log_message("Step 1.5: Checking orchestrator schema version...")
+        log_to_file("Step 1.5: Checking orchestrator schema version...")
         orchestrator_needs_update = check_orchestrator_update(modules_path, local_repo_path)
         if orchestrator_needs_update:
-            log_message("CRITICAL: Orchestrator update detected - updating orchestrator first")
+            log_to_file("CRITICAL: Orchestrator update detected - updating orchestrator first")
             
             # Update orchestrator IMMEDIATELY and restart with new version
             log_message("Step 1.6: Updating orchestrator system...")
@@ -1032,6 +1152,9 @@ def main():
     args = parser.parse_args()
     
     try:
+        # Initialize global logging system FIRST
+        setup_global_update_logging()
+        
         # Handle module management operations first
         if args.enable_module:
             success = enable_module(args.modules_path, args.enable_module)
