@@ -24,6 +24,10 @@ class BuildManager:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.base_dir = config.get('config', {}).get('target_paths', {}).get('base_directory', '/var/www/homeserver')
+        build_cfg = config.get('config', {}).get('build', {})
+        # New behavior: do not stop services mid-run to avoid self-termination; restart at the end
+        self.stop_services_before_build = bool(build_cfg.get('stopServices', False))
+        self.restart_service_at_end = bool(build_cfg.get('restartServiceAtEnd', True))
         
     def run_build_process(self) -> bool:
         """
@@ -35,9 +39,10 @@ class BuildManager:
         log_message("[BUILD] Starting build process...")
         
         try:
-            # Step 1: Stop services
-            if not self._stop_services():
-                return False
+            # Step 1: Optionally stop services (default: skip to avoid killing the updater)
+            if self.stop_services_before_build:
+                if not self._stop_services():
+                    return False
             
             # Step 2: Install NPM dependencies
             if not self._npm_install():
@@ -47,7 +52,7 @@ class BuildManager:
             if not self._npm_build():
                 return False
             
-            # Step 4: Start services
+            # Step 4: Start or restart services
             if not self._start_services():
                 return False
             
@@ -182,34 +187,35 @@ class BuildManager:
         """Start services after build."""
         services_to_start = ['gunicorn.service']
         
-        log_message("[BUILD] Starting services...")
+        action = 'restart' if self.restart_service_at_end and not self.stop_services_before_build else 'start'
+        log_message(f"[BUILD] {action.capitalize()}ing services...")
         
         for service in services_to_start:
             try:
-                log_message(f"[BUILD] Starting {service}...")
+                log_message(f"[BUILD] {action.capitalize()}ing {service}...")
                 result = subprocess.run(
-                    ['systemctl', 'start', service],
+                    ['systemctl', action, service],
                     capture_output=True,
                     text=True,
                     timeout=30
                 )
                 
                 if result.returncode != 0:
-                    log_message(f"[BUILD] ✗ Failed to start {service}: {result.stderr}", "ERROR")
+                    log_message(f"[BUILD] ✗ Failed to {action} {service}: {result.stderr}", "ERROR")
                     return False
                 
-                log_message(f"[BUILD] ✓ Started {service}")
+                log_message(f"[BUILD] ✓ {action.capitalize()}ed {service}")
                 
             except subprocess.TimeoutExpired:
-                log_message(f"[BUILD] ✗ Timeout starting {service}", "ERROR")
+                log_message(f"[BUILD] ✗ Timeout {action}ing {service}", "ERROR")
                 return False
             except Exception as e:
-                log_message(f"[BUILD] ✗ Error starting {service}: {e}", "ERROR")
+                log_message(f"[BUILD] ✗ Error {action}ing {service}: {e}", "ERROR")
                 return False
         
         # Give services time to start
         time.sleep(3)
-        log_message("[BUILD] ✓ Service start phase completed")
+        log_message(f"[BUILD] ✓ Service {action} phase completed")
         return True
     
     def _validate_services(self) -> bool:
