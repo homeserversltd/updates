@@ -449,6 +449,42 @@ def main(args=None):
     """
     log_message("Website update module started")
     
+    # Lightweight check-only mode for orchestrator detection
+    if args and isinstance(args, (list, tuple)) and ("--check" in args or "--check-only" in args):
+        updater = WebsiteUpdater()
+        temp_dir = None
+        try:
+            temp_dir = updater.git.clone_repository()
+            if not temp_dir:
+                return {
+                    "success": False,
+                    "update_available": False,
+                    "error": "Failed to clone repository for check"
+                }
+            update_needed, nuclear_restore, details = updater._check_version_update_needed(temp_dir)
+            return {
+                "success": True,
+                "update_available": bool(update_needed or nuclear_restore or details.get("schema_update_needed") or details.get("content_update_needed")),
+                "nuclear_restore": nuclear_restore,
+                "update_reasons": details.get("update_reasons", []),
+                "local_schema_version": details.get("local_schema_version"),
+                "repo_schema_version": details.get("repo_schema_version"),
+                "local_content_version": details.get("local_content_version"),
+                "repo_content_version": details.get("repo_content_version")
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "update_available": False,
+                "error": str(e)
+            }
+        finally:
+            if temp_dir:
+                try:
+                    updater.git.cleanup_repository(temp_dir)
+                except Exception:
+                    pass
+
     try:
         updater = WebsiteUpdater()
         result = updater.update()
