@@ -48,18 +48,20 @@ The module handles two types of updates:
 
 ### Documentation Updates
 - Monitors the [HOMESERVER documentation repository](https://github.com/homeserversltd/documentation)
-- Checks for new commits on the main branch
-- Automatically downloads and deploys updated documentation
-- Maintains version tracking for rollback capability
+- **Simple git-based version comparison** - Compares local VERSION file with remote repository
+- **No API dependencies** - Direct git clone and VERSION file comparison
+- **Automatic deployment** - Downloads and deploys updated documentation when versions differ
+- **Version tracking** - Maintains local VERSION file and index.json content_version for rollback capability
 
 ## Configuration
 
 The module is configured via `index.json`:
 
 - **Software**: GitHub API for MkDocs Material releases
-- **Documentation**: GitHub repository and API endpoints
+- **Documentation**: Git repository URL and local VERSION file path
 - **Paths**: Local storage locations for docs and version tracking
 - **Permissions**: File ownership and access controls
+- **Version Management**: Local VERSION file mirrors remote repository version
 
 ## Backup and Recovery
 

@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.22",
+        "schema_version": "0.1.23",
         "channel": "stable",
         "branch": "master",
         "repository_url": "https://github.com/homeserversltd/updates.git"

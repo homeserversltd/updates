@@ -56,15 +56,20 @@ def get_mkdocs_paths():
 
 def get_current_version():
     try:
-        result = subprocess.run(["mkdocs", "--version"], capture_output=True, text=True, timeout=10)
+        # Use the virtual environment's mkdocs
+        result = subprocess.run(["/opt/docs/venv/bin/mkdocs", "--version"], capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             output = result.stdout.strip()
             pattern = r'mkdocs, version (\d+\.\d+\.\d+)'
             match = re.search(pattern, output)
             if match:
-                return match.group(1)
+                version = match.group(1)
+                log_message(f"Current MkDocs version: {version}", "INFO")
+                return version
+        log_message("Failed to get current MkDocs version", "WARNING")
         return None
-    except:
+    except Exception as e:
+        log_message(f"Error getting current MkDocs version: {e}", "ERROR")
         return None
 
 def get_latest_version():
@@ -80,32 +85,94 @@ def get_latest_version():
         return None
 
 def get_current_docs_version():
-    """Get the current documentation version (commit hash) from local storage."""
+    """Get the current documentation version from local storage."""
     try:
+        # First try to read from the local VERSION file
         if os.path.exists(DOCS_VERSION_FILE):
             with open(DOCS_VERSION_FILE, 'r') as f:
-                return f.read().strip()
+                version = f.read().strip()
+                log_message(f"Current local docs version: {version}", "INFO")
+                return version
+        
+        # Fallback: try to read from index.json content_version
+        try:
+            with open(__file__.replace('index.py', 'index.json'), 'r') as f:
+                config = json.load(f)
+                content_version = config.get('metadata', {}).get('content_version')
+                if content_version:
+                    log_message(f"Current docs version from index.json: {content_version}", "INFO")
+                    return content_version
+        except:
+            pass
+        
+        log_message("No local docs version found", "WARNING")
         return None
-    except:
+    except Exception as e:
+        log_message(f"Failed to get current docs version: {e}", "ERROR")
         return None
 
 def get_latest_docs_version():
-    """Get the latest documentation version (commit hash) from GitHub."""
+    """Get the latest documentation version from the git repository."""
     try:
-        # Use GitHub API to get latest commit hash
-        api_url = "https://api.github.com/repos/homeserversltd/documentation/commits/main"
-        with urllib.request.urlopen(api_url) as resp:
-            data = json.load(resp)
-            return data.get("sha", "")
+        # Create temp directory for git operations
+        temp_dir = "/tmp/mkdocs-update"
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        
+        # Clone the repository to get the latest VERSION
+        result = subprocess.run([
+            "git", "clone", "--depth", "1", 
+            "https://github.com/homeserversltd/documentation.git", temp_dir
+        ], capture_output=True, text=True, timeout=60)
+        
+        if result.returncode != 0:
+            log_message(f"Git clone failed: {result.stderr}", "ERROR")
+            return None
+        
+        # Read the VERSION file from the cloned repo
+        version_file = os.path.join(temp_dir, "VERSION")
+        if os.path.exists(version_file):
+            with open(version_file, 'r') as f:
+                version = f.read().strip()
+            log_message(f"Latest remote docs version: {version}", "INFO")
+            
+            # Cleanup temp directory
+            shutil.rmtree(temp_dir)
+            return version
+        else:
+            log_message("VERSION file not found in remote repository", "ERROR")
+            shutil.rmtree(temp_dir)
+            return None
+            
     except Exception as e:
         log_message(f"Failed to get latest docs version: {e}", "ERROR")
+        # Cleanup temp directory if it exists
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
         return None
 
 def save_docs_version(version):
-    """Save the current documentation version to local storage."""
+    """Save the current documentation version to local storage and update index.json."""
     try:
+        # Save to VERSION file
         with open(DOCS_VERSION_FILE, 'w') as f:
             f.write(version)
+        
+        # Update content_version in index.json
+        try:
+            index_json_path = __file__.replace('index.py', 'index.json')
+            with open(index_json_path, 'r') as f:
+                config = json.load(f)
+            
+            config['metadata']['content_version'] = version
+            
+            with open(index_json_path, 'w') as f:
+                json.dump(config, f, indent=4)
+            
+            log_message(f"Updated index.json content_version to {version}", "INFO")
+        except Exception as e:
+            log_message(f"Failed to update index.json content_version: {e}", "WARNING")
+        
         return True
     except Exception as e:
         log_message(f"Failed to save docs version: {e}", "ERROR")
@@ -133,7 +200,7 @@ def clone_docs_repository():
         log_message(f"Failed to clone docs repository: {e}", "ERROR")
         return False
 
-def deploy_docs_content():
+def deploy_docs_content_from_temp(temp_dir):
     """Deploy documentation content from temp location to docs directory."""
     try:
         # Ensure docs directory exists
@@ -149,12 +216,11 @@ def deploy_docs_content():
                     os.remove(item_path)
         
         # Copy new content from temp directory
-        temp_content_path = os.path.join(DOCS_TEMP_PATH)
-        if os.path.exists(temp_content_path):
+        if os.path.exists(temp_dir):
             # Copy all files and directories except .git
-            for item in os.listdir(temp_content_path):
+            for item in os.listdir(temp_dir):
                 if item != '.git':
-                    src = os.path.join(temp_content_path, item)
+                    src = os.path.join(temp_dir, item)
                     dst = os.path.join(DOCS_LOCAL_PATH, item)
                     if os.path.isdir(src):
                         shutil.copytree(src, dst)
@@ -196,7 +262,7 @@ def cleanup_temp_docs():
         return False
 
 def update_documentation():
-    """Update documentation content from GitHub repository."""
+    """Update documentation content from git repository."""
     try:
         log_message("Checking for documentation updates...", "INFO")
         
@@ -213,13 +279,25 @@ def update_documentation():
         
         log_message(f"Updating documentation from {current_docs_version or 'unknown'} to {latest_docs_version}", "INFO")
         
-        # Clone repository
-        if not clone_docs_repository():
+        # Clone repository to temp location
+        temp_dir = "/tmp/mkdocs-update"
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        
+        log_message("Cloning documentation repository...", "INFO")
+        result = subprocess.run([
+            "git", "clone", "--depth", "1", 
+            "https://github.com/homeserversltd/documentation.git", temp_dir
+        ], capture_output=True, text=True, timeout=120)
+        
+        if result.returncode != 0:
+            log_message(f"Git clone failed: {result.stderr}", "ERROR")
             return False
         
-        # Deploy content
-        if not deploy_docs_content():
-            cleanup_temp_docs()
+        # Deploy content from temp directory
+        log_message("Deploying new documentation content...", "INFO")
+        if not deploy_docs_content_from_temp(temp_dir):
+            shutil.rmtree(temp_dir)
             return False
         
         # Save new version
@@ -227,14 +305,15 @@ def update_documentation():
             log_message("Failed to save docs version, but content updated", "WARNING")
         
         # Cleanup
-        cleanup_temp_docs()
-        
+        shutil.rmtree(temp_dir)
         log_message("Documentation updated successfully", "INFO")
         return True
         
     except Exception as e:
         log_message(f"Documentation update failed: {e}", "ERROR")
-        cleanup_temp_docs()
+        # Cleanup temp directory if it exists
+        if 'temp_dir' in locals() and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
         return False
 
 def restore_mkdocs_permissions():
@@ -306,7 +385,8 @@ def main(args=None):
     latest_docs_version = get_latest_docs_version()
     
     software_needs_update = current_version != latest_version
-    docs_need_update = current_docs_version != latest_docs_version
+    # Only try to update docs if we can successfully get the latest version
+    docs_need_update = latest_docs_version is not None and current_docs_version != latest_docs_version
     
     if not software_needs_update and not docs_need_update:
         verification = verify_mkdocs_installation()
@@ -330,8 +410,8 @@ def main(args=None):
         # Update software if needed
         if software_needs_update:
             log_message(f"Updating MkDocs software from {current_version} to {latest_version}", "INFO")
-            subprocess.run(["pip", "install", "--upgrade", "mkdocs"], check=True)
-            subprocess.run(["pip", "install", "--upgrade", "mkdocs-material"], check=True)
+            subprocess.run(["/opt/docs/venv/bin/pip", "install", "--upgrade", "mkdocs"], check=True)
+            subprocess.run(["/opt/docs/venv/bin/pip", "install", "--upgrade", "mkdocs-material"], check=True)
         
         # Update documentation if needed
         if docs_need_update:
@@ -351,8 +431,11 @@ def main(args=None):
         new_docs_version = verification.get("docs_version")
         
         success_conditions = [
-            not software_needs_update or new_version == latest_version,
-            not docs_need_update or new_docs_version == latest_docs_version,
+            # For software updates: either no update needed, or software is working (version check is lenient)
+            not software_needs_update or (new_version is not None and verification["pip_installed"]),
+            # For docs updates: either no update needed, or docs version matches
+            not docs_need_update or (latest_docs_version is not None and new_docs_version == latest_docs_version),
+            # Service must be active
             verification["service_active"]
         ]
         

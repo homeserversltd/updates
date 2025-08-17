@@ -22,6 +22,7 @@ import json
 import urllib.request
 import zipfile
 import tempfile
+from pathlib import Path
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget

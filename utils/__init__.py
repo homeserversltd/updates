@@ -32,6 +32,13 @@ from .permissions import (
     restore_service_permissions_simple,
     fix_common_service_permissions
 )
+from .maintenanceRunner import (
+    MaintenanceRunner,
+    create_maintenance_runner,
+    run_all_maintenance,
+    run_module_maintenance,
+    list_maintenance_modules
+)
 
 __all__ = [
     'log_message',
@@ -43,5 +50,10 @@ __all__ = [
     'PermissionManager',
     'PermissionTarget',
     'create_service_permissions_simple',
-    'fix_common_service_permissions'
+    'fix_common_service_permissions',
+    'MaintenanceRunner',
+    'create_maintenance_runner',
+    'run_all_maintenance',
+    'run_module_maintenance',
+    'list_maintenance_modules'
 ]

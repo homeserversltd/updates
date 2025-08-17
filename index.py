@@ -27,6 +27,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, detect_module_updates, update_modules, DEBUG
+from .utils import run_all_maintenance
 
 # Add current directory to path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -783,13 +784,18 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
             update_results = update_modules(modules_to_update, modules_path, repo_modules_path)
             results["modules_updated"] = update_results
         
-        # Step 4: Get all enabled modules and run them
-        log_message("Step 4: Getting enabled modules...")
+        # Step 4: Run maintenance tasks for all modules
+        log_message("Step 4: Running maintenance tasks...")
+        maintenance_results = run_all_maintenance(modules_path)
+        results["maintenance_results"] = maintenance_results
+        
+        # Step 5: Get all enabled modules and run them
+        log_message("Step 5: Getting enabled modules...")
         enabled_modules = get_enabled_modules(modules_path)
         results["enabled_modules"] = enabled_modules
         
         if enabled_modules:
-            log_message("Step 5: Running all enabled modules...")
+            log_message("Step 6: Running all enabled modules...")
             log_message("Note: Modules are executed regardless of whether they were schema-updated")
             log_message("This ensures content and tab updates are handled after schema updates")
             module_execution_results = run_enabled_modules(modules_path, enabled_modules)
@@ -798,20 +804,25 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
             log_message("No enabled modules found to execute")
             results["modules_executed"] = {}
         
-        # Step 6: Update global index
-        log_message("Step 6: Updating global index...")
+        # Step 7: Update global index
+        log_message("Step 7: Updating global index...")
         successful_updates = [module for module, success in results["modules_updated"].items() if success] if results["modules_updated"] else []
         if successful_updates:
             results["global_index_updated"] = update_global_index(modules_path, successful_updates, False, repo_modules_path)
         
-        # Step 7: Update homeserver config timestamp
-        log_message("Step 7: Updating homeserver config timestamp...")
+        # Step 8: Update homeserver config timestamp
+        log_message("Step 8: Updating homeserver config timestamp...")
         homeserver_timestamp_updated = update_homeserver_config_timestamp()
         results["homeserver_timestamp_updated"] = homeserver_timestamp_updated
         
         # Enhanced Summary with detailed module status reporting
         schema_updated_count = sum(1 for success in results["modules_updated"].values() if success) if results["modules_updated"] else 0
         schema_failed_count = len(results["modules_updated"]) - schema_updated_count if results["modules_updated"] else 0
+        
+        # Maintenance result analysis
+        maintenance_results = results.get("maintenance_results", {})
+        maintenance_successful = maintenance_results.get("summary", {}).get("successful", 0) if maintenance_results else 0
+        maintenance_failed = maintenance_results.get("summary", {}).get("failed", 0) if maintenance_results else 0
         
         # Enhanced execution result analysis
         execution_results = results["modules_executed"]
@@ -825,6 +836,7 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         log_message(f"  - Schema updates detected: {len(modules_to_update)}")
         log_message(f"  - Successfully schema updated: {schema_updated_count}")
         log_message(f"  - Failed schema updates: {schema_failed_count}")
+        log_message(f"  - Maintenance tasks: {maintenance_successful} successful, {maintenance_failed} failed")
         log_message(f"  - Enabled modules found: {len(enabled_modules)}")
         log_message(f"  - System successful: {system_successful}")
         log_message(f"  - System failed: {system_failed}")
@@ -1173,6 +1185,7 @@ def main():
                        help="Use legacy manifest-based updates")
     parser.add_argument("--check-only", action="store_true",
                        help="Only check for updates, don't apply them")
+
     
     # Module management arguments
     parser.add_argument("--enable-module", metavar="MODULE",

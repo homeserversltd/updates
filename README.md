@@ -43,6 +43,7 @@ This three-phase approach ensures that:
 - **Shell Script Integration**: Convenient `updateManager.sh` wrapper for common operations
 - **Self-Updating Capability**: The orchestrator can update itself when newer versions are available
 - **Automatic Module Restart**: Handles module self-updates and restarts automatically
+- **Zero-Config Maintenance System**: Auto-discovering maintenance tasks that run during every update cycle
 
 ## System Paths
 
@@ -592,6 +593,261 @@ def restore_service_permissions():
         log_message(f"Permission restoration failed: {e}", "ERROR")
         return False
 ```
+
+## Maintenance System
+
+The update orchestrator includes a **zero-configuration, auto-discovering maintenance system** that runs during every update cycle. This system ensures all modules stay healthy and current without requiring any cross-module dependencies or manual wiring.
+
+### How It Works
+
+The maintenance system automatically discovers and runs maintenance tasks from any module that provides a `maintenance.py` file:
+
+1. **Auto-Discovery**: Scans all modules for `maintenance.py` files during update cycles
+2. **Zero Configuration**: Modules just drop in a maintenance file - no orchestrator changes needed
+3. **Automatic Execution**: Runs during every update cycle via `run_all_maintenance()`
+4. **Independent Operation**: Each module's maintenance runs completely independently
+5. **No Cross-Module Dependencies**: Zero spooky signals or module-to-module communication
+
+### Module Maintenance Integration
+
+To add maintenance to any module, simply create a `maintenance.py` file with this structure:
+
+```python
+"""
+Module Maintenance Tasks
+
+This module provides maintenance tasks that run automatically during updates.
+Maintenance is ALWAYS executed as part of the update process.
+"""
+
+import os
+import subprocess
+from typing import Dict, Any
+from datetime import datetime
+from updates.utils import log_message
+
+
+class ModuleNameMaintenance:
+    """Maintenance tasks for this module."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        # Access module-specific configuration here
+    
+    def run_maintenance(self) -> Dict[str, Any]:
+        """Run all maintenance tasks for this module."""
+        results = {
+            "module": "module_name",
+            "success": True,
+            "tasks": {},
+            "timestamp": datetime.now().isoformat(),
+            "errors": []
+        }
+        
+        try:
+            # Task 1: Example maintenance task
+            log_message("Running example maintenance task...")
+            task_result = self._example_task()
+            results["tasks"]["example"] = task_result
+            
+            # Add more maintenance tasks as needed
+            
+        except Exception as e:
+            log_message(f"Maintenance failed: {e}", "ERROR")
+            results["success"] = False
+            results["errors"].append(str(e))
+        
+        return results
+    
+    def _example_task(self) -> Dict[str, Any]:
+        """Example maintenance task implementation."""
+        try:
+            # Your maintenance logic here
+            # - Clean up old files
+            # - Validate configurations
+            # - Check service health
+            # - Update dependencies
+            
+            return {
+                "success": True,
+                "message": "Example task completed successfully"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+```
+
+### Maintenance Discovery Rules
+
+The system automatically discovers maintenance modules using these rules:
+
+1. **File Location**: Must be named `maintenance.py` in the module directory
+2. **Class Naming**: Must have a class ending with `Maintenance` (e.g., `WebsiteMaintenance`)
+3. **Method Requirement**: Class must have a `run_maintenance()` method
+4. **Module Status**: Module must be enabled in its `index.json` (enabled: true)
+5. **Import Success**: Must be importable without errors
+
+### Built-in Maintenance Modules
+
+The system currently includes these maintenance modules:
+
+- **Website Module**: Browserslist updates, build cleanup, permission validation, npm health checks
+- **Adblock Module**: Blocklist validation, service health checks, backup cleanup, freshness monitoring
+
+### Maintenance Execution Flow
+
+```
+Update Orchestrator
+    ↓
+run_all_maintenance(modules_path)
+    ↓
+MaintenanceRunner discovers maintenance.py files
+    ↓
+For each discovered maintenance module:
+    ↓
+1. Import maintenance.py
+    ↓
+2. Find MaintenanceClass
+    ↓
+3. Instantiate with module config
+    ↓
+4. Call run_maintenance()
+    ↓
+5. Collect results and log status
+```
+
+### Maintenance Task Examples
+
+#### Database Maintenance
+```python
+def _cleanup_old_logs(self) -> Dict[str, Any]:
+    """Clean up old database log files."""
+    try:
+        log_dir = "/var/log/postgresql"
+        cutoff_date = datetime.now() - timedelta(days=30)
+        
+        cleaned_count = 0
+        for log_file in os.listdir(log_dir):
+            if log_file.endswith('.log'):
+                file_path = os.path.join(log_dir, log_file)
+                if os.path.getmtime(file_path) < cutoff_date.timestamp():
+                    os.remove(file_path)
+                    cleaned_count += 1
+        
+        return {
+            "success": True,
+            "cleaned_count": cleaned_count
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+#### Service Health Validation
+```python
+def _validate_service_health(self) -> Dict[str, Any]:
+    """Validate that the service is running and healthy."""
+    try:
+        service_name = self.config.get("service_name", "my_service")
+        
+        # Check if service is active
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", service_name],
+            capture_output=True
+        )
+        
+        is_active = result.returncode == 0
+        
+        # Check service status
+        status_result = subprocess.run(
+            ["systemctl", "status", service_name],
+            capture_output=True,
+            text=True
+        )
+        
+        return {
+            "success": True,
+            "service_active": is_active,
+            "status_output": status_result.stdout[:500] if status_result.stdout else ""
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+#### Configuration Validation
+```python
+def _validate_configuration(self) -> Dict[str, Any]:
+    """Validate configuration files and settings."""
+    try:
+        config_path = self.config.get("config_path")
+        if not config_path or not os.path.exists(config_path):
+            return {
+                "success": False,
+                "error": f"Configuration file not found: {config_path}"
+            }
+        
+        # Validate JSON syntax
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+        
+        # Check required fields
+        required_fields = ["database", "port", "log_level"]
+        missing_fields = [field for field in required_fields if field not in config_data]
+        
+        if missing_fields:
+            return {
+                "success": False,
+                "error": f"Missing required fields: {missing_fields}"
+            }
+        
+        return {
+            "success": True,
+            "config_valid": True,
+            "fields_checked": len(required_fields)
+        }
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"Invalid JSON: {e}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+### Maintenance Results
+
+Each maintenance module returns a standardized result structure:
+
+```python
+{
+    "module": "module_name",
+    "success": True,                    # Overall success status
+    "tasks": {                          # Individual task results
+        "task1": {"success": True, ...},
+        "task2": {"success": False, "error": "..."}
+    },
+    "timestamp": "2024-12-08T10:30:00", # When maintenance ran
+    "errors": []                        # Any errors encountered
+}
+```
+
+### Benefits of This Architecture
+
+- **Zero Configuration**: Modules just work - no orchestrator changes needed
+- **Zero Dependencies**: No cross-module imports or communication
+- **Automatic Discovery**: New maintenance modules are automatically found
+- **Independent Operation**: Each module's maintenance runs in isolation
+- **Standardized Interface**: Consistent maintenance pattern across all modules
+- **Extensible**: Easy to add new maintenance tasks to any module
+- **Reliable**: Maintenance failures don't affect other modules or the update process
+
+### When to Use Maintenance vs. Module Logic
+
+- **Use Maintenance For**: Health checks, cleanup, validation, dependency updates
+- **Use Module Logic For**: Service configuration, file updates, permission management
+- **Maintenance Runs**: Every update cycle (regardless of schema updates)
+- **Module Logic Runs**: Every update cycle (for enabled modules)
+
+This separation ensures that maintenance tasks (like cleaning up old files) happen consistently, while core module logic (like updating configurations) happens when needed.
 
 ## Security Considerations
 

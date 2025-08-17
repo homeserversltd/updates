@@ -1,6 +1,7 @@
 {
     "metadata": {
-        "schema_version": "0.1.2",
+        "schema_version": "0.1.3",
+        "content_version": "1.0.0",
         "module_name": "mkdocs",
         "description": "Mkdocs documentation server",
         "enabled": true
@@ -29,13 +30,12 @@
         },
         "documentation": {
             "repository_url": "https://github.com/homeserversltd/documentation.git",
-            "api_url": "https://api.github.com/repos/homeserversltd/documentation/commits/main",
             "local_path": "/opt/docs/docs",
-            "version_file": "/opt/docs/.docs_version"
+            "version_file": "/opt/docs/VERSION"
         },
         "permissions": {
-            "owner": "mkdocs",
-            "group": "mkdocs"
+            "owner": "owner",
+            "group": "owner"
         }
     }
 } 

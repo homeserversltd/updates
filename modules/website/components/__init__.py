@@ -8,7 +8,6 @@ Component-based website update system for better modularity and maintainability.
 from .git_operations import GitOperations
 from .file_operations import FileOperations
 from .build_manager import BuildManager
-from .maintenance import MaintenanceManager
 from .premium_tab_checker import PremiumTabChecker
 from .backup_manager import BackupManager
 from .website_updater import WebsiteUpdater
@@ -18,7 +17,6 @@ __all__ = [
     'GitOperations', 
     'FileOperations', 
     'BuildManager', 
-    'MaintenanceManager', 
     'PremiumTabChecker', 
     'BackupManager',
     'WebsiteUpdater',

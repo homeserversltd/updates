@@ -25,7 +25,7 @@ from .backup_manager import BackupManager
 from .git_operations import GitOperations
 from .file_operations import FileOperations
 from .build_manager import BuildManager
-from .maintenance import MaintenanceManager
+# MaintenanceManager removed - consolidated into root maintenance.py
 from .premium_tab_checker import PremiumTabChecker
 
 
@@ -41,7 +41,6 @@ class WebsiteUpdater:
         self.git = GitOperations(config)
         self.files = FileOperations(config)
         self.build = BuildManager(config)
-        self.maintenance = MaintenanceManager(config)
         self.premium_tab_checker = PremiumTabChecker(config)
         
         # Premium installer path for tab restoration
@@ -76,13 +75,8 @@ class WebsiteUpdater:
         temp_dir = None
         
         try:
-            # Step 0: Always run maintenance tasks (agnostic of building)
-            log_message("Step 0: Running maintenance tasks...")
-            try:
-                self.maintenance.update_browserslist()
-            except Exception as maint_err:
-                # Never fail the update due to maintenance tasks
-                log_message(f"Maintenance task error (non-fatal): {maint_err}", "WARNING")
+            # Step 0: Maintenance tasks now handled by root maintenance.py
+            log_message("Step 0: Maintenance tasks handled by root maintenance system")
             
             # Step 1: Clone repository
             log_message("Step 1: Cloning repository...")
