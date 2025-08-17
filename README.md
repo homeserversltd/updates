@@ -6,7 +6,7 @@ This directory implements a **schema-version driven** Python update orchestratio
 
 ## Architecture
 
-The update system follows a two-phase Git-based approach:
+The update system follows a **three-tier Git-based approach**:
 
 ### Phase 1: Schema Updates (Infrastructure Maintenance)
 1. **Git Repository Sync**: Clone/pull from a GitHub repository containing the latest module definitions
@@ -20,9 +20,15 @@ The update system follows a two-phase Git-based approach:
 7. **Service Configuration**: Each module handles its own configuration changes, service restarts, and validation
 8. **Global Index Tracking**: Maintain a global index tracking current versions of all modules
 
-This two-phase approach ensures that:
+### Phase 3: Module Self-Updates (Automatic Restart)
+9. **Self-Update Detection**: Modules can signal they need to restart after schema updates
+10. **Automatic Restart**: Orchestrator automatically re-executes modules that signal self-updates
+11. **Restart Validation**: Verify successful restart and handle restart failures gracefully
+
+This three-phase approach ensures that:
 - **Infrastructure stays current** through schema-based updates when code changes
 - **All services remain properly configured** through universal execution of enabled modules
+- **Modules can restart themselves** when needed after schema updates
 - **Each module is self-contained** and version-independent, enabling safe atomic updates with automatic rollback on failure
 
 ## Key Features
@@ -36,6 +42,7 @@ This two-phase approach ensures that:
 - **Robust Error Handling**: Individual module failures don't halt the entire process
 - **Shell Script Integration**: Convenient `updateManager.sh` wrapper for common operations
 - **Self-Updating Capability**: The orchestrator can update itself when newer versions are available
+- **Automatic Module Restart**: Handles module self-updates and restarts automatically
 
 ## System Paths
 
@@ -190,6 +197,10 @@ def main(args=None):
     
     Args:
         args: Optional command line arguments
+    
+    Returns:
+        dict: Status dictionary with success/error information
+        False: Signal that module needs to restart after self-update
     """
     log_message("Executing service module...")
     
@@ -215,7 +226,9 @@ def main(args=None):
 
 **Note**: The `main()` function runs during every update cycle for enabled modules, not just when the module code is updated. Design your modules to be idempotent and handle both initial setup and ongoing maintenance. **Always restore permissions** after making changes to prevent service failures.
 
-## How the Two-Phase Update Process Works
+**Self-Update Signaling**: If your module needs to restart after a schema update, return `False` from the `main()` function. The orchestrator will automatically detect this and restart the module once.
+
+## How the Three-Phase Update Process Works
 
 ### Phase 1: Schema-Based Infrastructure Updates
 
@@ -235,12 +248,21 @@ def main(args=None):
 11. **Index Update**: Update global `index.json` with new version numbers
 12. **Rollback on Failure**: Restore from backup if any step fails
 
+### Phase 3: Module Self-Update Handling
+
+13. **Self-Update Detection**: Check if any module returned `False` (signaling restart needed)
+14. **Automatic Restart**: Re-execute modules that signaled self-updates
+15. **Restart Validation**: Verify successful restart and handle restart failures
+16. **Final Status**: Update module results with restart attempts and success status
+
 ### Key Differences from Single-Phase Systems
 
 - **Schema updates** only happen when code/infrastructure changes (version mismatches)
 - **Module execution** happens for ALL enabled modules on every update cycle
 - **Services stay configured** even when no schema updates are needed
 - **Infrastructure stays current** through selective schema-based updates
+- **Modules can restart themselves** when needed after schema updates
+- **Automatic restart handling** prevents manual intervention for self-updates
 
 ## Self-Updating Orchestrator
 
@@ -256,6 +278,42 @@ The system can update its own core files when the repository contains a newer ve
    - Additional configuration files
 4. **Restart Awareness**: System is aware when it has updated itself and needs restarting
 5. **Rollback Protection**: Automatic rollback if orchestrator update fails
+
+## Module Self-Update System
+
+The orchestrator now automatically handles module self-updates:
+
+### How It Works
+1. **Module Signals Restart**: Module returns `False` from `main()` function
+2. **Orchestrator Detects**: Recognizes the restart signal
+3. **Automatic Restart**: Re-executes the module once
+4. **Success Validation**: Verifies the restart was successful
+5. **Failure Handling**: Logs restart failures and updates module status
+
+### Benefits
+- **No Manual Intervention**: Modules restart automatically after schema updates
+- **Consistent Behavior**: All modules follow the same restart pattern
+- **Error Isolation**: Restart failures don't affect other modules
+- **Audit Trail**: Complete logging of restart attempts and results
+
+### Example Module Self-Update
+```python
+def main(args=None):
+    """Example module that needs to restart after schema update"""
+    try:
+        # Check if this is a fresh schema update
+        if needs_restart_after_schema_update():
+            log_message("Module needs restart after schema update")
+            return False  # Signal restart needed
+        
+        # Normal module execution
+        execute_module_logic()
+        return {"success": True}
+        
+    except Exception as e:
+        log_message(f"Module execution failed: {e}", "ERROR")
+        return {"success": False, "error": str(e)}
+```
 
 ## Version Comparison
 
@@ -274,6 +332,7 @@ Updates are only applied when the repository has a higher schema version than th
 - **Rollback on Failure**: Failed modules automatically restored from backup
 - **Detailed Logging**: All operations logged with timestamps and error details
 - **Exit Codes**: Non-zero exit codes indicate failures for script integration
+- **Restart Failures**: Modules that fail to restart are logged and tracked
 
 ## Adding New Modules
 
@@ -363,12 +422,18 @@ backup_success = state_manager.backup_module_state("my_service", "pre_update", [
 8. **Universal Execution**: Run ALL enabled modules (regardless of schema updates)
 9. **Service Management**: Each module configures services, restarts processes, validates functionality
 10. **Global Index Update**: Update index.json with current module versions
-11. **Summary**: Log summary of both schema updates and module executions
+
+### Phase 3: Module Self-Updates
+11. **Self-Update Detection**: Check for modules that returned `False` (restart needed)
+12. **Automatic Restart**: Re-execute modules that signaled self-updates
+13. **Restart Validation**: Verify successful restart and handle failures
+14. **Summary**: Log summary of schema updates, module executions, and self-updates
 
 ### Execution Logic
 - **Always runs enabled modules**: Even if no schema updates are needed, all enabled modules execute
 - **Schema updates are selective**: Only modules with version mismatches get their code updated
 - **Service management is universal**: All enabled services get configured/validated on every run
+- **Self-updates are automatic**: Modules restart automatically when needed after schema updates
 
 ## Legacy Support
 
@@ -392,6 +457,7 @@ This fallback ensures existing manifest-based modules continue to function durin
 - **Permission Management**: Always restore proper permissions after making changes
 - **Centralized Permissions**: Use PermissionManager instead of manual chmod/chown commands
 - **Configuration-Driven**: Define permissions in index.json for consistency
+- **Self-Update Signaling**: Return `False` when module needs to restart after schema update
 
 ### Schema Management
 - **Schema Versioning**: Increment schema version only for code/infrastructure changes
@@ -403,6 +469,7 @@ This fallback ensures existing manifest-based modules continue to function durin
 - **Universal Execution**: Design modules knowing they run every cycle, not just on updates
 - **Conditional Logic**: Check current state before applying changes
 - **Resource Management**: Handle file locks, service states, and dependencies properly
+- **Restart Handling**: Use the self-update system for clean restarts after schema changes
 
 ## Dependencies
 
@@ -534,6 +601,7 @@ def restore_service_permissions():
 - **Backup Integrity**: Verify backup creation before proceeding with updates
 - **Atomic Operations**: Use temporary directories for staging before final deployment
 - **Error Isolation**: Module failures contained to prevent system-wide issues
+- **Restart Security**: Self-update restarts maintain security context and permissions
 
 ## Monitoring and Logging
 
@@ -560,6 +628,14 @@ All operations are logged with timestamps and appropriate log levels:
 [2024-12-08 10:30:28]   - Successfully schema updated: 1
 [2024-12-08 10:30:28]   - Enabled modules found: 2
 [2024-12-08 10:30:28]   - Successfully executed: 2
+[2024-12-08 10:30:28]   - Modules self-updated: 0
 ```
 
-Log output can be redirected or parsed for monitoring system integration. The two-phase logging clearly distinguishes between schema updates and module executions.
+### Self-Update Logging
+```
+[2024-12-08 10:30:29] 🔄 Module 'website' needs self-update - restarting...
+[2024-12-08 10:30:30] 🔄 Restarting module 'website' after self-update...
+[2024-12-08 10:30:31] ✓ Module 'website' successfully restarted after self-update
+```
+
+Log output can be redirected or parsed for monitoring system integration. The three-phase logging clearly distinguishes between schema updates, module executions, and self-updates.

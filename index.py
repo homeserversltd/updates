@@ -519,10 +519,44 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
                 "updated": False,
                 "error": None,
                 "rollback_success": None,
-                "details": result if isinstance(result, dict) else {}
+                "details": result if isinstance(result, dict) else {},
+                "self_update_needed": False,
+                "restart_attempts": 0
             }
             
-            if isinstance(result, dict):
+            # Check if module needs self-update (returned False)
+            if result is False:
+                log_message(f"🔄 Module '{module_name}' needs self-update - restarting...")
+                module_result["self_update_needed"] = True
+                module_result["restart_attempts"] = 1
+                
+                # Attempt to restart the module once
+                try:
+                    log_message(f"🔄 Restarting module '{module_name}' after self-update...")
+                    restart_result = run_update_with_logging(f"modules.{module_name}")
+                    
+                    if restart_result is False:
+                        log_message(f"⚠️ Module '{module_name}' still needs restart after self-update", "WARNING")
+                        module_result["restart_attempts"] = 2
+                        module_result["system_success"] = False
+                        module_result["error"] = "Module still needs restart after self-update"
+                    else:
+                        log_message(f"✅ Module '{module_name}' successfully restarted after self-update")
+                        module_result["system_success"] = True
+                        module_result["updated"] = True
+                        
+                        # Process the restart result
+                        if isinstance(restart_result, dict):
+                            module_result["updated"] = restart_result.get("updated", False)
+                            module_result["error"] = restart_result.get("error")
+                            module_result["rollback_success"] = restart_result.get("rollback_success")
+                        
+                except Exception as restart_error:
+                    log_message(f"✗ Failed to restart module '{module_name}' after self-update: {restart_error}", "ERROR")
+                    module_result["system_success"] = False
+                    module_result["error"] = f"Restart failed: {restart_error}"
+                    
+            elif isinstance(result, dict):
                 # Module returned detailed status dictionary
                 module_result["system_success"] = result.get("success", False)
                 module_result["updated"] = result.get("updated", False)
@@ -559,7 +593,9 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
                 "updated": False,
                 "error": str(e),
                 "rollback_success": None,
-                "details": {}
+                "details": {},
+                "self_update_needed": False,
+                "restart_attempts": 0
             }
     
     # Enhanced summary reporting
@@ -568,6 +604,7 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     system_failed = total_modules - system_successful
     modules_updated = sum(1 for r in results.values() if r["updated"])
     modules_restored = sum(1 for r in results.values() if r["rollback_success"])
+    modules_self_updated = sum(1 for r in results.values() if r["self_update_needed"])
     
     log_message(f"Module execution completed:")
     log_message(f"  - Total modules: {total_modules}")
@@ -575,6 +612,7 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     log_message(f"  - System failed: {system_failed}")
     log_message(f"  - Actually updated: {modules_updated}")
     log_message(f"  - Failed but restored: {modules_restored}")
+    log_message(f"  - Self-updated and restarted: {modules_self_updated}")
     
     if system_failed > 0:
         failed_modules = [module for module, result in results.items() if not result["system_success"]]
@@ -587,6 +625,10 @@ def run_enabled_modules(modules_path: str, enabled_modules: list) -> dict:
     if modules_updated > 0:
         updated_modules = [module for module, result in results.items() if result["updated"]]
         log_message(f"  - Updated modules: {', '.join(updated_modules)}")
+    
+    if modules_self_updated > 0:
+        self_updated_modules = [module for module, result in results.items() if result["self_update_needed"]]
+        log_message(f"  - Self-updated modules: {', '.join(self_updated_modules)}")
     
     return results
 
@@ -712,11 +754,21 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         if not os.path.exists(local_modules_search_path):
             local_modules_search_path = modules_path  # Fallback to root
         
+        if DEBUG:
+            log_message(f"🔍 Calling detect_module_updates with:")
+            log_message(f"  Local modules path: {modules_path}")
+            log_message(f"  Repository modules path: {repo_modules_path}")
+        
         modules_to_update = detect_module_updates(modules_path, repo_modules_path)
         results["modules_detected"] = modules_to_update
         
+        if DEBUG:
+            log_message(f"🎯 detect_module_updates returned: {modules_to_update}")
+        
         if modules_to_update:
             log_message(f"Found {len(modules_to_update)} modules to update: {', '.join(modules_to_update)}")
+        else:
+            log_message("No modules need updating")
         
         # Step 3: Update modules
         if modules_to_update:
@@ -731,6 +783,8 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         
         if enabled_modules:
             log_message("Step 5: Running all enabled modules...")
+            log_message("Note: Modules are executed regardless of whether they were schema-updated")
+            log_message("This ensures content and tab updates are handled after schema updates")
             module_execution_results = run_enabled_modules(modules_path, enabled_modules)
             results["modules_executed"] = module_execution_results
         else:

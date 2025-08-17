@@ -6,13 +6,23 @@ The HOMESERVER Update Manager provides a Python-based schema-driven update syste
 
 ## System Architecture
 
+The update system follows a **three-tier architecture**:
+
 ```
 updateManager.sh (Bash Wrapper)
     ↓
 index.py (Python Orchestrator)
     ↓
 modules/ (Individual Update Modules)
+    ↓
+components/ (Module-specific components like premium tabs)
 ```
+
+### Three-Tier Update System
+
+1. **Schema Updates (Orchestrator Level)**: Module infrastructure and code updates
+2. **Content Updates (Module Level)**: Module-specific content and configuration updates  
+3. **Component Updates (Component Level)**: Individual components within modules (e.g., premium tabs)
 
 ## CLI Interface
 
@@ -60,13 +70,15 @@ modules/ (Individual Update Modules)
 
 #### 2. Full Update Execution
 ```bash
-# Execute schema-based updates (Git sync + module updates)
+# Execute schema-based updates (Git sync + module updates + module execution)
 /usr/local/lib/updates/updateManager.sh
 ```
 
 **Expected Behavior:**
 - Git repository synchronization
-- Module-specific update execution
+- Module schema updates (infrastructure)
+- **Module execution for ALL enabled modules**
+- **Automatic module restart handling for self-updates**
 - Configuration file updates
 - Service restarts as needed
 
@@ -137,6 +149,7 @@ All output follows the pattern:
 [timestamp] ✓ Module management operation completed successfully
 [timestamp] ✓ Module '<name>' enabled
 [timestamp] ✓ Component '<component>' enabled in module '<module>'
+[timestamp] ✓ Module '<name>' successfully restarted after self-update
 ```
 
 #### Error Patterns
@@ -146,6 +159,7 @@ All output follows the pattern:
 [timestamp] Error: Python orchestrator not found at <path>
 [timestamp] Module '<name>' not found
 [timestamp] Component '<component>' not found in module '<module>'
+[timestamp] ⚠️ Module '<name>' still needs restart after self-update
 ```
 
 #### Progress Indicators
@@ -157,6 +171,8 @@ All output follows the pattern:
 [timestamp] Component: <component>
 [timestamp] Using Python-based update system
 [timestamp] Running <operation>...
+[timestamp] 🔄 Module '<name>' needs self-update - restarting...
+[timestamp] 🔄 Restarting module '<name>' after self-update...
 ```
 
 #### Module Listing Output
@@ -167,6 +183,16 @@ All output follows the pattern:
 [timestamp] website         DISABLED   v1.0.0     HOMESERVER website frontend/backend update system
 [timestamp] --------------------------------------------------------------------------------
 [timestamp] Total: 2 modules (1 enabled, 1 disabled)
+```
+
+#### Update Summary Output
+```
+[timestamp] Update orchestration completed:
+[timestamp]   - Schema updates detected: 1
+[timestamp]   - Successfully schema updated: 1
+[timestamp]   - Enabled modules found: 2
+[timestamp]   - Successfully executed: 2
+[timestamp]   - Modules self-updated: 1
 ```
 
 ## Flask Integration Examples
@@ -327,6 +353,7 @@ async def async_update_check() -> dict:
 2. **Permission Denied:** Ensure proper sudo/root privileges
 3. **Network Errors:** Check Git repository accessibility
 4. **Timeout:** Increase timeout values for large updates
+5. **Module Self-Update Failures:** Check module logs for restart issues
 
 ## Security Considerations
 
@@ -351,6 +378,13 @@ async def async_update_check() -> dict:
 - Parse output for progress indicators
 - Provide real-time status updates via WebSocket
 - Store operation history for audit trails
+- Monitor for module self-update patterns
+
+### Key Monitoring Points
+- **Schema Updates**: Track when module infrastructure changes
+- **Module Execution**: Monitor successful/failed module runs
+- **Self-Updates**: Watch for modules that need restarting
+- **Component Updates**: Track module-specific content changes
 
 ## System Dependencies
 
@@ -384,6 +418,11 @@ async def async_update_check() -> dict:
    - Check network connectivity
    - Verify Git repository accessibility
    - Review authentication credentials
+
+4. **Module self-update failures**
+   - Check module logs for restart issues
+   - Verify module has proper restart logic
+   - Monitor for infinite restart loops
 
 ### Debug Mode
 For detailed troubleshooting, examine the Python orchestrator directly:
@@ -519,4 +558,5 @@ def toggle_component(module_name, component_name):
 For integration issues or questions:
 1. Review system logs in `/var/log/`
 2. Check Python orchestrator documentation
-3. Verify system dependencies and permissions 
+3. Verify system dependencies and permissions
+4. Monitor for module self-update patterns 

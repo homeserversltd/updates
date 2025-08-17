@@ -13,37 +13,34 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
----
-
-Updates Orchestrator System
-
-This package provides a schema-version driven update orchestration system.
-It enables live, dynamic management of service/component updates by comparing
-schema versions between local modules and a GitHub repository source of truth.
-
-Architecture:
-- Git clone/pull updates repository to get latest module definitions
-- Compare schema_version in each module's index.json (local vs repo)
-- Clobber entire module directories when repo has newer schema_version
-- Run module update scripts which handle their own configuration changes
-- Each module is self-contained and version-independent
-
-See README.md for detailed architecture and usage.
+along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 
+import os
 import json
+import shutil
+import subprocess
 import importlib
 import traceback
-import os
-import sys
 import asyncio
-import subprocess
-import shutil
-from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Any, Optional, Callable, Tuple
 from pathlib import Path
+from typing import Dict, List, Any, Optional, Union
+from concurrent.futures import ThreadPoolExecutor
+import sys
+import datetime
+
+# Debug flag for verbose logging
+DEBUG = False
+
+def log_message(message: str, level: str = "INFO"):
+    """Log a message with a timestamp and level to stdout."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level}] {message}", file=sys.stdout)
+
+def debug_log(message: str):
+    """Debug logging that only shows when DEBUG=True."""
+    if DEBUG:
+        log_message(message, "DEBUG")
 
 # Import shared utilities
 from .utils.index import log_message
@@ -73,15 +70,23 @@ def load_module_index(module_path: str) -> Optional[Dict[str, Any]]:
         dict: The loaded index.json data, or None if not found/invalid
     """
     index_file = os.path.join(module_path, 'index.json')
+    debug_log(f"    📁 Attempting to load: {index_file}")
+    
     if not os.path.exists(index_file):
+        debug_log(f"    ❌ File does not exist: {index_file}")
         return None
     
     try:
         with open(index_file, 'r') as f:
-            return json.load(f)
+            content = f.read()
+            debug_log(f"    📄 File content length: {len(content)} characters")
+            data = json.loads(content)
+            debug_log(f"    ✅ Successfully loaded index.json from {module_path}")
+            return data
     except Exception as e:
-        log_message(f"Failed to load index.json from {module_path}: {e}", "ERROR")
+        log_message(f"    ❌ Failed to load index.json from {module_path}: {e}", "ERROR")
         return None
+
 
 def compare_schema_versions(version1: str, version2: str) -> int:
     """
@@ -94,11 +99,16 @@ def compare_schema_versions(version1: str, version2: str) -> int:
     Returns:
         int: -1 if version1 < version2, 0 if equal, 1 if version1 > version2
     """
+    debug_log(f"      🔍 Comparing versions: '{version1}' vs '{version2}'")
+    
     def parse_version(version_str):
         try:
             parts = version_str.split('.')
-            return [int(part) for part in parts]
-        except:
+            parsed = [int(part) for part in parts]
+            debug_log(f"      📊 Parsed '{version_str}' → {parsed}")
+            return parsed
+        except Exception as e:
+            debug_log(f"      ⚠️ Failed to parse version '{version_str}': {e}")
             return [0, 0, 0]
     
     v1_parts = parse_version(version1)
@@ -109,12 +119,17 @@ def compare_schema_versions(version1: str, version2: str) -> int:
     v1_parts.extend([0] * (max_len - len(v1_parts)))
     v2_parts.extend([0] * (max_len - len(v2_parts)))
     
+    debug_log(f"      📏 Padded versions: {v1_parts} vs {v2_parts}")
+    
     for i in range(max_len):
         if v1_parts[i] < v2_parts[i]:
+            debug_log(f"      ✅ Result: {version1} < {version2} (returning -1)")
             return -1
         elif v1_parts[i] > v2_parts[i]:
+            debug_log(f"      ✅ Result: {version1} > {version2} (returning +1)")
             return 1
     
+    debug_log(f"      ✅ Result: {version1} = {version2} (returning 0)")
     return 0
 
 def check_multi_level_version_update(module_config: Dict[str, Any], repo_module_path: str, local_module_path: str) -> Dict[str, Any]:
@@ -312,106 +327,165 @@ def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> Li
     """
     modules_to_update = []
     
+    debug_log(f"🔍 Starting module update detection...")
+    debug_log(f"  Local modules path: {local_modules_path}")
+    debug_log(f"  Repository modules path: {repo_modules_path}")
+    
     # Check if repo has modules subdirectory, otherwise use repo root
     repo_search_path = repo_modules_path
     if os.path.exists(os.path.join(repo_modules_path, "modules")):
         repo_search_path = os.path.join(repo_modules_path, "modules")
+        debug_log(f"  Using repository modules subdirectory: {repo_search_path}")
+    else:
+        debug_log(f"  Using repository root as modules path: {repo_search_path}")
     
     # Check if local has modules subdirectory, otherwise use local root  
     local_search_path = local_modules_path
     if os.path.exists(os.path.join(local_modules_path, "modules")):
         local_search_path = os.path.join(local_modules_path, "modules")
+        debug_log(f"  Using local modules subdirectory: {local_search_path}")
+    else:
+        debug_log(f"  Using local root as modules path: {local_search_path}")
     
     if not os.path.exists(repo_search_path):
-        log_message(f"Repository modules path not found: {repo_search_path}", "ERROR")
+        log_message(f"❌ Repository modules path not found: {repo_search_path}", "ERROR")
         return modules_to_update
     
     # Check each module in the repository
-    for module_name in os.listdir(repo_search_path):
+    repo_modules = os.listdir(repo_search_path)
+    debug_log(f"📦 Found {len(repo_modules)} modules in repository: {', '.join(repo_modules)}")
+    
+    for module_name in repo_modules:
         repo_module_path = os.path.join(repo_search_path, module_name)
         local_module_path = os.path.join(local_search_path, module_name)
         
+        debug_log(f"🔍 Checking module: {module_name}")
+        debug_log(f"  Repository path: {repo_module_path}")
+        debug_log(f"  Local path: {local_module_path}")
+        
         if not os.path.isdir(repo_module_path):
+            debug_log(f"  ⏭️ Skipping {module_name} - not a directory")
             continue
         
         # Load repository module index
+        debug_log(f"  📖 Loading repository index.json...")
         repo_index = load_module_index(repo_module_path)
         if not repo_index:
-            log_message(f"No valid index.json found for repo module: {module_name}", "WARNING")
+            log_message(f"  ❌ No valid index.json found for repo module: {module_name}", "WARNING")
             continue
+        
+        repo_schema_version = repo_index.get("metadata", {}).get("schema_version", "unknown")
+        debug_log(f"  📋 Repository schema version: {repo_schema_version}")
         
         # Load local module index (if exists)
         local_index = None
         if os.path.exists(local_module_path):
+            debug_log(f"  📖 Loading local index.json...")
             local_index = load_module_index(local_module_path)
+            if local_index:
+                local_schema_version = local_index.get("metadata", {}).get("schema_version", "unknown")
+                debug_log(f"  📋 Local schema version: {local_schema_version}")
+            else:
+                debug_log(f"  ⚠️ Failed to load local index.json")
+        else:
+            debug_log(f"  📁 Local module directory does not exist")
         
         # Check if local module is disabled - skip entirely if so
         if local_index and not local_index.get("metadata", {}).get("enabled", True):
-            log_message(f"Module {module_name} is disabled, skipping update check")
+            debug_log(f"  ⏭️ Module {module_name} is disabled, skipping update check")
             continue
         
         # Use multi-level version checking if configured, otherwise fall back to schema-only
         version_checking = repo_index.get("config", {}).get("version_checking", {})
+        debug_log(f"  ⚙️ Version checking enabled: {version_checking.get('enabled', False)}")
+        
         if version_checking.get("enabled", False):
             # Special handling for website module - use its own version checking
             if module_name == "website":
+                debug_log(f"  🌐 Website module detected - using custom version checking")
                 try:
                     # Import and run the website module's check function using package import so relative imports work
                     import importlib
                     try:
                         website_module = importlib.import_module('.modules.website.index', package=__name__)
-                    except Exception:
+                        debug_log(f"  ✅ Successfully imported website module")
+                    except Exception as e:
+                        debug_log(f"  ⚠️ Failed to import website module with relative path: {e}")
                         website_module = importlib.import_module('updates.modules.website.index')
+                        debug_log(f"  ✅ Successfully imported website module with absolute path")
+                    
                     # Run the website module's check
+                    debug_log(f"  🔍 Running website module --check...")
                     check_result = website_module.main(["--check"])  # type: ignore[attr-defined]
+                    debug_log(f"  📊 Website check result: {check_result}")
+                    
                     if isinstance(check_result, dict) and check_result.get("update_available", False):
                         reasons = ", ".join(check_result.get("update_reasons", []))
-                        log_message(f"Module {module_name} needs update: {reasons}")
+                        log_message(f"  ✅ Module {module_name} needs update: {reasons}")
                         modules_to_update.append(module_name)
                     else:
                         content_version = "unknown"
                         if isinstance(check_result, dict):
                             content_version = check_result.get("repo_content_version") or check_result.get("content_version") or "unknown"
-                        log_message(f"Module {module_name} is up to date: content {content_version}")
+                        debug_log(f"  ✅ Module {module_name} is up to date: content {content_version}")
+                        
                 except Exception as e:
-                    log_message(f"Error checking website module updates: {e}", "WARNING")
+                    log_message(f"  ❌ Error checking website module updates: {e}", "WARNING")
+                    debug_log(f"  🔄 Falling back to schema-only checking...")
                     # Fall back to schema-only checking
                     repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
                     local_schema_version = "0.0.0"
                     if local_index:
                         local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
-                    if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
-                        log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
+                    
+                    debug_log(f"  📊 Schema version comparison: {local_schema_version} vs {repo_schema_version}")
+                    comparison = compare_schema_versions(repo_schema_version, local_schema_version)
+                    debug_log(f"  🔍 Comparison result: {comparison} (0=equal, >0=repo_newer, <0=local_newer)")
+                    
+                    if comparison > 0:
+                        log_message(f"  ✅ Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
                         modules_to_update.append(module_name)
                     else:
-                        log_message(f"Module {module_name} is up to date: {local_schema_version}")
+                        debug_log(f"  ✅ Module {module_name} is up to date: {local_schema_version}")
             else:
+                debug_log(f"  🔄 Using enhanced multi-level version checking...")
                 # Use enhanced multi-level version checking for other modules
                 update_status = check_multi_level_version_update(repo_index, repo_module_path, local_module_path)
+                debug_log(f"  📊 Multi-level check result: {update_status}")
+                
                 if update_status["update_needed"]:
                     reasons = ", ".join(update_status["update_reason"])
-                    log_message(f"Module {module_name} needs update: {reasons}")
+                    log_message(f"  ✅ Module {module_name} needs update: {reasons}")
                     modules_to_update.append(module_name)
                 else:
                     schema_local = update_status["schema_versions"]["local"] or "0.0.0"
                     schema_repo = update_status["schema_versions"]["repo"] or "0.0.0"
-                    log_message(f"Module {module_name} is up to date: schema {schema_local}, content versions match")
+                    debug_log(f"  ✅ Module {module_name} is up to date: schema {schema_local}, content versions match")
         else:
+            debug_log(f"  🔄 Using schema-only version checking...")
             # Fall back to original schema-only checking
             repo_schema_version = repo_index.get("metadata", {}).get("schema_version")
             if not repo_schema_version:
-                log_message(f"No schema_version found in repo module: {module_name}", "WARNING")
+                log_message(f"  ❌ No schema_version found in repo module: {module_name}", "WARNING")
                 continue
             local_schema_version = "0.0.0"  # Default for new modules
             if local_index:
                 local_schema_version = local_index.get("metadata", {}).get("schema_version", "0.0.0")
+            
+            debug_log(f"  📊 Schema version comparison: {local_schema_version} vs {repo_schema_version}")
+            comparison = compare_schema_versions(repo_schema_version, local_schema_version)
+            debug_log(f"  🔍 Comparison result: {comparison} (0=equal, >0=repo_newer, <0=local_newer)")
+            
             # Compare versions
-            if compare_schema_versions(repo_schema_version, local_schema_version) > 0:
-                log_message(f"Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
+            if comparison > 0:
+                log_message(f"  ✅ Module {module_name} needs update: {local_schema_version} → {repo_schema_version}")
                 modules_to_update.append(module_name)
             else:
-                log_message(f"Module {module_name} is up to date: {local_schema_version}")
+                debug_log(f"  ✅ Module {module_name} is up to date: {local_schema_version}")
+        
+        debug_log(f"  {'='*50}")
     
+    debug_log(f"🎯 Module detection complete. Found {len(modules_to_update)} modules needing updates: {modules_to_update}")
     return modules_to_update
 
 def update_modules(modules_to_update: List[str], local_modules_path: str, repo_modules_path: str) -> Dict[str, bool]:
