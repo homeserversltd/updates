@@ -1,0 +1,14 @@
+{
+  "metadata": {
+    "schema_version": "1.0.1",
+    "enabled": true,
+    "description": "Manage /etc/sudoers.d flask-* policies with checksum + visudo validation"
+  },
+  "repo": {
+    "url": "https://github.com/homeserversltd/permissions.git",
+    "branch": "master"
+  },
+  "policyPattern": "^flask-.*$"
+}
+
+

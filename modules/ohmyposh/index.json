@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.6",
+        "schema_version": "0.1.7",
         "module_name": "ohmyposh",
         "description": "Oh My Posh shell prompt",
         "enabled": true

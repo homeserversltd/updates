@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.23",
+        "schema_version": "0.1.25",
         "content_version": "0.9.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",
@@ -15,9 +15,7 @@
         "version_checking": {
             "enabled": true,
             "content_version_file": "src/config/homeserver.json",
-            "content_version_path": "global.version.version",
-            "require_content_update": false,
-            "check_both_versions": true
+            "content_version_path": "global.version.version"
         },
         "target_paths": {
             "base_directory": "/var/www/homeserver",

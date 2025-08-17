@@ -9,6 +9,7 @@ Modular website update system that handles updating the HOMESERVER web interface
 from the GitHub repository with component-based architecture and existing utilities.
 
 Key Features:
+- Two-tier update methodology: Website updates vs. Tab updates
 - Component-based architecture for better maintainability
 - Uses existing utils (StateManager, PermissionManager, version control)
 - Non-destructive file operations with detailed logging
@@ -20,7 +21,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
 # Import existing utilities
@@ -28,8 +29,12 @@ from updates.index import log_message, compare_schema_versions
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
 
-# Import our new components
-from .components import GitOperations, FileOperations, BuildManager, MaintenanceManager
+# Import our new dedicated components
+from .components import (
+    WebsiteUpdater, 
+    TabUpdater, 
+    PremiumTabChecker
+)
 
 
 class WebsiteUpdateError(Exception):
@@ -37,16 +42,14 @@ class WebsiteUpdateError(Exception):
     pass
 
 
-class WebsiteUpdater:
+class WebsiteUpdateOrchestrator:
     """
-    Main website updater class that orchestrates the update process.
+    Main website update orchestrator that coordinates between website and tab updates.
     
-    Uses component-based architecture and existing utilities for:
-    - Git operations (cloning, version checking)
-    - File operations (safe copying, config preservation)  
-    - Build management (npm install/build, service restart)
-    - State management (backup/restore via StateManager)
-    - Permission management (via PermissionManager)
+    Uses dedicated components for:
+    - Website updates: Comprehensive updates with premium tab restoration
+    - Tab updates: Individual/batch tab updates with targeted backup
+    - Update checking: Premium tab update detection
     """
     
     def __init__(self, module_path: str = None):
@@ -57,11 +60,10 @@ class WebsiteUpdater:
         self.index_file = self.module_path / "index.json"
         self.config = self._load_config()
         
-        # Initialize components
-        self.git = GitOperations(self.config)
-        self.files = FileOperations(self.config)
-        self.build = BuildManager(self.config)
-        self.maintenance = MaintenanceManager(self.config)
+        # Initialize dedicated update components
+        self.website_updater = WebsiteUpdater(self.config)
+        self.tab_updater = TabUpdater(self.config)
+        self.premium_tab_checker = PremiumTabChecker(self.config)
         
         # Initialize existing utilities
         self.state_manager = StateManager("/var/backups/website")
@@ -76,366 +78,235 @@ class WebsiteUpdater:
             log_message(f"Failed to load website config: {e}", "ERROR")
             return {}
     
-    def _get_local_version(self) -> Optional[str]:
-        """Get the local version from homeserver.json."""
-        try:
-            version_config = self.config.get('config', {}).get('version_checking', {})
-            version_file = version_config.get('content_version_file', 'src/config/homeserver.json')
-            version_path_components = version_config.get('content_version_path', 'global.version.version').split('.')
-            
-            base_dir = self.config.get('config', {}).get('target_paths', {}).get('base_directory', '/var/www/homeserver')
-            local_config_path = os.path.join(base_dir, version_file)
-            
-            if not os.path.exists(local_config_path):
-                log_message(f"Local homeserver.json not found at {local_config_path}", "WARNING")
-                return None
-            
-            with open(local_config_path, 'r') as f:
-                config_data = json.load(f)
-            
-            # Navigate through the nested path
-            version = config_data
-            for component in version_path_components:
-                if isinstance(version, dict) and component in version:
-                    version = version[component]
-                else:
-                    log_message(f"Version path {'.'.join(version_path_components)} not found", "WARNING")
-                    return None
-            
-            if isinstance(version, str):
-                log_message(f"Local version: {version}")
-                return version
-            else:
-                log_message(f"Version is not a string: {version}", "WARNING")
-                return None
-                
-        except Exception as e:
-            log_message(f"Failed to read local version: {e}", "ERROR")
-            return None
-    
-    def _check_version_update_needed(self, temp_dir: str) -> Tuple[bool, bool, Dict[str, Any]]:
+    def check_updates(self) -> Dict[str, Any]:
         """
-        Check if an update is needed by comparing both schema and content versions.
+        Check for available updates (website and premium tabs).
         
         Returns:
-            Tuple[bool, bool, Dict]: (update_needed, nuclear_restore_needed, update_details)
+            Dict containing comprehensive update check results
         """
-        update_details = {
-            "schema_update_needed": False,
-            "content_update_needed": False,
-            "local_schema_version": None,
-            "repo_schema_version": None,
-            "local_content_version": None,
-            "repo_content_version": None,
-            "update_reasons": []
-        }
-        
-        # Check for critical files (nuclear restore scenario)
-        base_dir = self.config.get('config', {}).get('target_paths', {}).get('base_directory', '/var/www/homeserver')
-        src_dir = os.path.join(base_dir, 'src')
-        homeserver_json = os.path.join(src_dir, 'config', 'homeserver.json')
-        
-        if not os.path.exists(src_dir) or not os.path.exists(homeserver_json):
-            log_message("Critical files missing - nuclear restore needed", "WARNING")
-            update_details["update_reasons"].append("Critical files missing")
-            return True, True, update_details
-        
-        # Schema version comparison
-        local_schema = self.config.get("metadata", {}).get("schema_version", "0.0.0")
-        repo_schema = local_schema  # Default fallback
-        
-        try:
-            repo_index_path = os.path.join(temp_dir, "index.json")
-            if os.path.exists(repo_index_path):
-                with open(repo_index_path, 'r') as f:
-                    repo_config = json.load(f)
-                repo_schema = repo_config.get("metadata", {}).get("schema_version", "0.0.0")
-        except Exception as e:
-            log_message(f"Failed to read repository schema version: {e}", "WARNING")
-        
-        update_details["local_schema_version"] = local_schema
-        update_details["repo_schema_version"] = repo_schema
-        
-        if compare_schema_versions(repo_schema, local_schema) > 0:
-            update_details["schema_update_needed"] = True
-            update_details["update_reasons"].append(f"Schema update: {local_schema} → {repo_schema}")
-        
-        # Content version comparison
-        local_content = self._get_local_version()
-        repo_content = self.git.get_repository_version(temp_dir)
-        
-        update_details["local_content_version"] = local_content
-        update_details["repo_content_version"] = repo_content
-        
-        if repo_content and local_content and compare_schema_versions(repo_content, local_content) > 0:
-            update_details["content_update_needed"] = True
-            update_details["update_reasons"].append(f"Content update: {local_content} → {repo_content}")
-        
-        update_needed = update_details["schema_update_needed"] or update_details["content_update_needed"]
-        
-        if update_needed:
-            log_message(f"Update needed: {', '.join(update_details['update_reasons'])}")
-        else:
-            log_message("No update needed - all versions current")
-        
-        return update_needed, False, update_details
-    
-    def _create_backup(self) -> bool:
-        """Create a backup of the current website installation."""
-        log_message("Creating website backup...")
-        
-        base_dir = self.config.get('config', {}).get('target_paths', {}).get('base_directory', '/var/www/homeserver')
-        
-        backup_files = [
-            os.path.join(base_dir, 'src'),
-            os.path.join(base_dir, 'backend'),
-            os.path.join(base_dir, 'premium'),
-            os.path.join(base_dir, 'public'),
-            os.path.join(base_dir, 'main.py'),
-            os.path.join(base_dir, 'config.py'),
-            os.path.join(base_dir, 'package.json'),
-            os.path.join(base_dir, 'requirements.txt'),
-        ]
-        
-        # Filter to only existing files
-        existing_files = [f for f in backup_files if os.path.exists(f)]
-        
-        if not existing_files:
-            log_message("No files found to backup", "WARNING")
-            return False
-        
-        backup_success = self.state_manager.backup_module_state(
-            module_name="website",
-            description=f"Pre-update backup {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            files=existing_files,
-            services=["gunicorn.service"]
-        )
-        
-        if backup_success:
-            log_message("✓ Website backup created successfully")
-        else:
-            log_message("✗ Website backup creation failed", "ERROR")
-        
-        return backup_success
-    
-    def _restore_permissions(self) -> bool:
-        """Restore website permissions using the PermissionManager."""
-        log_message("Restoring website permissions...")
-        
-        base_dir = self.config.get('config', {}).get('target_paths', {}).get('base_directory', '/var/www/homeserver')
-        
-        # Define permission targets based on config
-        targets = [
-            PermissionTarget(
-                path=base_dir,
-                owner="www-data",
-                group="www-data",
-                mode=0o755,
-                recursive=True
-            )
-        ]
-        
-        # Handle ramdisk permissions if it exists
-        if os.path.exists("/mnt/ramdisk"):
-            targets.append(PermissionTarget(
-                path="/mnt/ramdisk",
-                owner="root",
-                group="ramdisk",
-                mode=0o775,
-                recursive=True
-            ))
-        
-        success = self.permission_manager.set_permissions(targets)
-        
-        if success:
-            log_message("✓ Website permissions restored successfully")
-        else:
-            log_message("⚠ Some permission restoration failed", "WARNING")
-        
-        return success
-    
-    def _update_module_versions(self, new_content_version: str = None) -> bool:
-        """Update module versions in index.json."""
-        try:
-            if new_content_version:
-                # Update the content version in our module's index.json
-                if "metadata" not in self.config:
-                    self.config["metadata"] = {}
-                
-                self.config["metadata"]["content_version"] = new_content_version
-                
-                with open(self.index_file, 'w') as f:
-                    json.dump(self.config, f, indent=4)
-                
-                log_message(f"Updated module content version to: {new_content_version}")
-            
-            return True
-            
-        except Exception as e:
-            log_message(f"Failed to update module versions: {e}", "ERROR")
-            return False
-    
-    def _update_homeserver_json_metadata(self, new_version: str) -> bool:
-        """Update the version and timestamp in homeserver.json."""
-        try:
-            base_dir = self.config.get('config', {}).get('target_paths', {}).get('base_directory', '/var/www/homeserver')
-            homeserver_config_path = os.path.join(base_dir, "src", "config", "homeserver.json")
-            
-            if not os.path.exists(homeserver_config_path):
-                log_message(f"Homeserver config not found at {homeserver_config_path}", "WARNING")
-                return False
-            
-            with open(homeserver_config_path, 'r') as f:
-                config_data = json.load(f)
-            
-            # Update version and timestamp
-            current_date = datetime.now().strftime("%m-%d-%Y")
-            
-            if "global" not in config_data:
-                config_data["global"] = {}
-            if "version" not in config_data["global"]:
-                config_data["global"]["version"] = {}
-            
-            config_data["global"]["version"]["version"] = new_version
-            config_data["global"]["version"]["lastUpdated"] = current_date
-            
-            with open(homeserver_config_path, 'w') as f:
-                json.dump(config_data, f, indent=4)
-            
-            log_message(f"Updated homeserver.json version to: {new_version} (date: {current_date})")
-            return True
-            
-        except Exception as e:
-            log_message(f"Failed to update homeserver.json metadata: {e}", "ERROR")
-            return False
-    
-    def update(self) -> Dict[str, Any]:
-        """
-        Main update function that orchestrates the complete website update process.
-        
-        Returns:
-            Dict containing update results with success status, update details, and any errors
-        """
-        start_time = time.time()
-        
-        log_message("="*60)
-        log_message("STARTING WEBSITE UPDATE PROCESS")
-        log_message("="*60)
+        log_message("Checking for available updates...")
         
         result = {
             "success": False,
-            "updated": False,
-            "message": "",
-            "schema_updated": False,
-            "content_updated": False,
+            "website_update_available": False,
+            "tab_updates_available": False,
+            "update_summary": "",
             "error": None,
-            "rollback_success": None,
-            "duration": 0,
             "details": {}
         }
         
         temp_dir = None
         
         try:
-            # Step 0: Always run maintenance tasks (agnostic of building)
-            log_message("Step 0: Running maintenance tasks…")
-            try:
-                self.maintenance.update_browserslist()
-            except Exception as maint_err:
-                # Never fail the update due to maintenance tasks
-                log_message(f"Maintenance task error (non-fatal): {maint_err}", "WARNING")
-
-            # Step 1: Clone repository
-            log_message("Step 1: Cloning repository...")
-            temp_dir = self.git.clone_repository()
+            # Check website updates
+            log_message("Checking website for updates...")
+            website_check = self._check_website_updates()
+            result["website_update_available"] = website_check["update_needed"]
+            result["details"]["website"] = website_check
+            
+            # Check premium tab updates
+            log_message("Checking premium tabs for updates...")
+            tab_check = self.tab_updater.check_tab_updates()
+            result["details"]["premium_tabs"] = tab_check
+            
+            if tab_check["success"]:
+                result["tab_updates_available"] = tab_check["tabs_needing_updates"] > 0
+            else:
+                log_message("⚠ Premium tab check failed", "WARNING")
+            
+            # Generate comprehensive update summary
+            result["update_summary"] = self._generate_update_summary(
+                website_check, 
+                tab_check
+            )
+            
+            result["success"] = True
+            
+            if result["website_update_available"] or result["tab_updates_available"]:
+                log_message(f"Updates available: {result['update_summary']}")
+            else:
+                log_message("No updates available - everything is current")
+            
+        except Exception as e:
+            log_message(f"✗ Update check failed: {e}", "ERROR")
+            result["error"] = str(e)
+        
+        return result
+    
+    def _check_website_updates(self) -> Dict[str, Any]:
+        """
+        Check if website updates are needed.
+        
+        Returns:
+            Dict containing website update check results
+        """
+        try:
+            # Clone repository to check versions
+            temp_dir = self.website_updater.git.clone_repository()
             if not temp_dir:
-                raise WebsiteUpdateError("Failed to clone repository")
+                return {
+                    "update_needed": False,
+                    "error": "Failed to clone repository for check"
+                }
             
-            # Step 2: Check if update is needed
-            log_message("Step 2: Checking if update is needed...")
-            update_needed, nuclear_restore, update_details = self._check_version_update_needed(temp_dir)
-            result["details"] = update_details
+            # Check version updates
+            update_needed, nuclear_restore, update_details = self.website_updater._check_version_update_needed(temp_dir)
             
-            if not update_needed:
-                result["success"] = True
-                result["message"] = "No update needed - all versions current"
-                log_message("✓ No update needed")
-                return result
+            return {
+                "update_needed": update_needed,
+                "nuclear_restore": nuclear_restore,
+                "update_details": update_details
+            }
             
-            # Step 3: Create backup
-            log_message("Step 3: Creating backup...")
-            if not self._create_backup():
-                raise WebsiteUpdateError("Failed to create backup")
+        except Exception as e:
+            return {
+                "update_needed": False,
+                "error": str(e)
+            }
+        finally:
+            if temp_dir:
+                self.website_updater.git.cleanup_repository(temp_dir)
+    
+    def _generate_update_summary(self, website_check: Dict[str, Any], tab_check: Dict[str, Any]) -> str:
+        """
+        Generate human-readable update summary.
+        
+        Args:
+            website_check: Website update check results
+            tab_check: Premium tab update check results
             
-            # Step 4: Validate file operations
-            log_message("Step 4: Validating file operations...")
-            if not self.files.validate_file_operations(temp_dir):
-                raise WebsiteUpdateError("File operation validation failed")
+        Returns:
+            str: Human-readable update summary
+        """
+        summary_parts = []
+        
+        # Website update summary
+        if website_check.get("update_needed"):
+            reasons = website_check.get("update_details", {}).get("update_reasons", [])
+            if reasons:
+                summary_parts.append(f"Website: {', '.join(reasons)}")
+            else:
+                summary_parts.append("Website: Update needed")
+        else:
+            summary_parts.append("Website: Up to date")
+        
+        # Premium tab update summary
+        if tab_check.get("success"):
+            if tab_check.get("tabs_needing_updates", 0) > 0:
+                summary_parts.append(f"Premium tabs: {tab_check['tabs_needing_updates']} update(s) available")
+            else:
+                summary_parts.append("Premium tabs: All up to date")
+        else:
+            summary_parts.append("Premium tabs: Check failed")
+        
+        return " | ".join(summary_parts)
+    
+    def update_website(self) -> Dict[str, Any]:
+        """
+        Perform comprehensive website update.
+        
+        Returns:
+            Dict containing website update results
+        """
+        log_message("Starting comprehensive website update...")
+        return self.website_updater.update()
+    
+    def update_single_tab(self, tab_name: str) -> Dict[str, Any]:
+        """
+        Update a single premium tab.
+        
+        Args:
+            tab_name: Name of the tab to update
             
-            # Step 5: Update files
-            log_message("Step 5: Updating files...")
-            if not self.files.update_components(temp_dir):
-                raise WebsiteUpdateError("File update failed")
+        Returns:
+            Dict containing tab update results
+        """
+        log_message(f"Starting single tab update: {tab_name}")
+        return self.tab_updater.update_single_tab(tab_name)
+    
+    def update_batch_tabs(self, tab_names: List[str]) -> Dict[str, Any]:
+        """
+        Update multiple premium tabs in batch.
+        
+        Args:
+            tab_names: List of tab names to update
             
-            # Step 6: Run build process
-            log_message("Step 6: Running build process...")
-            if not self.build.run_build_process():
-                raise WebsiteUpdateError("Build process failed")
+        Returns:
+            Dict containing batch tab update results
+        """
+        log_message(f"Starting batch tab updates: {', '.join(tab_names)}")
+        return self.tab_updater.update_batch_tabs(tab_names)
+    
+    def update_everything(self) -> Dict[str, Any]:
+        """
+        Update everything that needs updating (website + premium tabs).
+        
+        Returns:
+            Dict containing comprehensive update results
+        """
+        log_message("Starting comprehensive update of everything...")
+        
+        result = {
+            "success": False,
+            "website_updated": False,
+            "tabs_updated": False,
+            "message": "",
+            "error": None,
+            "details": {}
+        }
+        
+        try:
+            # Step 1: Check what needs updating
+            update_check = self.check_updates()
+            if not update_check["success"]:
+                raise Exception(f"Update check failed: {update_check.get('error')}")
             
-            # Step 7: Restore permissions
-            log_message("Step 7: Restoring permissions...")
-            self._restore_permissions()  # Don't fail on permission issues
+            # Step 2: Update website if needed
+            if update_check["website_update_available"]:
+                log_message("Website update needed - updating...")
+                website_result = self.update_website()
+                result["website_updated"] = website_result["success"]
+                result["details"]["website"] = website_result
+                
+                if not website_result["success"]:
+                    log_message("⚠ Website update failed", "WARNING")
+            else:
+                log_message("Website is up to date")
+                result["details"]["website"] = {"success": True, "message": "No update needed"}
             
-            # Step 8: Update versions
-            log_message("Step 8: Updating version metadata...")
-            if update_details["content_update_needed"] and update_details["repo_content_version"]:
-                self._update_homeserver_json_metadata(update_details["repo_content_version"])
-                self._update_module_versions(update_details["repo_content_version"])
-                result["content_updated"] = True
-            
-            if update_details["schema_update_needed"]:
-                result["schema_updated"] = True
+            # Step 3: Update premium tabs if needed
+            if update_check["tab_updates_available"]:
+                log_message("Premium tab updates needed - updating...")
+                
+                # Get list of tabs needing updates
+                tab_check = update_check["details"]["premium_tabs"]
+                tabs_to_update = [tab["tab_name"] for tab in tab_check.get("update_details", [])]
+                
+                if tabs_to_update:
+                    tab_result = self.update_batch_tabs(tabs_to_update)
+                    result["tabs_updated"] = tab_result["success"]
+                    result["details"]["tabs"] = tab_result
+                    
+                    if not tab_result["success"]:
+                        log_message("⚠ Premium tab updates failed", "WARNING")
+                else:
+                    log_message("No premium tabs need updating")
+                    result["details"]["tabs"] = {"success": True, "message": "No updates needed"}
+            else:
+                log_message("Premium tabs are up to date")
+                result["details"]["tabs"] = {"success": True, "message": "No updates needed"}
             
             # Success!
             result["success"] = True
-            result["updated"] = True
-            result["message"] = f"Website updated successfully ({', '.join(update_details['update_reasons'])})"
+            result["message"] = "Comprehensive update completed"
             
-            duration = time.time() - start_time
-            result["duration"] = duration
-            
-            log_message("="*60)
-            log_message(f"✓ WEBSITE UPDATE COMPLETED SUCCESSFULLY ({duration:.1f}s)")
-            log_message("="*60)
+            log_message("✓ Comprehensive update completed successfully")
             
         except Exception as e:
-            log_message(f"✗ Website update failed: {e}", "ERROR")
+            log_message(f"✗ Comprehensive update failed: {e}", "ERROR")
             result["error"] = str(e)
             result["message"] = f"Update failed: {e}"
-            
-            # Attempt rollback
-            log_message("Attempting rollback...")
-            try:
-                rollback_success = self.state_manager.restore_module_state("website")
-                result["rollback_success"] = rollback_success
-                if rollback_success:
-                    log_message("✓ Rollback completed successfully")
-                    result["message"] += " (rollback successful)"
-                else:
-                    log_message("✗ Rollback failed", "ERROR")
-                    result["message"] += " (rollback failed)"
-            except Exception as rollback_error:
-                log_message(f"✗ Rollback failed: {rollback_error}", "ERROR")
-                result["rollback_success"] = False
-                result["message"] += f" (rollback failed: {rollback_error})"
-        
-        finally:
-            # Cleanup
-            if temp_dir:
-                self.git.cleanup_repository(temp_dir)
-            
-            duration = time.time() - start_time
-            result["duration"] = duration
         
         return result
 
@@ -449,53 +320,67 @@ def main(args=None):
     """
     log_message("Website update module started")
     
+    # CRITICAL: Ensure module is running latest schema version before execution
+    module_dir = Path(__file__).parent
+    from updates.utils.module_self_update import ensure_module_self_updated
+    if not ensure_module_self_updated(module_dir):
+        return {"success": False, "error": "Module self-update failed"}
+    
     # Lightweight check-only mode for orchestrator detection
     if args and isinstance(args, (list, tuple)) and ("--check" in args or "--check-only" in args):
-        updater = WebsiteUpdater()
-        temp_dir = None
-        try:
-            temp_dir = updater.git.clone_repository()
-            if not temp_dir:
-                return {
-                    "success": False,
-                    "update_available": False,
-                    "error": "Failed to clone repository for check"
-                }
-            update_needed, nuclear_restore, details = updater._check_version_update_needed(temp_dir)
-            return {
-                "success": True,
-                "update_available": bool(update_needed or nuclear_restore or details.get("schema_update_needed") or details.get("content_update_needed")),
-                "nuclear_restore": nuclear_restore,
-                "update_reasons": details.get("update_reasons", []),
-                "local_schema_version": details.get("local_schema_version"),
-                "repo_schema_version": details.get("repo_schema_version"),
-                "local_content_version": details.get("local_content_version"),
-                "repo_content_version": details.get("repo_content_version")
-            }
-        except Exception as e:
+        orchestrator = WebsiteUpdateOrchestrator()
+        return orchestrator.check_updates()
+    
+    try:
+        orchestrator = WebsiteUpdateOrchestrator()
+        
+        # Check for updates first
+        update_check = orchestrator.check_updates()
+        
+        if not update_check["success"]:
             return {
                 "success": False,
                 "update_available": False,
-                "error": str(e)
+                "error": update_check.get("error", "Update check failed")
             }
-        finally:
-            if temp_dir:
-                try:
-                    updater.git.cleanup_repository(temp_dir)
-                except Exception:
-                    pass
-
-    try:
-        updater = WebsiteUpdater()
-        result = updater.update()
+        
+        # Determine what needs updating
+        website_update_needed = update_check["website_update_available"]
+        tab_updates_needed = update_check["tab_updates_available"]
+        
+        if not website_update_needed and not tab_updates_needed:
+            return {
+                "success": True,
+                "update_available": False,
+                "message": "No updates available - everything is current"
+            }
+        
+        # Perform appropriate update
+        if website_update_needed:
+            log_message("Website update needed - performing comprehensive update")
+            result = orchestrator.update_website()
+        elif tab_updates_needed:
+            log_message("Premium tab updates needed - performing tab updates")
+            
+            # Get list of tabs needing updates
+            tab_check = update_check["details"]["premium_tabs"]
+            tabs_to_update = [tab["tab_name"] for tab in tab_check.get("update_details", [])]
+            
+            if tabs_to_update:
+                result = orchestrator.update_batch_tabs(tabs_to_update)
+            else:
+                result = {"success": True, "message": "No tabs need updating"}
+        else:
+            # This shouldn't happen, but just in case
+            result = {"success": True, "message": "No updates needed"}
         
         if result["success"]:
             log_message("Website update module completed successfully")
-            return result
         else:
-            log_message(f"Website update module failed: {result['message']}", "ERROR")
-            return result
-            
+            log_message(f"Website update module failed: {result.get('message', 'Unknown error')}", "ERROR")
+        
+        return result
+        
     except Exception as e:
         log_message(f"Website update module crashed: {e}", "ERROR")
         return {

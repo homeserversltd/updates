@@ -26,6 +26,8 @@ provides consistent error handling and logging.
 """
 
 import os
+import pwd
+import grp
 import subprocess
 import stat
 from typing import List, Dict, Any, Optional, Union
@@ -380,3 +382,28 @@ def fix_common_service_permissions(service_name: str) -> bool:
     
     manager = PermissionManager(service_name)
     return manager.set_permissions(targets) 
+
+
+def get_permissions(path: str) -> Dict[str, Any]:
+    """
+    Return current ownership and mode for a file or directory.
+    Keys: owner (str or uid), group (str or gid), mode (int, 0oXYZ). Missing path returns empty dict.
+    """
+    info: Dict[str, Any] = {}
+    try:
+        st = os.stat(path)
+        info['mode'] = st.st_mode & 0o777
+        try:
+            info['owner'] = pwd.getpwuid(st.st_uid).pw_name
+        except KeyError:
+            info['owner'] = st.st_uid
+        try:
+            info['group'] = grp.getgrgid(st.st_gid).gr_name
+        except KeyError:
+            info['group'] = st.st_gid
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        log_message(f"get_permissions failed for {path}: {e}", "WARNING")
+        return {}
+    return info

@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.7",
+        "schema_version": "0.1.8",
         "module_name": "atuin",
         "description": "Atuin shell history management tool",
         "enabled": false
