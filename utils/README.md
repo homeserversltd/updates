@@ -11,7 +11,6 @@ Provides easy imports for commonly used utilities:
 ```python
 from .index import log_message
 from .version_control import checkout_module_version, list_module_versions
-from .module_self_update import ensure_module_self_updated, check_and_update_module
 ```
 
 ### Logging Utility (`index.py`)
@@ -48,77 +47,6 @@ log_message("Service might need restart", "WARNING")
 ## 🔄 Version Control System (`version_control.py`)
 
 Git-based version control system that uses tags and manifest version tracking.
-
-## 🚀 Module Self-Update System (`module_self_update.py`)
-
-Critical utility for modules to update themselves before execution. This prevents the disaster scenario where old code tries to process new configurations.
-
-### ensure_module_self_updated()
-```python
-from updates.utils.module_self_update import ensure_module_self_updated
-
-def main(args=None):
-    # CRITICAL: Ensure module is running latest schema version before execution
-    if not ensure_module_self_updated():
-        return {"success": False, "error": "Module self-update failed"}
-    
-    # Now run with latest code
-    return run_module_logic()
-```
-
-**Parameters:**
-- `module_dir` (Path, optional): Path to module directory (auto-detected if not provided)
-
-**Returns:** `bool` - True if module is up-to-date, False if self-update failed
-
-### check_and_update_module()
-```python
-from updates.utils.module_self_update import check_and_update_module
-
-def main(args=None):
-    # Convenience function that auto-detects module directory
-    if not check_and_update_module():
-        return {"success": False, "error": "Module self-update failed"}
-    
-    # Continue with module logic
-    return run_module_logic()
-```
-
-### Why This Is Critical
-
-Without module self-updates, the system would crash when schema versions change:
-
-```
-1. User runs updateManager.sh update
-2. System loads OLD website module code (schema 0.1.23)
-3. Old code detects schema update needed (0.1.23 → 0.1.24)
-4. Old code updates website files (including new index.json with schema 0.1.24)
-5. Old code continues running with new config it doesn't understand
-6. System breaks horribly - old code + new config = CRASH!
-```
-
-### Implementation Pattern
-
-All modules should follow this pattern:
-
-```python
-def main(args=None):
-    module_dir = Path(__file__).parent
-    
-    # CRITICAL: Ensure module is running latest schema version before execution
-    from updates.utils.module_self_update import ensure_module_self_updated
-    if not ensure_module_self_updated(module_dir):
-        return {"success": False, "error": "Module self-update failed"}
-    
-    # Now run with latest code
-    return run_module_logic()
-```
-
-This ensures that:
-- **Modules always run with compatible code** for their configuration
-- **Schema version changes** trigger automatic module updates
-- **System stability** is maintained during infrastructure updates
-- **Rollback protection** exists if module updates fail
 
 ### checkout_module_version()
 ```python
@@ -384,22 +312,6 @@ custom_state_manager = create_state_manager("/custom/backup/path")
 ```
 
 ## 🚀 Integration Patterns
-
-### Pattern 0: Module Self-Update (Critical Foundation)
-```python
-def main(args=None):
-    """Module with self-update protection."""
-    from updates.utils.module_self_update import ensure_module_self_updated
-    
-    # CRITICAL: Ensure module is running latest schema version
-    if not ensure_module_self_updated():
-        return {"success": False, "error": "Module self-update failed"}
-    
-    # Now run with latest code
-    return run_module_logic()
-```
-
-**This pattern is REQUIRED for all modules** to prevent system crashes on schema changes.
 
 ### Pattern 1: Simple File Backup (Hotfix Style)
 ```python
@@ -692,12 +604,6 @@ perform_update()
 # Basic logging
 from initialization.files.user_local_lib.updates.utils import log_message
 
-# Module self-update (CRITICAL for all modules)
-from initialization.files.user_local_lib.updates.utils.module_self_update import (
-    ensure_module_self_updated,
-    check_and_update_module
-)
-
 # Version control
 from initialization.files.user_local_lib.updates.utils.version_control import (
     checkout_module_version,
@@ -721,10 +627,6 @@ from initialization.files.user_local_lib.updates.utils.state_manager import (
 # Logging
 log_message("Operation completed successfully")
 log_message("Error occurred", "ERROR")
-
-# Module self-update (CRITICAL for all modules)
-if not ensure_module_self_updated():
-    return {"success": False, "error": "Module self-update failed"}
 
 # Simple module backup and restore
 state_manager = StateManager()
@@ -758,19 +660,17 @@ No external dependencies are required, ensuring system reliability and minimal s
 
 ## 🎯 Summary
 
-The updates system utilities provide four complementary approaches:
+The updates system utilities provide three complementary approaches:
 
 1. **Basic Logging** (`index.py`): Simple, consistent logging for all modules
-2. **Module Self-Update** (`module_self_update.py`): **CRITICAL** - ensures modules run with compatible code
-3. **Version Control** (`version_control.py`): Git-based module version management with tags
-4. **State Manager** (`state_manager.py`): Simple single-backup-per-module state management
+2. **Version Control** (`version_control.py`): Git-based module version management with tags
+3. **State Manager** (`state_manager.py`): Simple single-backup-per-module state management
 
 Choose the appropriate utility based on your update module's needs:
 - Use **logging** in all modules for consistent output
-- Use **module self-update** in ALL modules to prevent system crashes on schema changes
 - Use **version control** for module-level version rollbacks using Git tags
 - Use **state manager** for simple backup/restore operations during updates
 
-**IMPORTANT**: Module self-update is not optional - it's required for system stability.
+**IMPORTANT**: The orchestrator handles all schema updates automatically. Modules no longer need to manage their own schema updates.
 
 All utilities follow the same principles: simplicity, reliability, and comprehensive error handling to ensure robust update operations across the HOMESERVER system. 

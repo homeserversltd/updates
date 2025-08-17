@@ -166,10 +166,7 @@ def apply(module_dir: Path) -> Dict[str, Any]:
 def main(args=None):
     module_dir = Path(__file__).parent
     
-    # CRITICAL: Ensure module is running latest schema version before execution
-    from updates.utils.module_self_update import ensure_module_self_updated
-    if not ensure_module_self_updated(module_dir):
-        return {"success": False, "error": "Module self-update failed"}
+    # Module directory for reference
     
     # Now run with latest code
     if args and '--check' in args:

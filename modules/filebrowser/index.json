@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.5",
+        "schema_version": "0.1.6",
         "module_name": "filebrowser",
         "description": "File browser web interface",
         "enabled": false

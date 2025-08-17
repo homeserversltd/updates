@@ -32,13 +32,6 @@ from .permissions import (
     restore_service_permissions_simple,
     fix_common_service_permissions
 )
-from .module_self_update import (
-    ensure_module_self_updated,
-    check_and_update_module,
-    module_needs_schema_update,
-    update_module_self,
-    ModuleSelfUpdateError
-)
 
 __all__ = [
     'log_message',
@@ -50,10 +43,5 @@ __all__ = [
     'PermissionManager',
     'PermissionTarget',
     'create_service_permissions_simple',
-    'fix_common_service_permissions',
-    'ensure_module_self_updated',
-    'check_and_update_module',
-    'module_needs_schema_update',
-    'update_module_self',
-    'ModuleSelfUpdateError'
+    'fix_common_service_permissions'
 ]

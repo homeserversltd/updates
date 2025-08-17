@@ -167,11 +167,8 @@ def install_cron_job():
 
 
 def main(args=None):
-    # CRITICAL: Ensure module is running latest schema version before execution
+    # Module directory for reference
     module_dir = Path(__file__).parent
-    from updates.utils.module_self_update import ensure_module_self_updated
-    if not ensure_module_self_updated(module_dir):
-        return {"success": False, "error": "Module self-update failed"}
     
     log("Starting adblock update...")
     

@@ -26,7 +26,7 @@ import logging
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, detect_module_updates, update_modules
+from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, detect_module_updates, update_modules, DEBUG
 
 # Add current directory to path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -71,6 +71,8 @@ def log_to_file(message: str, level: str = "INFO"):
         logging.info(message)
 
 # Configuration
+# Note: Repository URL is now configurable via index.json metadata section
+# This constant serves as a fallback if metadata is not available
 DEFAULT_REPO_URL = "https://github.com/homeserversltd/updates.git"
 DEFAULT_LOCAL_PATH = "/tmp/homeserver-updates-repo"
 DEFAULT_MODULES_PATH = "/usr/local/lib/updates"
@@ -90,7 +92,8 @@ def load_global_index(modules_path: str) -> dict:
         "metadata": {
             "schema_version": "1.0.0",
             "channel": "stable",
-            "branch": "master"
+            "branch": "master",
+            "repository_url": "https://github.com/homeserversltd/updates.git"
         },
         "packages": {}
     }
@@ -656,7 +659,11 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         dict: Results of the update process including both schema updates and executions
     """
     # Use defaults if not provided
-    repo_url = repo_url or DEFAULT_REPO_URL
+    if repo_url is None:
+        # Load repository URL from metadata if not provided
+        global_index = load_global_index(modules_path or DEFAULT_MODULES_PATH)
+        repo_url = global_index.get("metadata", {}).get("repository_url", DEFAULT_REPO_URL)
+    
     local_repo_path = local_repo_path or DEFAULT_LOCAL_PATH
     modules_path = modules_path or DEFAULT_MODULES_PATH
     
@@ -1225,11 +1232,16 @@ def main():
             # Run legacy system
             run_legacy_updates()
         else:
-            # Load branch from global index if not provided
+            # Load branch and repository URL from global index if not provided
+            global_index = load_global_index(args.modules_path)
             if args.branch is None:
-                global_index = load_global_index(args.modules_path)
                 args.branch = global_index.get("metadata", {}).get("branch", "master")
                 log_message(f"Using branch from index.json: {args.branch}")
+            
+            # Load repository URL from metadata if not provided
+            if args.repo_url == DEFAULT_REPO_URL:  # Only override if using default
+                args.repo_url = global_index.get("metadata", {}).get("repository_url", DEFAULT_REPO_URL)
+                log_message(f"Using repository URL from index.json: {args.repo_url}")
             
             # Run new schema-based system
             if args.check_only:
@@ -1237,7 +1249,9 @@ def main():
                 
                 # Step 0: Check orchestrator update first
                 orchestrator_update_available = False
-                if sync_from_repo(args.repo_url, args.local_repo, args.branch):
+                # Use repository URL from metadata for check-only mode
+                check_repo_url = global_index.get("metadata", {}).get("repository_url", args.repo_url)
+                if sync_from_repo(check_repo_url, args.local_repo, args.branch):
                     orchestrator_needs_update = check_orchestrator_update(args.modules_path, args.local_repo)
                     if orchestrator_needs_update:
                         orchestrator_update_available = True

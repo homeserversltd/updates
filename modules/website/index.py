@@ -320,11 +320,8 @@ def main(args=None):
     """
     log_message("Website update module started")
     
-    # CRITICAL: Ensure module is running latest schema version before execution
+    # Module directory for reference
     module_dir = Path(__file__).parent
-    from updates.utils.module_self_update import ensure_module_self_updated
-    if not ensure_module_self_updated(module_dir):
-        return {"success": False, "error": "Module self-update failed"}
     
     # Lightweight check-only mode for orchestrator detection
     if args and isinstance(args, (list, tuple)) and ("--check" in args or "--check-only" in args):

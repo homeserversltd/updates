@@ -2,6 +2,7 @@
 
 # HOMESERVER Update Manager
 # Orchestrates the Python-based schema-driven update system
+# Repository URL is configured in index.json metadata section
 
 # Ensure PATH includes common system directories
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"

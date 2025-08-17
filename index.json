@@ -1,8 +1,9 @@
 {
     "metadata": {
-        "schema_version": "0.1.20",
+        "schema_version": "0.1.22",
         "channel": "stable",
-        "branch": "master"
+        "branch": "master",
+        "repository_url": "https://github.com/homeserversltd/updates.git"
     },
     "packages": {
         "adblock": "0.1.0",
