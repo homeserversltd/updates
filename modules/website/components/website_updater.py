@@ -323,28 +323,57 @@ class WebsiteUpdater:
         try:
             log_message("Capturing premium tab state...")
             
-            # Get list of installed premium tabs
+            # Use the premium installer to get the actual installed tabs
+            # This is the correct way - don't just scan the premium directory
             installed_tabs = []
-            premium_dir = os.path.join(self.base_dir, 'premium')
             
-            if os.path.exists(premium_dir):
-                for item in os.listdir(premium_dir):
-                    item_path = os.path.join(premium_dir, item)
-                    tab_index_path = os.path.join(item_path, 'index.json')
+            if os.path.exists(self.premium_installer_path):
+                try:
+                    import subprocess
                     
-                    if os.path.isdir(item_path) and os.path.exists(tab_index_path):
-                        try:
-                            import json
-                            with open(tab_index_path, 'r') as f:
-                                tab_config = json.load(f)
-                            
-                            installed_tabs.append({
-                                "name": item,
-                                "version": tab_config.get("version", "unknown"),
-                                "path": item_path
-                            })
-                        except Exception as e:
-                            log_message(f"Warning: Could not read tab config for {item}: {e}", "WARNING")
+                    # Run: python3 installer.py list --installed
+                    cmd = [
+                        "python3", 
+                        self.premium_installer_path, 
+                        "list", 
+                        "--installed"
+                    ]
+                    
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        cwd=os.path.dirname(self.premium_installer_path)
+                    )
+                    
+                    if result.returncode == 0:
+                        # Parse the output to extract installed tab names
+                        lines = result.stdout.strip().split('\n')
+                        for line in lines:
+                            line = line.strip()
+                            if line.startswith('✅ '):
+                                # Format: "✅ tabName (v1.0.0)"
+                                tab_name = line.split(' ')[1]  # Get the tab name after ✅
+                                installed_tabs.append({
+                                    "name": tab_name,
+                                    "version": "unknown",  # Could parse version if needed
+                                    "path": os.path.join(self.base_dir, 'premium', tab_name)
+                                })
+                        
+                        log_message(f"✓ Found {len(installed_tabs)} actually installed premium tabs via installer")
+                    else:
+                        log_message(f"Warning: Installer list --installed failed, falling back to directory scan", "WARNING")
+                        # Fallback to old method if installer fails
+                        installed_tabs = self._fallback_capture_premium_tab_state()
+                        
+                except Exception as e:
+                    log_message(f"Warning: Exception running installer list --installed, falling back to directory scan: {e}", "WARNING")
+                    # Fallback to old method if installer fails
+                    installed_tabs = self._fallback_capture_premium_tab_state()
+            else:
+                log_message("Warning: Premium installer not found, falling back to directory scan", "WARNING")
+                # Fallback to old method if installer not found
+                installed_tabs = self._fallback_capture_premium_tab_state()
             
             state = {
                 "timestamp": datetime.now().isoformat(),
@@ -358,6 +387,35 @@ class WebsiteUpdater:
         except Exception as e:
             log_message(f"✗ Failed to capture premium tab state: {e}", "ERROR")
             return None
+    
+    def _fallback_capture_premium_tab_state(self) -> List[Dict[str, Any]]:
+        """
+        Fallback method to capture premium tab state by scanning directory.
+        This is the old method that incorrectly assumed all tabs in premium/ were installed.
+        """
+        installed_tabs = []
+        premium_dir = os.path.join(self.base_dir, 'premium')
+        
+        if os.path.exists(premium_dir):
+            for item in os.listdir(premium_dir):
+                item_path = os.path.join(premium_dir, item)
+                tab_index_path = os.path.join(item_path, 'index.json')
+                
+                if os.path.isdir(item_path) and os.path.exists(tab_index_path):
+                    try:
+                        import json
+                        with open(tab_index_path, 'r') as f:
+                            tab_config = json.load(f)
+                        
+                        installed_tabs.append({
+                            "name": item,
+                            "version": tab_config.get("version", "unknown"),
+                            "path": item_path
+                        })
+                    except Exception as e:
+                        log_message(f"Warning: Could not read tab config for {item}: {e}", "WARNING")
+        
+        return installed_tabs
     
     def _capture_user_customizations(self) -> Optional[Dict[str, Any]]:
         """
