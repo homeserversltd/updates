@@ -533,25 +533,25 @@ class WebsiteUpdater:
             
             # Use premium installer to install tabs (not reinstall)
             # Since website update clobbers entire backend/src, we need to install all tabs
-            tab_paths = []
+            tab_names = []
             for tab_info in installed_tabs:
                 tab_name = tab_info["name"]
-                # Convert tab name to full premium directory path
+                # Check if premium directory exists for this tab
                 tab_path = os.path.join(self.base_dir, 'premium', tab_name)
                 if os.path.exists(tab_path):
-                    tab_paths.append(tab_path)
+                    tab_names.append(tab_name)
                 else:
                     log_message(f"⚠ Warning: Premium directory not found for {tab_name}: {tab_path}")
             
-            if not tab_paths:
-                log_message("No valid premium tab paths found")
+            if not tab_names:
+                log_message("No valid premium tabs found")
                 return False
             
             # Use the smart install command that automatically handles single vs multiple tabs
-            log_message(f"Installing {len(tab_paths)} tabs using smart install: {', '.join([os.path.basename(p) for p in tab_paths])}")
-            success = self._run_premium_installer_install(tab_paths)
+            log_message(f"Installing {len(tab_names)} tabs using smart install: {', '.join(tab_names)}")
+            success = self._run_premium_installer_install(tab_names)
             if success:
-                log_message(f"✓ Successfully restored {len(tab_paths)} tabs")
+                log_message(f"✓ Successfully restored {len(tab_names)} tabs")
             else:
                 log_message(f"✗ Failed to restore some tabs")
                 return False
@@ -563,15 +563,12 @@ class WebsiteUpdater:
             log_message(f"✗ Premium tab restoration failed: {e}", "ERROR")
             return False
     
-    def _run_premium_installer_install(self, tab_paths: List[str]) -> bool:
+    def _run_premium_installer_install(self, tab_names: List[str]) -> bool:
         """
         Run premium installer install command for tabs.
         
-        The install command is smart enough to automatically detect single vs multiple tabs
-        and use batch mode when needed.
-        
         Args:
-            tab_paths: List of full paths to premium tab directories
+            tab_names: List of tab names to install
             
         Returns:
             bool: True if successful, False otherwise
@@ -579,13 +576,12 @@ class WebsiteUpdater:
         try:
             import subprocess
             
-            # Run the premium installer install command
-            # The install command automatically handles single vs multiple tabs
+            # Run the premium installer install command with tab names
             cmd = [
                 "python3", 
                 self.premium_installer_path, 
                 "install"
-            ] + tab_paths
+            ] + tab_names
             
             log_message(f"Running: {' '.join(cmd)}")
             
@@ -597,7 +593,7 @@ class WebsiteUpdater:
             )
             
             if result.returncode == 0:
-                log_message(f"✓ Premium installer install successful for {len(tab_paths)} tabs")
+                log_message(f"✓ Premium installer install successful for {len(tab_names)} tabs: {', '.join(tab_names)}")
                 return True
             else:
                 log_message(f"✗ Premium installer install failed")
