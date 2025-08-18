@@ -127,9 +127,9 @@ class GitOperations:
             Optional[str]: Version string, or None if not found
         """
         try:
-            version_config = self.config.get('config', {}).get('version_checking', {})
-            version_file = version_config.get('content_version_file', 'src/config/homeserver.json')
-            version_path_components = version_config.get('content_version_path', 'global.version.version').split('.')
+            # Hardcoded version file and path
+            version_file = 'src/config/homeserver.json'
+            version_path_components = 'global.version.version'.split('.')
             
             repo_config_path = os.path.join(repo_path, version_file)
             

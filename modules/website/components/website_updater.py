@@ -211,16 +211,17 @@ class WebsiteUpdater:
     
     def _check_version_update_needed(self, temp_dir: str) -> Tuple[bool, bool, Dict[str, Any]]:
         """
-        Check if an update is needed by comparing both schema and content versions.
+        Check if an update is needed by comparing content versions only.
+        
+        Schema version checking is the orchestrator's responsibility, not the module's.
+        This method only checks if the website content needs updating.
         
         Returns:
             Tuple[bool, bool, Dict]: (update_needed, nuclear_restore_needed, update_details)
         """
         update_details = {
-            "schema_update_needed": False,
+            "schema_update_needed": False,  # Always False - orchestrator handles this
             "content_update_needed": False,
-            "local_schema_version": None,
-            "repo_schema_version": None,
             "local_content_version": None,
             "repo_content_version": None,
             "update_reasons": [],
@@ -236,40 +237,23 @@ class WebsiteUpdater:
             update_details["update_reasons"].append("Critical files missing")
             return True, True, update_details
         
-        # Schema version comparison
-        local_schema = self.config.get("metadata", {}).get("schema_version", "0.0.0")
-        repo_schema = local_schema  # Default fallback
+        # Schema version checking is NOT the module's job - orchestrator handles this
+        # We just assume we need to update when called (orchestrator already determined this)
+        update_details["schema_update_needed"] = False
         
-        try:
-            repo_index_path = os.path.join(temp_dir, "index.json")
-            if os.path.exists(repo_index_path):
-                import json
-                with open(repo_index_path, 'r') as f:
-                    repo_config = json.load(f)
-                repo_schema = repo_config.get("metadata", {}).get("schema_version", "0.0.0")
-        except Exception as e:
-            log_message(f"Failed to read repository schema version: {e}", "WARNING")
-        
-        update_details["local_schema_version"] = local_schema
-        update_details["repo_schema_version"] = repo_schema
-        
-        # Import version comparison function
-        from updates.index import compare_schema_versions
-        
-        if compare_schema_versions(repo_schema, local_schema) > 0:
-            update_details["schema_update_needed"] = True
-            update_details["update_reasons"].append(f"Schema update: {local_schema} → {repo_schema}")
-        
-        # Content version comparison
+        # Content version comparison (this is the module's business logic)
         local_content = self._get_local_version()
         repo_content = self.git.get_repository_version(temp_dir)
         
         update_details["local_content_version"] = local_content
         update_details["repo_content_version"] = repo_content
         
-        if repo_content and local_content and compare_schema_versions(repo_content, local_content) > 0:
-            update_details["content_update_needed"] = True
-            update_details["update_reasons"].append(f"Content update: {local_content} → {repo_content}")
+        # Check if content update is needed
+        if repo_content and local_content:
+            # Simple string comparison for content versions
+            if repo_content != local_content:
+                update_details["content_update_needed"] = True
+                update_details["update_reasons"].append(f"Content update: {local_content} → {repo_content}")
         
         # Check premium tab updates
         log_message("Checking premium tabs for updates...")
@@ -281,7 +265,9 @@ class WebsiteUpdater:
             update_summary = self.premium_tab_checker.get_update_summary(premium_tab_updates)
             log_message(f"Premium tab status: {update_summary}")
         
-        update_needed = update_details["schema_update_needed"] or update_details["content_update_needed"]
+        # For website updates, we typically want to update when called
+        # The orchestrator has already determined we need updating
+        update_needed = True  # Assume update is needed when this method is called
         
         if update_needed:
             log_message(f"Update needed: {', '.join(update_details['update_reasons'])}")
@@ -293,9 +279,9 @@ class WebsiteUpdater:
     def _get_local_version(self) -> Optional[str]:
         """Get the local version from homeserver.json."""
         try:
-            version_config = self.config.get('config', {}).get('version_checking', {})
-            version_file = version_config.get('content_version_file', 'src/config/homeserver.json')
-            version_path_components = version_config.get('content_version_path', 'global.version.version').split('.')
+            # Hardcoded version file and path
+            version_file = 'src/config/homeserver.json'
+            version_path_components = 'global.version.version'.split('.')
             
             local_config_path = os.path.join(self.base_dir, version_file)
             
