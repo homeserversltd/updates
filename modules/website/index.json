@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.27",
+        "schema_version": "0.1.28",
         "content_version": "0.9.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",

@@ -17,7 +17,7 @@ the entire src/backend, requiring premium tab reinstallation.
 
 import os
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 from updates.index import log_message
 
@@ -545,21 +545,82 @@ class WebsiteUpdater:
             
             log_message(f"Restoring {len(installed_tabs)} premium tabs...")
             
-            # Use premium installer to reinstall tabs
-            # This will be implemented when we integrate with the premium installer
+            # Use premium installer to install tabs (not reinstall)
+            # Since website update clobbers entire backend/src, we need to install all tabs
+            tab_paths = []
             for tab_info in installed_tabs:
                 tab_name = tab_info["name"]
-                log_message(f"Restoring tab: {tab_name}")
-                
-                # TODO: Call premium installer reinstall method
-                # For now, just log that we would restore this tab
-                log_message(f"Would restore tab: {tab_name} (version: {tab_info['version']})")
+                # Convert tab name to full premium directory path
+                tab_path = os.path.join(self.base_dir, 'premium', tab_name)
+                if os.path.exists(tab_path):
+                    tab_paths.append(tab_path)
+                else:
+                    log_message(f"⚠ Warning: Premium directory not found for {tab_name}: {tab_path}")
+            
+            if not tab_paths:
+                log_message("No valid premium tab paths found")
+                return False
+            
+            # Use the smart install command that automatically handles single vs multiple tabs
+            log_message(f"Installing {len(tab_paths)} tabs using smart install: {', '.join([os.path.basename(p) for p in tab_paths])}")
+            success = self._run_premium_installer_install(tab_paths)
+            if success:
+                log_message(f"✓ Successfully restored {len(tab_paths)} tabs")
+            else:
+                log_message(f"✗ Failed to restore some tabs")
+                return False
             
             log_message("✓ Premium tab restoration completed")
             return True
             
         except Exception as e:
             log_message(f"✗ Premium tab restoration failed: {e}", "ERROR")
+            return False
+    
+    def _run_premium_installer_install(self, tab_paths: List[str]) -> bool:
+        """
+        Run premium installer install command for tabs.
+        
+        The install command is smart enough to automatically detect single vs multiple tabs
+        and use batch mode when needed.
+        
+        Args:
+            tab_paths: List of full paths to premium tab directories
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            import subprocess
+            
+            # Run the premium installer install command
+            # The install command automatically handles single vs multiple tabs
+            cmd = [
+                "python3", 
+                self.premium_installer_path, 
+                "install"
+            ] + tab_paths
+            
+            log_message(f"Running: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=os.path.dirname(self.premium_installer_path)
+            )
+            
+            if result.returncode == 0:
+                log_message(f"✓ Premium installer install successful for {len(tab_paths)} tabs")
+                return True
+            else:
+                log_message(f"✗ Premium installer install failed")
+                log_message(f"STDOUT: {result.stdout}")
+                log_message(f"STDERR: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            log_message(f"✗ Exception running premium installer install: {e}", "ERROR")
             return False
     
     def _restore_user_customizations(self, customizations: Dict[str, Any]) -> bool:

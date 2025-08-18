@@ -68,9 +68,9 @@ class FileOperations:
                 
                 # Special handling for src directory to preserve protected files
                 if component_name == 'frontend' and target_path.endswith('/src'):
-                    log_message(f"[FILE] Using selective update for frontend component: {component_name}")
-                    self._selective_src_update(source_path, target_path)
-                    log_message(f"[FILE] ✓ Frontend component updated via selective method")
+                    log_message(f"[FILE] Using destructive update for frontend component (preserving /src/config only): {component_name}")
+                    self._destructive_src_update(source_path, target_path)
+                    log_message(f"[FILE] ✓ Frontend component updated via destructive method")
                     continue
 
                 # Special handling for premium directory to preserve installed tabs
@@ -214,6 +214,86 @@ class FileOperations:
             log_message(f"[FILE_COPY_DEBUG] Config path: {config_path}", "ERROR")
             log_message(f"[FILE_COPY_DEBUG] Source exists: {os.path.exists(source_path) if source_path else 'None'}", "ERROR")
             log_message(f"[FILE_COPY_DEBUG] Target exists: {os.path.exists(target_path) if target_path else 'None'}", "ERROR")
+            raise
+
+    def _destructive_src_update(self, source_path: str, target_path: str) -> None:
+        """
+        Completely clobbers the src directory, preserving only the /src/config section.
+        
+        Args:
+            source_path: Source src directory path
+            target_path: Target src directory path (/var/www/homeserver/src)
+        """
+        log_message(f"[FILE_COPY_DEBUG] Starting destructive src update: {source_path} -> {target_path}")
+        
+        try:
+            # STEP 1: Backup homeserver.json and themes if they exist
+            config_dir = os.path.join(target_path, 'config')
+            config_backup = None
+            themes_backup = {}
+            
+            if os.path.exists(config_dir):
+                # Backup homeserver.json
+                homeserver_path = os.path.join(config_dir, 'homeserver.json')
+                if os.path.exists(homeserver_path):
+                    with open(homeserver_path, 'r') as f:
+                        config_backup = f.read()
+                    log_message("[FILE_COPY_DEBUG] ✓ Backed up homeserver.json")
+                
+                # Backup themes directory
+                themes_dir = os.path.join(config_dir, 'themes')
+                if os.path.exists(themes_dir):
+                    for theme_name in os.listdir(themes_dir):
+                        theme_path = os.path.join(themes_dir, theme_name)
+                        if os.path.isdir(theme_path):
+                            themes_backup[theme_name] = theme_path
+                    log_message(f"[FILE_COPY_DEBUG] ✓ Backed up {len(themes_backup)} themes")
+            
+            # STEP 2: Remove entire target src directory
+            if os.path.exists(target_path):
+                shutil.rmtree(target_path)
+                log_message(f"[FILE_COPY_DEBUG] ✓ Removed entire target src directory: {target_path}")
+            
+            # STEP 3: Copy entire source src directory to target
+            shutil.copytree(source_path, target_path)
+            log_message(f"[FILE_COPY_DEBUG] ✓ Copied entire source src directory to target")
+            
+            # STEP 4: Restore homeserver.json from backup if it was backed up
+            if config_backup:
+                os.makedirs(config_dir, exist_ok=True)
+                homeserver_path = os.path.join(config_dir, 'homeserver.json')
+                with open(homeserver_path, 'w') as f:
+                    f.write(config_backup)
+                log_message("[FILE_COPY_DEBUG] ✓ Restored homeserver.json from backup")
+            
+            # STEP 5: Restore themes from backup if they were backed up
+            if themes_backup:
+                themes_dir = os.path.join(config_dir, 'themes')
+                os.makedirs(themes_dir, exist_ok=True)
+                for theme_name, theme_path in themes_backup.items():
+                    target_theme_path = os.path.join(themes_dir, theme_name)
+                    shutil.copytree(theme_path, target_theme_path)
+                    log_message(f"[FILE_COPY_DEBUG] ✓ Restored theme: {theme_name}")
+            
+            # STEP 6: Regenerate the secret encryption key (gets clobbered during update)
+            try:
+                import subprocess
+                log_message("[FILE_COPY_DEBUG] Regenerating secret encryption key...")
+                result = subprocess.run(['/usr/local/sbin/siteSecretKey.sh', 'generate'], 
+                                     capture_output=True, text=True, check=True)
+                log_message("[FILE_COPY_DEBUG] ✓ Secret key regenerated successfully")
+            except subprocess.CalledProcessError as e:
+                log_message(f"[FILE_COPY_DEBUG] ⚠️ Warning: Failed to regenerate secret key: {e}", "WARNING")
+                log_message(f"[FILE_COPY_DEBUG] stderr: {e.stderr}", "WARNING")
+            except FileNotFoundError:
+                log_message("[FILE_COPY_DEBUG] ⚠️ Warning: siteSecretKey.sh not found in /usr/local/sbin", "WARNING")
+            
+            log_message("[FILE_COPY_DEBUG] ✓ Destructive src update completed successfully")
+            
+        except Exception as e:
+            log_message(f"[FILE_COPY_DEBUG] ✗ Destructive src update failed: {e}", "ERROR")
+            log_message(f"[FILE_COPY_DEBUG] Source path: {source_path}", "ERROR")
+            log_message(f"[FILE_COPY_DEBUG] Target path: {target_path}", "ERROR")
             raise
 
     def _update_premium_core(self, source_path: str, target_path: str) -> None:

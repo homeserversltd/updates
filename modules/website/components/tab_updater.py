@@ -342,19 +342,116 @@ class TabUpdater:
             log_message(f"Reinstalling {len(tab_names)} tabs via premium installer...")
             
             # Use premium installer to reinstall tabs
-            # This will be implemented when we integrate with the premium installer
-            for tab_name in tab_names:
-                log_message(f"Reinstalling tab: {tab_name}")
-                
-                # TODO: Call premium installer reinstall method
-                # For now, just log that we would reinstall this tab
-                log_message(f"Would reinstall tab: {tab_name}")
+            if len(tab_names) == 1:
+                # Single tab - use reinstall command
+                tab_name = tab_names[0]
+                log_message(f"Reinstalling single tab: {tab_name}")
+                success = self._run_premium_installer_reinstall(tab_name)
+                if success:
+                    log_message(f"✓ Successfully reinstalled tab: {tab_name}")
+                else:
+                    log_message(f"✗ Failed to reinstall tab: {tab_name}")
+                    return False
+            else:
+                # Multiple tabs - use batch reinstall for efficiency
+                log_message(f"Reinstalling {len(tab_names)} tabs using batch reinstall: {', '.join(tab_names)}")
+                success = self._run_premium_installer_batch_reinstall(tab_names)
+                if success:
+                    log_message(f"✓ Successfully reinstalled {len(tab_names)} tabs")
+                else:
+                    log_message(f"✗ Failed to reinstall some tabs")
+                    return False
             
             log_message("✓ Tab reinstallation completed")
             return True
             
         except Exception as e:
             log_message(f"✗ Tab reinstallation failed: {e}", "ERROR")
+            return False
+    
+    def _run_premium_installer_reinstall(self, tab_name: str) -> bool:
+        """
+        Run premium installer reinstall command for a single tab.
+        
+        Args:
+            tab_name: Name of the tab to reinstall
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            import subprocess
+            
+            # Run the premium installer reinstall command
+            cmd = [
+                "python3", 
+                self.premium_installer_path, 
+                "reinstall", 
+                tab_name
+            ]
+            
+            log_message(f"Running: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=os.path.dirname(self.premium_installer_path)
+            )
+            
+            if result.returncode == 0:
+                log_message(f"✓ Premium installer reinstall successful for {tab_name}")
+                return True
+            else:
+                log_message(f"✗ Premium installer reinstall failed for {tab_name}")
+                log_message(f"STDOUT: {result.stdout}")
+                log_message(f"STDERR: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            log_message(f"✗ Exception running premium installer reinstall for {tab_name}: {e}", "ERROR")
+            return False
+    
+    def _run_premium_installer_batch_reinstall(self, tab_names: List[str]) -> bool:
+        """
+        Run premium installer batch reinstall command for multiple tabs.
+        
+        Args:
+            tab_names: List of tab names to reinstall
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            import subprocess
+            
+            # Run the premium installer batch reinstall command
+            cmd = [
+                "python3", 
+                self.premium_installer_path, 
+                "reinstall"
+            ] + tab_names
+            
+            log_message(f"Running: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=os.path.dirname(self.premium_installer_path)
+            )
+            
+            if result.returncode == 0:
+                log_message(f"✓ Premium installer batch reinstall successful for {len(tab_names)} tabs")
+                return True
+            else:
+                log_message(f"✗ Premium installer batch reinstall failed")
+                log_message(f"STDOUT: {result.stdout}")
+                log_message(f"STDERR: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            log_message(f"✗ Exception running premium installer batch reinstall: {e}", "ERROR")
             return False
     
     def _restart_services(self) -> bool:
