@@ -25,7 +25,7 @@ import shutil
 import tempfile
 import tarfile
 import re
-from zipfile import Path
+from pathlib import Path
 
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
