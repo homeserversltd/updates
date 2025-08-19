@@ -29,6 +29,7 @@ from pathlib import Path
 
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
+from updates.utils.moduleUtils import conditional_config_return
 
 def log_message(message, level="INFO"):
     """Log a message with timestamp and level."""
@@ -608,12 +609,10 @@ def main(args=None):
             else:
                 log_message(f"  {dir_key}: {dir_config}")
         
-        return {
-            "success": True,
-            "config": MODULE_CONFIG,
-            "service": SERVICE_NAME,
-            "paths": directories
-        }
+        return conditional_config_return(
+            {"success": True, "service": SERVICE_NAME, "paths": directories},
+            MODULE_CONFIG
+        )
 
     # --verify mode: comprehensive installation verification
     if len(args) > 0 and args[0] == "--verify":
@@ -626,12 +625,10 @@ def main(args=None):
             verification["version_readable"]
         ])
         
-        return {
-            "success": all_checks_passed,
-            "verification": verification,
-            "version": verification.get("version"),
-            "config": MODULE_CONFIG
-        }
+        return conditional_config_return(
+            {"success": all_checks_passed, "verification": verification, "version": verification.get("version")},
+            MODULE_CONFIG
+        )
 
     # --check mode: simple version check
     if len(args) > 0 and args[0] == "--check":
@@ -719,14 +716,10 @@ def main(args=None):
                 log_message("Ensuring proper permissions after update...")
                 restore_vaultwarden_permissions()
                 
-                return {
-                    "success": True, 
-                    "updated": True, 
-                    "old_version": current_version, 
-                    "new_version": new_version,
-                    "verification": verification,
-                    "config": MODULE_CONFIG
-                }
+                return conditional_config_return(
+                    {"success": True, "updated": True, "old_version": current_version, "new_version": new_version, "verification": verification},
+                    MODULE_CONFIG
+                )
             else:
                 raise Exception(f"Post-update verification failed. Version: {new_version}, Service active: {verification['service_active']}")
                 
@@ -751,26 +744,20 @@ def main(args=None):
             else:
                 log_message("Failed to restore from backup", "ERROR")
             
-            return {
-                "success": False, 
-                "error": str(e),
-                "restore_success": restore_success,
-                "restored_version": get_current_version() if restore_success else None,
-                "config": MODULE_CONFIG
-            }
+            return conditional_config_return(
+                {"success": False, "error": str(e), "restore_success": restore_success, "restored_version": get_current_version() if restore_success else None},
+                MODULE_CONFIG
+            )
     else:
         log_message(f"Vaultwarden is already at the latest version ({current_version})")
         
         # Still run verification to ensure everything is working
         verification = verify_vaultwarden_installation()
         
-        return {
-            "success": True, 
-            "updated": False, 
-            "version": current_version,
-            "verification": verification,
-            "config": MODULE_CONFIG
-        }
+        return conditional_config_return(
+            {"success": True, "updated": False, "version": current_version, "verification": verification},
+            MODULE_CONFIG
+        )
 
 if __name__ == "__main__":
     main()
