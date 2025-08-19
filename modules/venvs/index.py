@@ -525,13 +525,15 @@ def main(args=None):
             log_message("No existing virtual environments found for backup (all are new)", "INFO")
             backup_success = True  # No backup needed for new venvs
 
-    # Update all virtual environments
+    # Update only the virtual environments that need updating
     results = {}
     failed_venvs = []
     actually_updated = []
     
     try:
-        for venv_name, venv_cfg in venvs_config.items():
+        # Only process venvs that actually need updates
+        for venv_name in venvs_needing_updates:
+            venv_cfg = venvs_config[venv_name]
             log_message(f"Processing {venv_name}...")
             
             success, packages_updated = update_venv(venv_name, venv_cfg)

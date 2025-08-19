@@ -170,6 +170,29 @@ def _check_version_update_needed() -> Tuple[bool, Optional[str]]:
         return True, None
 
 
+def _update_local_version(module_dir: Path, new_version: str) -> None:
+    """
+    Update the local index.json content_version to match the remote version.
+    This prevents unnecessary re-runs of the same update.
+    """
+    try:
+        config_path = module_dir / 'index.json'
+        with config_path.open('r') as f:
+            config = json.load(f)
+        
+        # Update the content_version
+        config['metadata']['content_version'] = new_version
+        
+        # Write back the updated config
+        with config_path.open('w') as f:
+            json.dump(config, f, indent=2)
+        
+        log_message(f"Updated local content_version to {new_version}")
+        
+    except Exception as e:
+        log_message(f"Failed to update local version: {e}", "WARNING")
+
+
 def check(module_dir: Path) -> Dict[str, Any]:
     cfg = load_config(module_dir)
     policies = _effective_policies(module_dir, cfg)
@@ -254,55 +277,74 @@ def apply(module_dir: Path) -> Dict[str, Any]:
         
         return result
 
-    # Only backup if update is actually needed
-    log_message("Update needed - creating backup before applying changes...")
-    backup_targets = [p['destination'] for p in policies]
-    state.backup_module_state('permissions', description='sudoers policies', files=backup_targets)
-
+    # VERSION NUMBER IS THE SIGNAL - check which files actually changed
+    log_message(f"Version {remote_version} detected - checking which files need updating...")
+    
+    files_to_update = []
     for p in policies:
         src = resolve_source(p, module_dir)
         dest = Path(p['destination'])
-        expected = p.get('sha256') or sha256(src)
-        current = sha256(dest)
-        needs_replace = (expected != current) or (not dest.exists())
-
-        if not needs_replace:
-            # Only correct perms if they differ
-            desired_owner = p.get('owner','root')
-            desired_group = p.get('group','root')
-            desired_mode = int(p.get('mode','440'),8)
-            cur = current_permissions(dest)
-            if cur.get('owner') != desired_owner or cur.get('group') != desired_group or cur.get('mode') != desired_mode:
-                perm_mgr.set_permissions([PermissionTarget(dest.as_posix(), desired_owner, desired_group, desired_mode)])
+        
+        # Check if this specific file actually needs updating
+        if not dest.exists():
+            log_message(f"File missing, will create: {dest}")
+            files_to_update.append(p)
             continue
-
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile('wb', delete=False, dir=dest.parent) as tmp:
-            shutil.copyfile(src, tmp.name)
-            tmp_path = Path(tmp.name)
-
-        # validate the temp file
-        if not visudo_check(tmp_path):
-            # cleanup and abort this file
-            try:
-                tmp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
-            except Exception:
-                pass
-            result = { 'success': False, 'updated': False, 'error': f'visudo validation failed for {dest}' }
             
-            # Include config only in debug mode
-            result = conditional_config_return(result, cfg)
-            
-            return result
+        # Compare content SHA256 to see if file actually changed
+        src_sha = sha256(src)
+        dest_sha = sha256(dest)
+        
+        if src_sha != dest_sha:
+            log_message(f"Content changed, will update: {dest}")
+            files_to_update.append(p)
+        else:
+            log_message(f"Content unchanged, skipping: {dest}")
 
-        # set perms on temp and swap
-        perm_mgr.set_permissions([PermissionTarget(tmp_path.as_posix(), p.get('owner','root'), p.get('group','root'), int(p.get('mode','440'),8))])
-        os.replace(tmp_path, dest)
-        changed.append(str(dest))
-        log_message(f"Updated sudoers policy: {dest}")
+    # Only backup files that will actually change
+    if files_to_update:
+        log_message(f"Found {len(files_to_update)} files to update - creating selective backup...")
+        backup_targets = [p['destination'] for p in files_to_update]
+        state.backup_module_state('permissions', description='sudoers policies', files=backup_targets)
+        
+        # Now update only the files that actually changed
+        for p in files_to_update:
+            src = resolve_source(p, module_dir)
+            dest = Path(p['destination'])
+            
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile('wb', delete=False, dir=dest.parent) as tmp:
+                shutil.copyfile(src, tmp.name)
+                tmp_path = Path(tmp.name)
+
+            # validate the temp file
+            if not visudo_check(tmp_path):
+                # cleanup and abort this file
+                try:
+                    tmp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+                except Exception:
+                    pass
+                result = { 'success': False, 'updated': False, 'error': f'visudo validation failed for {dest}' }
+                
+                # Include config only in debug mode
+                result = conditional_config_return(result, cfg)
+                
+                return result
+
+            # set perms on temp and swap
+            perm_mgr.set_permissions([PermissionTarget(tmp_path.as_posix(), p.get('owner','root'), p.get('group','root'), int(p.get('mode','440'),8))])
+            os.replace(tmp_path, dest)
+            changed.append(str(dest))
+            log_message(f"Updated sudoers policy: {dest}")
+    else:
+        log_message("No files actually changed despite version bump - skipping backup and updates")
 
     # final full sudoers validation
     subprocess.run(['visudo', '-cf', '/etc/sudoers'], check=False)
+
+    # CRITICAL FIX: Update local index.json to prevent unnecessary re-runs
+    if remote_version:
+        _update_local_version(module_dir, remote_version)
 
     result = { 
         'success': True, 

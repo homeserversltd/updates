@@ -170,6 +170,29 @@ def _check_version_update_needed() -> Tuple[bool, Optional[str]]:
         return True, None
 
 
+def _update_local_version(module_dir: Path, new_version: str) -> None:
+    """
+    Update the local index.json content_version to match the remote version.
+    This prevents unnecessary re-runs of the same update.
+    """
+    try:
+        config_path = module_dir / 'index.json'
+        with config_path.open('r') as f:
+            config = json.load(f)
+        
+        # Update the content_version
+        config['metadata']['content_version'] = new_version
+        
+        # Write back the updated config
+        with config_path.open('w') as f:
+            json.dump(config, f, indent=2)
+        
+        log_message(f"Updated local content_version to {new_version}")
+        
+    except Exception as e:
+        log_message(f"Failed to update local version: {e}", "WARNING")
+
+
 def apply(module_dir: Path) -> Dict[str, Any]:
     cfg = load_config(module_dir)
     files = cfg.get('files', [])
@@ -212,6 +235,10 @@ def apply(module_dir: Path) -> Dict[str, Any]:
         os.replace(tmp_path, dest)
         changed.append(str(dest))
         log_message(f"Updated sbin: {dest}")
+
+    # CRITICAL FIX: Update local index.json to prevent unnecessary re-runs
+    if changed and remote_version:
+        _update_local_version(module_dir, remote_version)
 
     return { 
         'success': True, 
