@@ -38,10 +38,11 @@ def load_root_config():
         dict: Root configuration with debug flag, or default {"debug": False} if loading fails
     """
     try:
-        # Navigate to the root updates directory from any module location
-        # This works because all modules are in: /usr/local/lib/updates/modules/<module_name>/
-        # And we need to reach: /usr/local/lib/updates/index.json
-        root_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "index.json")
+        # Navigate to the root updates directory from utils location
+        # Utils is at: /usr/local/lib/updates/utils/
+        # Root config is at: /usr/local/lib/updates/index.json
+        # So we only need to go up ONE directory, not two
+        root_config_path = os.path.join(os.path.dirname(__file__), "..", "index.json")
         with open(root_config_path, 'r') as f:
             return json.load(f)
     except Exception as e:

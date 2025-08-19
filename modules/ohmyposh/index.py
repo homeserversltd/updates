@@ -26,6 +26,7 @@ from pathlib import Path
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
+from updates.utils.moduleUtils import conditional_config_return
 
 # Load module configuration from index.json
 def load_module_config():
@@ -450,11 +451,10 @@ def main(args=None):
         log_message(f"  Backup dir: {backup_config['backup_dir']}")
         log_message(f"  Backup paths: {backup_config['include_paths']}")
         
-        return {
+        return conditional_config_return({
             "success": True,
-            "config": MODULE_CONFIG,
             "paths": directories_config
-        }
+        }, MODULE_CONFIG)
 
     # --verify mode: comprehensive installation verification
     if len(args) > 0 and args[0] == "--verify":
@@ -467,12 +467,11 @@ def main(args=None):
             verification["version_readable"]
         ])
         
-        return {
+        return conditional_config_return({
             "success": all_checks_passed,
             "verification": verification,
-            "version": verification.get("version"),
-            "config": MODULE_CONFIG
-        }
+            "version": verification.get("version")
+        }, MODULE_CONFIG)
 
     # --check mode: simple version check
     if len(args) > 0 and args[0] == "--check":
@@ -556,14 +555,13 @@ def main(args=None):
                 log_message("Ensuring proper permissions after update...")
                 restore_ohmyposh_permissions()
                 
-                return {
+                return conditional_config_return({
                     "success": True, 
                     "updated": True, 
                     "old_version": current_version, 
                     "new_version": new_version,
-                    "verification": verification,
-                    "config": MODULE_CONFIG
-                }
+                    "verification": verification
+                }, MODULE_CONFIG)
             else:
                 raise Exception(f"Version mismatch after update. Expected: {latest_version}, Got: {new_version}")
                 
@@ -582,13 +580,12 @@ def main(args=None):
             else:
                 log_message("Failed to restore from backup", "ERROR")
             
-            return {
+            return conditional_config_return({
                 "success": False, 
                 "error": str(e),
                 "rollback_success": rollback_success,
-                "restored_version": get_current_version() if rollback_success else None,
-                "config": MODULE_CONFIG
-            }
+                "restored_version": get_current_version() if rollback_success else None
+            }, MODULE_CONFIG)
     else:
         log_message(f"Oh My Posh is already at the latest version ({current_version})")
         
@@ -596,13 +593,12 @@ def main(args=None):
         # Verification is only useful when we've made changes or need to diagnose issues
         log_message("Skipping verification - no update needed")
         
-        return {
+        return conditional_config_return({
             "success": True, 
             "updated": False, 
             "version": current_version,
-            "verification": None,  # No verification performed when not needed
-            "config": MODULE_CONFIG
-        }
+            "verification": None  # No verification performed when not needed
+        }, MODULE_CONFIG)
 
 if __name__ == "__main__":
     main()
