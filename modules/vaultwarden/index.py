@@ -376,8 +376,8 @@ def update_vaultwarden():
             cargo_features = installation_config["main_repo"]["cargo_features"]
             features_arg = f"--features={','.join(cargo_features)}" if cargo_features else ""
             
-            # Use full path to cargo binary
-            cargo_home = directories.get("cargo_home", "/usr/local/cargo")
+            # Use full path to cargo binary - fix path resolution
+            cargo_home = get_directory_path(directories, "cargo_home", "/usr/local/cargo")
             cargo_bin = os.path.join(cargo_home, "bin", "cargo")
             
             build_cmd = [cargo_bin, "build", "--release"]
