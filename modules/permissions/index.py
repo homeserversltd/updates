@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget, get_permissions
+from updates.utils.moduleUtils import conditional_config_return
 
 
 def sha256(path: Path) -> str:
@@ -222,7 +223,12 @@ def check(module_dir: Path) -> Dict[str, Any]:
     except Exception as e:
         log_message(f"Failed to write permissions state: {e}", 'WARNING')
 
-    return { 'success': True, 'updated': False, 'drift': drift, 'unknown': unknown }
+    result = { 'success': True, 'updated': False, 'drift': drift, 'unknown': unknown }
+    
+    # Include config only in debug mode
+    result = conditional_config_return(result, cfg)
+    
+    return result
 
 
 def apply(module_dir: Path) -> Dict[str, Any]:
@@ -236,14 +242,20 @@ def apply(module_dir: Path) -> Dict[str, Any]:
     update_needed, remote_version = _check_version_update_needed()
     if not update_needed:
         log_message("Permissions module is already up to date, no update needed")
-        return {
+        result = {
             'success': True, 
             'updated': False, 
             'changed': [],
             'version': remote_version
         }
+        
+        # Include config only in debug mode
+        result = conditional_config_return(result, cfg)
+        
+        return result
 
-    # Backup all targets first (only if update is needed)
+    # Only backup if update is actually needed
+    log_message("Update needed - creating backup before applying changes...")
     backup_targets = [p['destination'] for p in policies]
     state.backup_module_state('permissions', description='sudoers policies', files=backup_targets)
 
@@ -276,7 +288,12 @@ def apply(module_dir: Path) -> Dict[str, Any]:
                 tmp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
             except Exception:
                 pass
-            return { 'success': False, 'updated': False, 'error': f'visudo validation failed for {dest}' }
+            result = { 'success': False, 'updated': False, 'error': f'visudo validation failed for {dest}' }
+            
+            # Include config only in debug mode
+            result = conditional_config_return(result, cfg)
+            
+            return result
 
         # set perms on temp and swap
         perm_mgr.set_permissions([PermissionTarget(tmp_path.as_posix(), p.get('owner','root'), p.get('group','root'), int(p.get('mode','440'),8))])
@@ -287,12 +304,17 @@ def apply(module_dir: Path) -> Dict[str, Any]:
     # final full sudoers validation
     subprocess.run(['visudo', '-cf', '/etc/sudoers'], check=False)
 
-    return { 
+    result = { 
         'success': True, 
         'updated': len(changed) > 0, 
         'changed': changed,
         'version': remote_version
     }
+    
+    # Include config only in debug mode
+    result = conditional_config_return(result, cfg)
+    
+    return result
 
 
 def main(args=None):

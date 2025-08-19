@@ -23,9 +23,16 @@ import json
 import time
 import tarfile
 import urllib.request
+# Import existing utilities
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
+from updates.utils.moduleUtils import conditional_config_return
+
+
+class WebsiteUpdateError(Exception):
+    """Custom exception for website update errors."""
+    pass
 
 # Load module configuration from index.json
 def load_module_config():
@@ -411,12 +418,16 @@ def main(args=None):
             verification["version_readable"]
         ])
         
-        return {
+        result = {
             "success": all_checks_passed,
             "verification": verification,
-            "version": verification.get("version"),
-            "config": MODULE_CONFIG
+            "version": verification.get("version")
         }
+        
+        # Include config only in debug mode
+        result = conditional_config_return(result, MODULE_CONFIG)
+        
+        return result
 
     # --check mode: simple version check
     if len(args) > 0 and args[0] == "--check":
@@ -494,20 +505,24 @@ def main(args=None):
             new_version = verification.get("version")
             
             if new_version == latest_version and verification["service_active"]:
-                log_message(f"Successfully updated Navidrome from {current_version} to {latest_version}")
+                log_message(f"Successfully updated Navidrome from {current_version} to {new_version}")
                 
                 # Restore permissions after successful update
                 log_message("Ensuring proper permissions after update...")
                 restore_navidrome_permissions()
                 
-                return {
+                result = {
                     "success": True, 
                     "updated": True, 
                     "old_version": current_version, 
                     "new_version": new_version,
-                    "verification": verification,
-                    "config": MODULE_CONFIG
+                    "verification": verification
                 }
+                
+                # Include config only in debug mode
+                result = conditional_config_return(result, MODULE_CONFIG)
+                
+                return result
             else:
                 if new_version != latest_version:
                     raise Exception(f"Version mismatch after update. Expected: {latest_version}, Got: {new_version}")
@@ -531,26 +546,34 @@ def main(args=None):
             else:
                 log_message("Failed to restore from backup", "ERROR")
             
-            return {
+            result = {
                 "success": False, 
                 "error": str(e),
                 "rollback_success": rollback_success,
-                "restored_version": get_current_version() if rollback_success else None,
-                "config": MODULE_CONFIG
+                "restored_version": get_current_version() if rollback_success else None
             }
+            
+            # Include config only in debug mode
+            result = conditional_config_return(result, MODULE_CONFIG)
+            
+            return result
     else:
         log_message(f"Navidrome is already at the latest version ({current_version})")
         
         # Still run verification to ensure everything is working
         verification = verify_navidrome_installation()
         
-        return {
+        result = {
             "success": True, 
             "updated": False, 
             "version": current_version,
-            "verification": verification,
-            "config": MODULE_CONFIG
+            "verification": verification
         }
+        
+        # Include config only in debug mode
+        result = conditional_config_return(result, MODULE_CONFIG)
+        
+        return result
 
 if __name__ == "__main__":
     main()

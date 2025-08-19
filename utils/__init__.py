@@ -39,6 +39,11 @@ from .maintenanceRunner import (
     run_module_maintenance,
     list_maintenance_modules
 )
+from .moduleUtils import (
+    load_root_config,
+    conditional_config_return,
+    get_module_debug_mode
+)
 
 __all__ = [
     'log_message',
@@ -55,5 +60,8 @@ __all__ = [
     'create_maintenance_runner',
     'run_all_maintenance',
     'run_module_maintenance',
-    'list_maintenance_modules'
+    'list_maintenance_modules',
+    'load_root_config',
+    'conditional_config_return',
+    'get_module_debug_mode'
 ]

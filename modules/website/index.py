@@ -28,6 +28,7 @@ from datetime import datetime
 from updates.index import log_message, compare_schema_versions
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
+from updates.utils.moduleUtils import conditional_config_return
 
 # Import our new dedicated components
 from .components import (
@@ -326,7 +327,12 @@ def main(args=None):
     # Lightweight check-only mode for orchestrator detection
     if args and isinstance(args, (list, tuple)) and ("--check" in args or "--check-only" in args):
         orchestrator = WebsiteUpdateOrchestrator()
-        return orchestrator.check_updates()
+        result = orchestrator.check_updates()
+        
+        # Include config only in debug mode
+        result = conditional_config_return(result, orchestrator.config)
+        
+        return result
     
     try:
         orchestrator = WebsiteUpdateOrchestrator()
@@ -335,22 +341,32 @@ def main(args=None):
         update_check = orchestrator.check_updates()
         
         if not update_check["success"]:
-            return {
+            result = {
                 "success": False,
                 "update_available": False,
                 "error": update_check.get("error", "Update check failed")
             }
+            
+            # Include config only in debug mode
+            result = conditional_config_return(result, orchestrator.config)
+            
+            return result
         
         # Determine what needs updating
         website_update_needed = update_check["website_update_available"]
         tab_updates_needed = update_check["tab_updates_available"]
         
         if not website_update_needed and not tab_updates_needed:
-            return {
+            result = {
                 "success": True,
                 "update_available": False,
                 "message": "No updates available - everything is current"
             }
+            
+            # Include config only in debug mode
+            result = conditional_config_return(result, orchestrator.config)
+            
+            return result
         
         # Perform appropriate update
         if website_update_needed:
@@ -376,17 +392,29 @@ def main(args=None):
         else:
             log_message(f"Website update module failed: {result.get('message', 'Unknown error')}", "ERROR")
         
+        # Include config only in debug mode
+        result = conditional_config_return(result, orchestrator.config)
+        
         return result
         
     except Exception as e:
         log_message(f"Website update module crashed: {e}", "ERROR")
-        return {
+        result = {
             "success": False,
             "updated": False,
             "message": f"Module crashed: {e}",
             "error": str(e),
             "rollback_success": None
         }
+        
+        # Include config only in debug mode for debugging crashes
+        try:
+            orchestrator = WebsiteUpdateOrchestrator()
+            result = conditional_config_return(result, orchestrator.config)
+        except:
+            pass  # Don't fail if we can't get config
+        
+        return result
 
 
 if __name__ == "__main__":

@@ -63,7 +63,6 @@ class WebsiteUpdater:
             "success": False,
             "updated": False,
             "message": "",
-            "schema_updated": False,
             "content_updated": False,
             "premium_tabs_restored": False,
             "error": None,
@@ -163,8 +162,7 @@ class WebsiteUpdater:
                 self._update_module_versions(update_details["repo_content_version"])
                 result["content_updated"] = True
             
-            if update_details["schema_update_needed"]:
-                result["schema_updated"] = True
+
             
             # Success!
             result["success"] = True
@@ -220,7 +218,6 @@ class WebsiteUpdater:
             Tuple[bool, bool, Dict]: (update_needed, nuclear_restore_needed, update_details)
         """
         update_details = {
-            "schema_update_needed": False,  # Always False - orchestrator handles this
             "content_update_needed": False,
             "local_content_version": None,
             "repo_content_version": None,
@@ -238,8 +235,7 @@ class WebsiteUpdater:
             return True, True, update_details
         
         # Schema version checking is NOT the module's job - orchestrator handles this
-        # We just assume we need to update when called (orchestrator already determined this)
-        update_details["schema_update_needed"] = False
+        # The orchestrator has already determined if this module needs updating
         
         # Content version comparison (this is the module's business logic)
         local_content = self._get_local_version()
@@ -265,9 +261,9 @@ class WebsiteUpdater:
             update_summary = self.premium_tab_checker.get_update_summary(premium_tab_updates)
             log_message(f"Premium tab status: {update_summary}")
         
-        # For website updates, we typically want to update when called
-        # The orchestrator has already determined we need updating
-        update_needed = True  # Assume update is needed when this method is called
+        # Determine if update is actually needed based on content version comparison only
+        # Schema version checking is the orchestrator's responsibility - we only check content
+        update_needed = update_details["content_update_needed"]
         
         if update_needed:
             log_message(f"Update needed: {', '.join(update_details['update_reasons'])}")
