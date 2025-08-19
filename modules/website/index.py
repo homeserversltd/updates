@@ -25,7 +25,7 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
 # Import existing utilities
-from updates.index import log_message, compare_schema_versions
+from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
 from updates.utils.moduleUtils import conditional_config_return

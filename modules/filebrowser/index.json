@@ -1,9 +1,9 @@
 {
     "metadata": {
-        "schema_version": "0.1.6",
+        "schema_version": "0.1.7",
         "module_name": "filebrowser",
         "description": "File browser web interface",
-        "enabled": false
+        "enabled": true
     },
     "config": {
         "directories": {

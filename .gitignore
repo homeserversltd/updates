@@ -60,6 +60,8 @@ logs/
 *.bak
 *.orig
 _old/
+**/_old/**
+**/_old/*
 # Test artifacts
 .pytest_cache/
 .coverage

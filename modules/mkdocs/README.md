@@ -1,71 +1,68 @@
-# Mkdocs Module
+# MkDocs Update Module
 
-## Purpose
+## Workflow Diagram
 
-The mkdocs module provides a documentation server for HOMESERVER using MkDocs. It serves static documentation sites with search capabilities and modern theming, automatically synchronized with the latest documentation from GitHub.
-
-## What It Does
-
-- **Documentation Hosting**: Serves MkDocs-generated static sites
-- **Search Functionality**: Built-in full-text search for documentation
-- **Theme Management**: Supports modern, responsive themes
-- **Navigation**: Automatic site navigation and structure
-- **Markdown Support**: Renders Markdown files as HTML pages
-- **Automatic Updates**: Synchronizes documentation content from GitHub repository
-
-## Why It Matters
-
-Good documentation is crucial for system administration and development. The mkdocs module provides:
-
-- **Centralized Docs**: Single place for all HOMESERVER documentation
-- **Searchable Content**: Quickly find information without manual searching
-- **Version Control**: Easy updates through Markdown files
-- **Accessibility**: Responsive design works on all devices
-- **Always Current**: Automatic synchronization with latest documentation updates
-
-## Integration with HOMESERVER
-
-Integrates with HOMESERVER's web infrastructure to provide documentation alongside other services.
-
-## Key Features
-
-- Fast static site generation
-- Built-in dev-server for previews
-- Plugin ecosystem
-- Theme customization
-- Full-text search
-- **Automatic GitHub synchronization**
-- **Version tracking and rollback support**
-
-## Update Process
-
-The module handles two types of updates:
-
-### Software Updates
-- Monitors MkDocs and MkDocs Material versions
-- Updates Python packages via pip when new versions are available
-- Preserves configuration and permissions
-
-### Documentation Updates
-- Monitors the [HOMESERVER documentation repository](https://github.com/homeserversltd/documentation)
-- **Simple git-based version comparison** - Compares local VERSION file with remote repository
-- **No API dependencies** - Direct git clone and VERSION file comparison
-- **Automatic deployment** - Downloads and deploys updated documentation when versions differ
-- **Version tracking** - Maintains local VERSION file and index.json content_version for rollback capability
-
-## Configuration
-
-The module is configured via `index.json`:
-
-- **Software**: GitHub API for MkDocs Material releases
-- **Documentation**: Git repository URL and local VERSION file path
-- **Paths**: Local storage locations for docs and version tracking
-- **Permissions**: File ownership and access controls
-- **Version Management**: Local VERSION file mirrors remote repository version
-
-## Backup and Recovery
-
-- **State Management**: Automatic backup before updates
-- **Rollback Support**: Restore previous state if updates fail
-- **Version Tracking**: Maintains documentation version history
-- **Permission Preservation**: Ensures proper file ownership after updates 
+```mermaid
+flowchart TD
+    A[Module Entry] --> B{Command Line Args?}
+    
+    B -->|--check| C[Check Mode: Status Report]
+    B -->|No Args| D[Update Mode: Full Update]
+    
+    C --> C1[Check Version Updates Needed]
+    C1 --> C2[Get Installation Status]
+    C2 --> C3[Return Status Report]
+    
+    D --> E[Check Version Updates Needed]
+    E --> F{Any Updates Required?}
+    
+    F -->|No| G[Skip - All Components Current]
+    F -->|Yes| H[Create Backup]
+    
+    H --> I[Initialize State Manager]
+    I --> J[Backup Module State]
+    J --> K[Stop MkDocs Service]
+    
+    K --> L{Software Update Needed?}
+    
+    L -->|Yes| M[Update MkDocs via pip]
+    L -->|No| N[Skip Software Update]
+    
+    M --> O[Update Material Theme via pip]
+    N --> O
+    
+    O --> P{Documentation Update Needed?}
+    
+    P -->|Yes| Q[Clone Docs Repository]
+    P -->|No| R[Skip Documentation Update]
+    
+    Q --> S[Deploy New Content]
+    S --> T[Set Proper Ownership]
+    T --> U[Save New Versions]
+    
+    R --> U
+    
+    U --> V[Restore Permissions]
+    V --> W[Start MkDocs Service]
+    W --> X[Wait for Service Start]
+    X --> Y[Verify Installation]
+    
+    Y --> Z{Verification Passed?}
+    
+    Z -->|No| AA[Verification Failed]
+    Z -->|Yes| BB[Update Complete]
+    
+    AA --> CC[Rollback from Backup]
+    CC --> DD[Restore Module State]
+    DD --> EE[Start Service After Rollback]
+    EE --> FF[Return Rollback Status]
+    
+    G --> GG[Return: No Update Needed]
+    BB --> HH[Return: Success Status]
+    
+    style A fill:#e1f5fe
+    style HH fill:#c8e6c9
+    style G fill:#c8e6c9
+    style C3 fill:#c8e6c9
+    style FF fill:#ffcdd2
+``` 

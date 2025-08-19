@@ -1,5 +1,80 @@
 # HOMESERVER Website - The Digital Command Center
 
+## Workflow Architecture
+
+```mermaid
+flowchart TD
+    A[Website Module Called by Orchestrator] --> B{Command Line Args?}
+    
+    B -->|--check/--check-only| C[Check Mode]
+    B -->|No Args| D[Update Mode]
+    
+    C --> E[Check for Website Updates]
+    E --> F[Check for Premium Tab Updates]
+    F --> G[Return Update Status]
+    
+    D --> H[Check for Website Updates]
+    H --> I[Check for Premium Tab Updates]
+    I --> J{Updates Available?}
+    
+    J -->|No| K[Return: No Updates Needed]
+    J -->|Yes| L{What Type of Update?}
+    
+    L -->|Website Only| M[WebsiteUpdater.update]
+    L -->|Premium Tabs Only| N[TabUpdater.update_batch_tabs]
+    L -->|Both| O[update_everything Method]
+    
+    M --> P[Clone GitHub Repo]
+    P --> Q[Check Content Version]
+    Q --> R{Content Update Needed?}
+    
+    R -->|No| S[No Website Update Needed]
+    R -->|Yes| T[Create Comprehensive Backup]
+    
+    S --> U[Website Check Complete]
+    T --> V[Capture Premium Tab State]
+    V --> W[Capture User Customizations]
+    W --> X[Update Website Files]
+    X --> Y[Restore User Customizations]
+    Y --> Z[Restore Premium Tabs via Installer]
+    Z --> AA[Run npm Build]
+    AA --> BB[Restart Services]
+    BB --> CC[Website Update Complete]
+    
+    N --> DD[Validate Tab Names]
+    DD --> EE[Create Targeted Backup]
+    EE --> FF[Update Individual Tab Files]
+    FF --> GG[Reinstall Tabs via Installer]
+    GG --> HH[Run npm Build]
+    HH --> II[Restart Services]
+    II --> JJ[Tab Updates Complete]
+    
+    O --> KK[Check What Needs Updating]
+    KK --> LL{Website Update Needed?}
+    LL -->|Yes| MM[Call WebsiteUpdater.update]
+    LL -->|No| NN[Website Already Current]
+    MM --> OO[Website Updated]
+    NN --> OO
+    OO --> PP{Tab Updates Needed?}
+    PP -->|Yes| QQ[Call TabUpdater.update_batch_tabs]
+    PP -->|No| RR[Tabs Already Current]
+    QQ --> SS[Tabs Updated]
+    RR --> SS
+    SS --> TT[Everything Updated]
+    
+    U --> UU[Return Success]
+    CC --> UU
+    JJ --> UU
+    TT --> UU
+    
+    style A fill:#e1f5fe
+    style UU fill:#c8e6c9
+    style K fill:#c8e6c9
+    style G fill:#c8e6c9
+    style U fill:#c8e6c9
+    style S fill:#c8e6c9
+```
+
 ## Purpose
 The beating heart of HOMESERVER. Everything you see, touch, and control flows through this sophisticated web interface. This is your digital sovereignty made tangible.
 

@@ -1,39 +1,104 @@
-# Oh My Posh Module
+# Oh My Posh Update Module
 
-## Purpose
+## Workflow Diagram
 
-The ohmyposh module provides advanced shell prompt customization for HOMESERVER administrators. Oh My Posh transforms the standard terminal prompt into a powerful, informative, and visually appealing interface that displays system status, git information, and contextual data.
+```mermaid
+flowchart TD
+    A[Module Entry] --> B{Command Line Args?}
+    
+    B -->|--check| C[Check Mode: Version Check]
+    B -->|--verify| D[Verify Mode: Full Verification]
+    B -->|--config| E[Config Mode: Show Configuration]
+    B -->|--fix-permissions| F[Fix Permissions Mode]
+    B -->|No Args| G[Update Mode: Full Update]
+    
+    C --> C1[Check Binary Exists]
+    C1 --> C2[Get Current Version]
+    C2 --> C3{Version Found?}
+    C3 -->|Yes| C4[Return Success + Version]
+    C3 -->|No| C5[Return Error: Not Found]
+    
+    D --> D1[Load Directory Config]
+    D1 --> D2[Check Binary Status]
+    D2 --> D3[Check Themes Directory]
+    D3 --> D4[Count Theme Files]
+    D4 --> D5[Return Verification Results]
+    
+    E --> E1[Display Binary Path]
+    E1 --> E2[Show Directory Config]
+    E2 --> E3[Show Backup Config]
+    E3 --> E4[Return Configuration]
+    
+    F --> F1[Initialize Permission Manager]
+    F1 --> F2[Set Permission Targets]
+    F2 --> F3[Apply Permissions]
+    F3 --> F4[Return Permission Status]
+    
+    G --> H[Get Current Version]
+    H --> I{Version Available?}
+    
+    I -->|No| J[Return Error: No Current Version]
+    I -->|Yes| K[Get Latest Version from GitHub]
+    
+    K --> L{Latest Version Available?}
+    
+    L -->|No| M[Return Error: No Latest Version]
+    L -->|Yes| N{Update Needed?}
+    
+    N -->|No| O[Return: Already Current]
+    N -->|Yes| P[Create Backup]
+    
+    P --> Q[Initialize State Manager]
+    Q --> R[Backup Module State]
+    R --> S{Backup Success?}
+    
+    S -->|No| T[Return Error: Backup Failed]
+    S -->|Yes| U[Install Update]
+    
+    U --> V[Install Binary]
+    V --> W{Binary Install Success?}
+    
+    W -->|No| X[Installation Failed]
+    W -->|Yes| Y[Install Themes]
+    
+    Y --> Z{Themes Install Success?}
+    
+    Z -->|No| AA[Themes Installation Failed]
+    Z -->|Yes| BB[Restore Permissions]
+    
+    BB --> CC[Verify Installation]
+    CC --> DD{Verification Passed?}
+    
+    DD -->|No| EE[Verification Failed]
+    DD -->|Yes| FF[Update Complete]
+    
+    X --> GG[Rollback from Backup]
+    AA --> GG
+    EE --> GG
+    
+    GG --> HH[Restore Module State]
+    HH --> II{Rollback Success?}
+    
+    II -->|Yes| JJ[Return Rollback Status]
+    II -->|No| KK[Return Rollback Failure]
+    
+    O --> LL[Return: No Update Needed]
+    FF --> MM[Return: Success Status]
+    
+    style A fill:#e1f5fe
+    style MM fill:#c8e6c9
+    style O fill:#c8e6c9
+    style C4 fill:#c8e6c9
+    style D5 fill:#c8e6c9
+    style E4 fill:#c8e6c9
+    style F4 fill:#c8e6c9
+    style J fill:#ffcdd2
+    style M fill:#ffcdd2
+    style T fill:#ffcdd2
+    style X fill:#ffcdd2
+    style AA fill:#ffcdd2
+    style EE fill:#ffcdd2
+    style KK fill:#ffcdd2
+``` 
 
-## What It Does
-
-- **Enhanced Prompts**: Replaces basic shell prompts with rich, informative displays
-- **System Information**: Shows current directory, git status, system load, and more
-- **Theme Support**: Provides dozens of professionally designed prompt themes
-- **Cross-Shell Compatibility**: Works with bash, zsh, fish, and PowerShell
-- **Real-Time Updates**: Displays dynamic information like git branch status and system metrics
-- **Customizable Segments**: Modular prompt components that can be configured per user needs
-
-## Why It Matters
-
-System administration requires constant awareness of context - current directory, git status, system state, and more. HOMESERVER's ohmyposh module transforms the terminal from a basic command interface into an intelligent administrative dashboard:
-
-- **Situational Awareness**: Always know where you are and what's happening in your environment
-- **Productivity Enhancement**: Reduce cognitive load by displaying relevant information automatically
-- **Visual Clarity**: Color-coded prompts make it easier to distinguish between different system states
-- **Error Prevention**: Git status and directory information help prevent common administrative mistakes
-- **Professional Experience**: Modern, polished terminal experience that matches HOMESERVER's quality standards
-
-## Integration with HOMESERVER
-
-The ohmyposh module integrates with HOMESERVER's terminal environment to provide consistent, professional prompt experiences across all administrative sessions. It works seamlessly with HOMESERVER's shell configurations and user management.
-
-## Key Features
-
-- **Rich Themes**: Professional prompt designs that display system information elegantly
-- **Git Integration**: Real-time git repository status, branch information, and change indicators
-- **System Metrics**: Display current system load, battery status, and other relevant metrics
-- **Directory Context**: Smart directory display with path shortening and special folder indicators
-- **Performance Optimized**: Fast prompt rendering that doesn't slow down terminal operations
-- **User Customizable**: Each administrator can choose their preferred theme and configuration
-
-This module elevates HOMESERVER's command-line experience from basic terminal interaction to a sophisticated administrative interface that provides immediate context and system awareness. 
+this one needs refactored eventually to only have the flags that index.py will actually send to it.

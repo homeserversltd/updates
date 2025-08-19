@@ -28,6 +28,7 @@ import shutil
 try:
     from updates.index import log_message
     from updates.utils.state_manager import StateManager
+    from updates.utils.moduleUtils import conditional_config_return
 except ImportError:
     # Add parent directory to path for direct execution
     parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -36,6 +37,7 @@ except ImportError:
     try:
         from updates.index import log_message
         from updates.utils.state_manager import StateManager
+        from updates.utils.moduleUtils import conditional_config_return
     except ImportError:
         # Fallback: try adding the current directory to path
         current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -44,6 +46,7 @@ except ImportError:
             sys.path.insert(0, updates_dir)
         from updates.index import log_message
         from updates.utils.state_manager import StateManager
+        from updates.utils.moduleUtils import conditional_config_return
 
 # Load module configuration from index.json
 def load_module_config():
@@ -478,7 +481,7 @@ def main(args=None):
         verification = verify_all_venvs()
         
         # Return concise summary instead of massive data dump
-        return {
+        result = {
             "success": True, 
             "updated": False, 
             "message": "All virtual environments already up to date",
@@ -487,10 +490,14 @@ def main(args=None):
                 "healthy_venvs": sum(1 for v in verification.values() if v.get('venv_exists') and v.get('pip_available')),
                 "package_counts": {name: v.get('package_count', 0) for name, v in verification.items()}
             },
-            "sha256_status": venv_sha256_info,
             "backup_created": False,
             "venv_count": len(venvs_config)
         }
+        
+        # Only include detailed SHA256 data in debug mode
+        result = conditional_config_return(result, {"sha256_status": venv_sha256_info})
+        
+        return result
 
     log_message(f"Found {len(venvs_needing_updates)} virtual environments needing updates: {', '.join(venvs_needing_updates)}")
 
@@ -562,7 +569,7 @@ def main(args=None):
         # Note: Backup cleanup is handled automatically by StateManager
         cleaned_count = 0
         
-        return {
+        result = {
             "success": True, 
             "updated": len(actually_updated) > 0, 
             "results": results,
@@ -576,6 +583,11 @@ def main(args=None):
             "backups_cleaned": cleaned_count,
             "venv_count": len(venvs_config)
         }
+        
+        # Only include detailed data in debug mode
+        result = conditional_config_return(result, {"sha256_status": venv_sha256_info})
+        
+        return result
         
     except Exception as e:
         log_message(f"Virtual environment updates failed: {e}", "ERROR")
@@ -591,7 +603,7 @@ def main(args=None):
         else:
             restore_success = None
         
-        return {
+        result = {
             "success": False, 
             "error": str(e),
             "results": results,
@@ -599,6 +611,11 @@ def main(args=None):
             "restore_success": restore_success,
             "backup_created": backup_success
         }
+        
+        # Only include detailed data in debug mode
+        result = conditional_config_return(result, {"sha256_status": venv_sha256_info})
+        
+        return result
 
 if __name__ == "__main__":
     main()

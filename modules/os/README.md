@@ -1,5 +1,78 @@
 # OS Module
 
+## Workflow Diagram
+
+```mermaid
+flowchart TD
+    A[Module Entry] --> B{Command Line Args?}
+    
+    B -->|--check| C[Check Mode: Count Upgradable]
+    B -->|No Args| D[Update Mode: Full OS Update]
+    
+    C --> C1[Get Upgradable Packages]
+    C1 --> C2[Count Total Packages]
+    C2 --> C3[Return Package Count]
+    
+    D --> E[Check apt Availability]
+    E --> F{apt Available?}
+    
+    F -->|No| G[Return Error: apt not found]
+    F -->|Yes| H[Repair Package System]
+    
+    H --> I[Check dpkg Status]
+    I --> J[Run apt --fix-broken]
+    J --> K[Update Package Lists]
+    
+    K --> L[Get Upgradable Packages]
+    L --> M{Any Packages to Upgrade?}
+    
+    M -->|No| N[Return: No Updates Needed]
+    M -->|Yes| O[Check Package Count]
+    
+    O --> P{Count > Safety Threshold?}
+    
+    P -->|No| Q[Standard Upgrade]
+    P -->|Yes| R[Batch Processing Mode]
+    
+    Q --> Q1[Run apt upgrade -y]
+    Q1 --> Q2[Show Real-time Progress]
+    Q2 --> Q3[Track Upgrade Success]
+    
+    R --> R1[Split into Batches]
+    R1 --> R2[Process Batch 1]
+    R2 --> R3{Batch Success?}
+    
+    R3 -->|No| R4[Return Batch Error]
+    R3 -->|Yes| R5[Update Package Lists]
+    R5 --> R6{More Batches?}
+    
+    R6 -->|Yes| R7[Process Next Batch]
+    R7 --> R3
+    R6 -->|No| R8[All Batches Complete]
+    
+    Q3 --> S[Post-upgrade Cleanup]
+    R8 --> S
+    
+    S --> T[Run apt autoremove]
+    T --> U[Run apt autoclean]
+    U --> V[Check Final State]
+    
+    V --> W{All Packages Upgraded?}
+    
+    W -->|Yes| X[Return: Complete Success]
+    W -->|No| Y[Return: Partial Success]
+    
+    G --> Z[Return: System Error]
+    R4 --> AA[Return: Batch Failure]
+    
+    style A fill:#e1f5fe
+    style X fill:#c8e6c9
+    style N fill:#c8e6c9
+    style G fill:#ffcdd2
+    style R4 fill:#ffcdd2
+    style AA fill:#ffcdd2
+```
+
 ## Purpose
 
 The os module provides operating system update management for HOMESERVER. It handles system-level package updates, security patches, and maintenance operations to keep the underlying operating system current and secure.

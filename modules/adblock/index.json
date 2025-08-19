@@ -1,9 +1,9 @@
 {
     "metadata": {
-        "schema_version": "0.1.4",
+        "schema_version": "0.1.5",
         "module_name": "adblock",
         "description": "Adblock module for Unbound DNS",
-        "enabled": false
+        "enabled": true
     },
     "config": {
         "unbound_dir": "/etc/unbound",

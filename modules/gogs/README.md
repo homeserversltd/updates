@@ -1,40 +1,62 @@
-# Gogs Module
+# Gogs Update Module
 
-## Purpose
+## Workflow Diagram
 
-The gogs module provides a lightweight, self-hosted Git service for HOMESERVER. Gogs offers a complete Git hosting solution with web interface, user management, and repository management capabilities - essentially your own private GitHub.
-
-## What It Does
-
-- **Git Repository Hosting**: Hosts unlimited private and public Git repositories
-- **Web Interface**: Modern web UI for repository browsing, code viewing, and management
-- **User Management**: Multi-user support with organizations, teams, and access controls
-- **Issue Tracking**: Built-in issue tracker for project management
-- **Wiki Support**: Integrated wiki functionality for project documentation
-- **Release Management**: Tag and release management with file attachments
-
-## Why It Matters
-
-Professional development requires secure, private code hosting with collaboration features. HOMESERVER's gogs module provides enterprise-grade Git hosting without relying on external services:
-
-- **Code Sovereignty**: Complete control over your source code and development workflow
-- **Privacy Protection**: No external access to proprietary code or sensitive projects
-- **Team Collaboration**: Full-featured platform for development teams and organizations
-- **Cost Efficiency**: Unlimited repositories and users without subscription fees
-- **Integration Ready**: Seamless integration with CI/CD pipelines and development tools
-- **Data Security**: All code and project data remains on your infrastructure
-
-## Integration with HOMESERVER
-
-The gogs module integrates with HOMESERVER's web infrastructure and storage systems to provide a complete development platform. It leverages HOMESERVER's security, backup, and networking capabilities while offering specialized Git hosting features.
-
-## Key Features
-
-- **Repository Management**: Create, clone, fork, and manage Git repositories through web interface
-- **Code Review**: Pull request workflow with diff viewing and commenting
-- **Access Control**: Fine-grained permissions for users, teams, and repositories
-- **SSH & HTTPS**: Support for both SSH keys and HTTPS authentication
-- **Webhook Integration**: Trigger external services on repository events
-- **Migration Tools**: Import repositories from GitHub, GitLab, and other Git services
-
-This module transforms HOMESERVER into a powerful development platform that rivals commercial Git hosting services while maintaining complete data sovereignty and privacy. 
+```mermaid
+flowchart TD
+    A[Module Entry] --> B{Command Line Args?}
+    
+    B -->|Yes| C[Handle CLI Commands]
+    B -->|No| D[Start Update Process]
+    
+    C --> C1[--version: Version Check]
+    C --> C2[--check: Simple Status]
+    C --> C3[--verify: Full Verification]
+    C --> C4[--config: Show Config]
+    C --> C5[--fix-permissions: Restore Perms]
+    
+    D --> E[Get Current Version]
+    E --> F[Get Latest Version]
+    F --> G{Update Needed?}
+    
+    G -->|No| H[Skip - Already Current]
+    G -->|Yes| I[Create Backup]
+    
+    I --> J[Initialize State Manager]
+    J --> K[Backup Module State]
+    K --> L{Backup Success?}
+    
+    L -->|No| M[Return Error]
+    L -->|Yes| N[Install Update]
+    
+    N --> O[Try Binary Installation]
+    O --> P{Binary Success?}
+    
+    P -->|Yes| Q[Restore Permissions]
+    P -->|No| R[Fallback to Source]
+    
+    R --> S[Clone Source Repository]
+    S --> T[Build from Source]
+    T --> U{Source Success?}
+    
+    U -->|No| V[Both Methods Failed]
+    U -->|Yes| Q
+    
+    Q --> W[Verify Installation]
+    W --> X{Verification Passed?}
+    
+    X -->|No| Y[Rollback from Backup]
+    X -->|Yes| Z[Update Complete]
+    
+    Y --> AA[Restore Module State]
+    AA --> BB[Return Rollback Status]
+    
+    H --> CC[Return Current Status]
+    Z --> DD[Return Success Status]
+    
+    style A fill:#e1f5fe
+    style Z fill:#c8e6c9
+    style M fill:#ffcdd2
+    style V fill:#ffcdd2
+    style Y fill:#ffcdd2
+``` 

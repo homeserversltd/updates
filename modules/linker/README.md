@@ -1,46 +1,71 @@
-# Linker Module
+# Linker Update Module
 
-## Purpose
+## Workflow Diagram
 
-The linker module provides a Terminal User Interface (TUI) tool for efficiently managing hard links on HOMESERVER's NAS storage. It enables users to create and manage hard links across multiple directories, maximizing storage efficiency while maintaining data accessibility across different services.
+```mermaid
+flowchart TD
+    A[Module Entry] --> B{Command Line Args?}
+    
+    B -->|--check| C[Check Mode: Component Status]
+    B -->|--version| D[Version Mode: Schema Version]
+    B -->|No Args| E[Update Mode: Full Update]
+    
+    C --> C1[Load Module Config]
+    C1 --> C2[Count Enabled Components]
+    C2 --> C3[Return Component Status]
+    
+    D --> D1[Load Module Config]
+    D1 --> D2[Get Schema Version]
+    D2 --> D3[Return Version Info]
+    
+    E --> F[Check Version Update Needed]
+    F --> G{Update Required?}
+    
+    G -->|No| H[Skip - Already Current]
+    G -->|Yes| I[Create Backup]
+    
+    I --> J[Initialize State Manager]
+    J --> K[Backup Current Installation]
+    K --> L{Backup Success?}
+    
+    L -->|No| M[Return Error: Backup Failed]
+    L -->|Yes| N[Clean Temp Directory]
+    
+    N --> O[Git Clone Repository]
+    O --> P{Clone Success?}
+    
+    P -->|No| Q[Return Error: Clone Failed]
+    P -->|Yes| R[Update Components]
+    
+    R --> S[Process Library Component]
+    S --> T[Copy Library Files]
+    T --> U[Setup Virtual Environment]
+    U --> V[Install Dependencies]
+    
+    V --> W[Process Symlink Component]
+    W --> X[Remove Existing Symlink]
+    X --> Y[Create New Symlink]
+    
+    Y --> Z{Component Update Success?}
+    
+    Z -->|No| AA[Component Update Failed]
+    Z -->|Yes| BB[Update Complete]
+    
+    AA --> CC[Rollback Installation]
+    CC --> DD[Restore Module State]
+    DD --> EE[Return Rollback Status]
+    
+    H --> FF[Return: No Update Needed]
+    BB --> GG[Return: Success Status]
+    
+    style A fill:#e1f5fe
+    style GG fill:#c8e6c9
+    style H fill:#c8e6c9
+    style C3 fill:#c8e6c9
+    style D3 fill:#c8e6c9
+    style M fill:#ffcdd2
+    style Q fill:#ffcdd2
+    style EE fill:#ffcdd2
+``` 
 
-## What It Does
-
-- **Hard Link Management**: Creates and manages hard links between files across different NAS directories
-- **TUI Interface**: Provides an intuitive terminal-based interface for file linking operations
-- **Storage Optimization**: Eliminates duplicate files by linking content across multiple locations
-- **Safety Protection**: Prevents accidental deletion of files that have hard links elsewhere
-- **Cross-Service Sharing**: Enables content sharing between different HOMESERVER services
-
-## Why It Matters
-
-NAS systems often need the same content accessible from multiple services and directories. Traditional file copying wastes storage space and creates synchronization problems. HOMESERVER's linker module solves this elegantly:
-
-- **Storage Efficiency**: Share files across multiple directories without duplicating storage space
-- **Service Integration**: Make content available to multiple services (Jellyfin, Piwigo, etc.) simultaneously
-- **Data Integrity**: Hard links ensure all references point to the same physical data
-- **Cost Optimization**: Maximize storage utilization on expensive NAS drives
-- **Simplified Management**: Single source of truth for shared content across services
-
-## Integration with HOMESERVER
-
-The linker module integrates with HOMESERVER's file management system to provide intelligent hard link management across the NAS infrastructure. It works seamlessly with media services, photo galleries, and file browsers to optimize storage without compromising functionality.
-
-## Key Features
-
-- **Cross-Directory Linking**: Link files between `/media` (Jellyfin), `/photos` (Piwigo), and other service directories
-- **Safety-First Design**: Prevents deletion of files that have active hard links elsewhere
-- **Intuitive TUI**: Easy-to-use terminal interface for browsing and linking files
-- **Link Visualization**: Shows existing hard links and their relationships
-- **Batch Operations**: Efficiently create multiple hard links in a single operation
-- **Conflict Prevention**: Detects and prevents problematic linking scenarios
-
-## Common Use Cases
-
-- **Media Sharing**: Link video files between Jellyfin's `/media` directory and general file storage
-- **Photo Organization**: Share photos between Piwigo's `/photos` directory and family albums
-- **Document Access**: Make documents available to multiple services without duplication
-- **Backup Efficiency**: Create space-efficient backup structures using hard links
-- **Content Distribution**: Organize content for different users while sharing the same files
-
-This module transforms HOMESERVER's NAS into an intelligent storage system where content can exist in multiple logical locations while consuming minimal physical storage space, all managed through a user-friendly interface that prioritizes data safety. 
+need to remove --version cli interface
