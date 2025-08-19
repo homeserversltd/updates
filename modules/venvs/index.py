@@ -21,6 +21,8 @@ from pathlib import Path
 import subprocess
 import json
 import sys
+import hashlib
+import shutil
 
 # Handle imports for both direct execution and module execution
 try:
@@ -83,6 +85,92 @@ def get_verification_config():
     """Get verification configuration from module config."""
     return MODULE_CONFIG["config"]["verification"]
 
+def calculate_file_sha256(file_path):
+    """Calculate SHA256 hash of a file."""
+    try:
+        if not os.path.exists(file_path):
+            return None
+        
+        hash_sha256 = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_sha256.update(chunk)
+        return hash_sha256.hexdigest()
+    except Exception as e:
+        log_message(f"Failed to calculate SHA256 for {file_path}: {e}", "ERROR")
+        return None
+
+def get_requirements_file_path(venv_name):
+    """Get the path to the requirements file for a virtual environment."""
+    module_dir = Path(__file__).parent
+    src_dir = module_dir / "src"
+    requirements_file = src_dir / f"{venv_name}.txt"
+    return requirements_file
+
+def get_target_requirements_path(venv_path):
+    """Get the path to the requirements.txt file in the parent directory of the venv."""
+    # Strip /venv from the path to get the parent directory
+    parent_dir = venv_path.replace('/venv', '')
+    requirements_file = os.path.join(parent_dir, 'requirements.txt')
+    return requirements_file
+
+def check_venv_needs_update(venv_name, venv_cfg):
+    """
+    Check if a virtual environment needs updating by comparing requirements file SHA256.
+    
+    Returns:
+        Tuple[bool, str, str]: (needs_update, source_sha256, target_sha256)
+    """
+    try:
+        venv_path = venv_cfg["path"]
+        requirements_source = venv_cfg.get("requirements_source")
+        
+        # If no requirements source, skip
+        if not requirements_source:
+            log_message(f"No requirements source for {venv_name}, skipping", "DEBUG")
+            return False, None, None
+        
+        # If venv doesn't exist, it needs creation
+        if not os.path.isdir(venv_path):
+            log_message(f"Virtual environment {venv_name} doesn't exist, needs creation", "INFO")
+            return True, None, None
+        
+        # Get source requirements file SHA256 (from src/ folder)
+        source_file = get_requirements_file_path(venv_name)
+        if not source_file.exists():
+            log_message(f"Requirements file {source_file} not found for {venv_name}", "WARNING")
+            return False, None, None
+        
+        source_sha256 = calculate_file_sha256(source_file)
+        if not source_sha256:
+            log_message(f"Failed to calculate SHA256 for source file {source_file}", "WARNING")
+            return False, None, None
+        
+        # Get target requirements file SHA256 (from parent directory of venv)
+        target_file = get_target_requirements_path(venv_path)
+        if not os.path.exists(target_file):
+            log_message(f"Target requirements file {target_file} not found for {venv_name}", "WARNING")
+            return True  # Target file missing, assume update needed
+        
+        target_sha256 = calculate_file_sha256(target_file)
+        if not target_sha256:
+            log_message(f"Failed to calculate SHA256 for target file {target_file}", "WARNING")
+            return True  # Assume update needed if we can't verify target
+        
+        # Compare SHA256 hashes
+        needs_update = source_sha256 != target_sha256
+        
+        if needs_update:
+            log_message(f"Requirements mismatch for {venv_name}: source={source_sha256[:8]}... target={target_sha256[:8]}...", "INFO")
+        else:
+            log_message(f"Requirements match for {venv_name}: {source_sha256[:8]}...", "DEBUG")
+        
+        return needs_update, source_sha256, target_sha256
+        
+    except Exception as e:
+        log_message(f"Error checking if {venv_name} needs update: {e}", "ERROR")
+        return True, None, None  # Assume update needed on error
+
 def get_existing_venv_paths():
     """
     Get all virtual environment paths that exist and should be backed up.
@@ -102,305 +190,66 @@ def get_existing_venv_paths():
     
     return existing_paths
 
-def load_requirements_from_source(requirements_source):
-    """
-    Load requirements from a source file in the src/ directory.
-    Args:
-        requirements_source: Filename of requirements file in src/
-    Returns:
-        list: List of package requirements, or empty list if file not found
-    """
-    try:
-        module_dir = os.path.dirname(__file__)
-        src_dir = os.path.join(module_dir, "src")
-        requirements_path = os.path.join(src_dir, requirements_source)
-        
-        if not os.path.exists(requirements_path):
-            log_message(f"Requirements file not found: {requirements_path}", "WARNING")
-            return []
-        
-        with open(requirements_path, 'r') as f:
-            requirements = []
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    requirements.append(line)
-            
-        log_message(f"Loaded {len(requirements)} requirements from {requirements_source}")
-        return requirements
-        
-    except Exception as e:
-        log_message(f"Failed to load requirements from {requirements_source}: {e}", "ERROR")
-        return []
-
-def parse_requirement(requirement_line):
-    """
-    Parse a requirement line to extract package name and version.
-    Args:
-        requirement_line: A pip requirement line (e.g., "Flask==3.1.0" or "requests>=2.28.0")
-    Returns:
-        tuple: (package_name, version_spec, operator) or (None, None, None) if parsing fails
-    """
-    import re
-    
-    # Handle different version operators
-    version_pattern = r'^([a-zA-Z0-9_-]+)\s*([><=!~]+)\s*([0-9.]+.*?)(?:\s*;.*)?$'
-    match = re.match(version_pattern, requirement_line.strip())
-    
-    if match:
-        package_name = match.group(1).lower()
-        operator = match.group(2)
-        version = match.group(3)
-        return package_name, version, operator
-    
-    # Handle package names without version specs
-    simple_pattern = r'^([a-zA-Z0-9_-]+)(?:\s*;.*)?$'
-    match = re.match(simple_pattern, requirement_line.strip())
-    if match:
-        package_name = match.group(1).lower()
-        return package_name, None, None
-    
-    return None, None, None
-
-def check_packages_match_requirements(venv_path, requirements):
-    """
-    Check if installed packages match the requirements exactly.
-    Uses pip's dry-run capability to properly handle environment markers and version constraints.
-    Args:
-        venv_path: Path to the virtual environment
-        requirements: List of requirement strings
-    Returns:
-        tuple: (all_match, missing_packages, version_mismatches, installed_packages)
-    """
-    try:
-        # Get currently installed packages for reference
-        activate_script = os.path.join(venv_path, "bin", "activate")
-        list_cmd = f". '{activate_script}'; pip list --format=freeze; deactivate"
-        result = subprocess.run(["bash", "-c", list_cmd], capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            log_message(f"Failed to list packages: {result.stderr}", "DEBUG")
-            return False, [], [], {}
-        
-        # Parse installed packages for reference
-        installed_packages = {}
-        for line in result.stdout.strip().split('\n'):
-            if line.strip() and '==' in line:
-                parts = line.strip().split('==')
-                if len(parts) == 2:
-                    pkg_name = parts[0].lower()
-                    version = parts[1]
-                    installed_packages[pkg_name] = version
-        
-        # Use pip install --dry-run to check if requirements are satisfied
-        # This properly handles environment markers and version constraints
-        requirements_content = '\n'.join(requirements)
-        
-        # Create a temporary requirements file
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_req_file:
-            temp_req_file.write(requirements_content)
-            temp_req_path = temp_req_file.name
-        
-        try:
-            # Use pip install --dry-run to see what would be installed
-            # This respects environment markers and proper version comparison
-            dry_run_cmd = f". '{activate_script}'; pip install --dry-run -r '{temp_req_path}' 2>&1; deactivate"
-            dry_run_result = subprocess.run(["bash", "-c", dry_run_cmd], capture_output=True, text=True)
-            
-            output = dry_run_result.stdout + dry_run_result.stderr
-            
-            # Analyze the output to determine if updates are needed
-            missing_packages = []
-            version_mismatches = []
-            
-            # If pip shows "Requirement already satisfied" for all packages, no updates needed
-            # If pip shows "Would install" or "Collecting", updates are needed
-            if "Would install" in output:
-                # Parse which requirements would cause installations
-                # For now, if any installation would happen, mark all requirements as potentially needing update
-                # This is conservative but safe - pip will handle the details during actual installation
-                for req in requirements:
-                    pkg_name, _, _ = parse_requirement(req)
-                    if pkg_name:
-                        # Check if this package appears in the installation list
-                        for line in output.split('\n'):
-                            if 'would install' in line.lower() and pkg_name in line.lower():
-                                missing_packages.append(req)
-                                break
-            elif "Collecting" in output and dry_run_result.returncode != 0:
-                # If pip failed during collection, there might be dependency issues
-                # Be conservative and assume updates are needed
-                missing_packages = requirements
-            elif "Requirement already satisfied" in output or (dry_run_result.returncode == 0 and not output.strip()):
-                # All requirements are satisfied
-                pass
-            else:
-                # Unknown output pattern - be conservative
-                if dry_run_result.returncode != 0:
-                    missing_packages = requirements
-            
-            all_match = len(missing_packages) == 0 and len(version_mismatches) == 0
-            
-            return all_match, missing_packages, version_mismatches, installed_packages
-            
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_req_path)
-            except:
-                pass
-        
-    except Exception as e:
-        log_message(f"Error checking package requirements: {e}", "DEBUG")
-        return False, [], [], {}
-
 def update_venv(venv_name, venv_cfg):
     """
-    Update a single virtual environment with packages from source requirements file.
-    Only performs updates if packages don't match requirements.
-    Args:
-        venv_name: Name of the virtual environment
-        venv_cfg: Configuration dictionary for the venv
+    Update a virtual environment by copying the source requirements file and running pip install.
+    
     Returns:
-        tuple: (success: bool, packages_updated: bool) - success indicates no errors, 
-               packages_updated indicates whether pip install/upgrade was actually executed
+        Tuple[bool, bool]: (success, packages_updated)
     """
-    venv_path = venv_cfg["path"]
-    requirements_source = venv_cfg.get("requirements_source")
-    upgrade_pip = venv_cfg.get("upgrade_pip", False)
-    system_packages = venv_cfg.get("system_packages", False)
-    description = venv_cfg.get("description", "")
-
-    log_message(f"Checking virtual environment: {venv_name}")
-    if description:
-        log_message(f"  Description: {description}")
-    log_message(f"  Path: {venv_path}")
-    log_message(f"  Requirements source: {requirements_source}")
-
-    # Load packages from source file
-    if requirements_source:
-        packages = load_requirements_from_source(requirements_source)
-        if not packages:
-            log_message(f"No packages loaded from {requirements_source}", "WARNING")
-    else:
-        packages = []
-        log_message("No requirements source specified", "WARNING")
-
-    # Create venv if missing
-    venv_created = False
-    if not os.path.isdir(venv_path):
-        log_message(f"Creating virtual environment at {venv_path}")
-        
-        # Build venv creation command
-        venv_cmd = ["python3", "-m", "venv"]
-        if system_packages:
-            venv_cmd.append("--system-site-packages")
-        venv_cmd.append(venv_path)
-        
-        result = subprocess.run(venv_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            log_message(f"Failed to create venv: {result.stderr}", "ERROR")
-            return False, False
-        log_message(f"Created virtual environment at {venv_path}")
-        venv_created = True
-
-    # Verify activation script exists
-    activate_script = os.path.join(venv_path, "bin", "activate")
-    if not os.path.isfile(activate_script):
-        log_message(f"Activation script not found at {activate_script}", "ERROR")
-        return False, False
-
-    # Check if packages already match requirements (skip if venv was just created)
-    needs_update = venv_created
-    pip_needs_upgrade = False
-    
-    if not venv_created and packages:
-        all_match, missing_packages, version_mismatches, installed_packages = check_packages_match_requirements(venv_path, packages)
-        
-        if all_match:
-            log_message(f"  All {len(packages)} packages already match requirements")
-            
-            # Still check if pip needs upgrade
-            if upgrade_pip:
-                pip_cmd = f". '{activate_script}'; pip --version; deactivate"
-                result = subprocess.run(["bash", "-c", pip_cmd], capture_output=True, text=True)
-                if result.returncode == 0:
-                    # Simple check - if we can run pip, assume it's fine unless explicitly requested
-                    log_message(f"  Pip is available, skipping upgrade check")
-                else:
-                    pip_needs_upgrade = True
-            
-            if not pip_needs_upgrade:
-                log_message(f"  No updates needed for {venv_name}")
-                return True, False  # Success but no packages updated
-        else:
-            needs_update = True
-            if missing_packages:
-                log_message(f"  Missing packages: {len(missing_packages)}")
-                for pkg in missing_packages[:3]:  # Show first 3
-                    log_message(f"    - {pkg}")
-                if len(missing_packages) > 3:
-                    log_message(f"    ... and {len(missing_packages) - 3} more")
-            
-            if version_mismatches:
-                log_message(f"  Version mismatches: {len(version_mismatches)}")
-                for mismatch in version_mismatches[:3]:  # Show first 3
-                    log_message(f"    - {mismatch}")
-                if len(version_mismatches) > 3:
-                    log_message(f"    ... and {len(version_mismatches) - 3} more")
-
-    if not needs_update and not pip_needs_upgrade:
-        return True, False  # Success but no packages updated
-
-    # Perform updates
-    log_message(f"Updating virtual environment: {venv_name}")
-    
-    # Build pip install command
-    pip_cmd = f". '{activate_script}'; "
-    packages_will_be_updated = False
-    
-    if upgrade_pip or pip_needs_upgrade:
-        log_message(f"  Upgrading pip for {venv_name}")
-        pip_cmd += "pip install --upgrade pip; "
-        packages_will_be_updated = True
-    
-    if packages and needs_update:
-        log_message(f"  Installing/upgrading {len(packages)} packages")
-        pip_cmd += "pip install --upgrade "
-        pip_cmd += " ".join(f"'{pkg}'" for pkg in packages)
-        pip_cmd += "; "
-        packages_will_be_updated = True
-    
-    pip_cmd += "deactivate"
-
-    # Run the command in a shell with timeout
-    verification_config = get_verification_config()
-    timeout = verification_config["timeout_seconds"]
-    
     try:
-        result = subprocess.run(
-            ["bash", "-c", pip_cmd], 
-            capture_output=True, 
-            text=True, 
-            timeout=timeout
-        )
-        if result.returncode != 0:
-            log_message(f"Failed to update venv {venv_name}: {result.stderr}", "ERROR")
+        venv_path = venv_cfg["path"]
+        requirements_source = venv_cfg.get("requirements_source")
+        
+        if not requirements_source:
+            log_message(f"No requirements source for {venv_name}, skipping", "WARNING")
+            return True, False
+        
+        # Get source and target paths
+        source_file = get_requirements_file_path(venv_name)
+        target_file = get_target_requirements_path(venv_path)
+        
+        if not source_file.exists():
+            log_message(f"Source requirements file {source_file} not found for {venv_name}", "ERROR")
             return False, False
         
-        log_message(f"Successfully updated {venv_name}")
-        if result.stdout.strip():
-            log_message(f"  Output: {result.stdout.strip()}", "DEBUG")
+        # Ensure target directory exists
+        target_dir = os.path.dirname(target_file)
+        os.makedirs(target_dir, exist_ok=True)
         
-    except subprocess.TimeoutExpired:
-        log_message(f"Timeout ({timeout}s) updating venv {venv_name}", "ERROR")
-        return False, False
+        # Copy source requirements file to target location
+        log_message(f"Copying {source_file} to {target_file}")
+        shutil.copy2(source_file, target_file)
+        
+        # Verify the copy was successful
+        if not os.path.exists(target_file):
+            log_message(f"Failed to copy requirements file to {target_file}", "ERROR")
+            return False, False
+        
+        # Run pip install to update the virtual environment
+        log_message(f"Running pip install for {venv_name}...")
+        pip_path = os.path.join(venv_path, "bin", "pip")
+        
+        # First upgrade pip if configured
+        if venv_cfg.get("upgrade_pip", False):
+            log_message(f"Upgrading pip for {venv_name}")
+            subprocess.run([pip_path, "install", "--upgrade", "pip"], check=True, timeout=300)
+        
+        # Install/upgrade packages from requirements
+        result = subprocess.run([
+            pip_path, "install", "-r", target_file, "--upgrade"
+        ], capture_output=True, text=True, timeout=300)
+        
+        if result.returncode != 0:
+            log_message(f"pip install failed for {venv_name}: {result.stderr}", "ERROR")
+            return False, False
+        
+        log_message(f"Successfully updated {venv_name} virtual environment")
+        return True, True
+        
     except Exception as e:
-        log_message(f"Error updating venv {venv_name}: {e}", "ERROR")
+        log_message(f"Failed to update {venv_name}: {e}", "ERROR")
         return False, False
-
-    return True, packages_will_be_updated
 
 def verify_venv(venv_name, venv_cfg):
     """
@@ -539,9 +388,12 @@ def main(args=None):
         
         return {
             "success": all_healthy,
-            "verification": verification,
-            "venv_count": len(verification),
-            "config": MODULE_CONFIG
+            "verification_summary": {
+                "total_venvs": len(verification),
+                "healthy_venvs": sum(1 for v in verification.values() if v.get('venv_exists') and v.get('pip_available')),
+                "package_counts": {name: v.get('package_count', 0) for name, v in verification.items()}
+            },
+            "venv_count": len(verification)
         }
 
     # --check mode: simple existence check
@@ -549,11 +401,25 @@ def main(args=None):
         log_message("Checking virtual environments...")
         existing_count = 0
         missing_venvs = []
+        sha256_status = {}
         
         for venv_name, venv_cfg in venvs_config.items():
             if os.path.exists(venv_cfg["path"]):
                 existing_count += 1
                 log_message(f"✓ {venv_name}: {venv_cfg['path']}")
+                
+                # Check SHA256 status for existing venvs
+                needs_update, source_sha256, target_sha256 = check_venv_needs_update(venv_name, venv_cfg)
+                sha256_status[venv_name] = {
+                    "needs_update": needs_update,
+                    "source_sha256": source_sha256[:8] + "..." if source_sha256 else None,
+                    "target_sha256": target_sha256[:8] + "..." if target_sha256 else None
+                }
+                
+                if needs_update:
+                    log_message(f"  → Requirements mismatch detected, update needed")
+                else:
+                    log_message(f"  → Requirements match, up to date")
             else:
                 missing_venvs.append(venv_name)
                 log_message(f"✗ {venv_name}: {venv_cfg['path']} (missing)")
@@ -564,7 +430,8 @@ def main(args=None):
             "success": len(missing_venvs) == 0,
             "existing_count": existing_count,
             "total_count": len(venvs_config),
-            "missing_venvs": missing_venvs
+            "missing_venvs": missing_venvs,
+            "sha256_status": sha256_status
         }
 
     # Main update process
@@ -579,25 +446,28 @@ def main(args=None):
 
     # Check if any updates are actually needed first
     venvs_needing_updates = []
+    venv_sha256_info = {}
+    
     for venv_name, venv_cfg in venvs_config.items():
-        venv_path = venv_cfg["path"]
-        requirements_source = venv_cfg.get("requirements_source")
+        log_message(f"Checking {venv_name} for updates...")
         
-        # If venv doesn't exist, it needs creation
-        if not os.path.isdir(venv_path):
+        needs_update, source_sha256, target_sha256 = check_venv_needs_update(venv_name, venv_cfg)
+        
+        if needs_update:
             venvs_needing_updates.append(venv_name)
-            continue
-            
-        # If no requirements, skip detailed check
-        if not requirements_source:
-            continue
-            
-        # Load and check requirements
-        packages = load_requirements_from_source(requirements_source)
-        if packages:
-            all_match, _, _, _ = check_packages_match_requirements(venv_path, packages)
-            if not all_match:
-                venvs_needing_updates.append(venv_name)
+            venv_sha256_info[venv_name] = {
+                "source_sha256": source_sha256,
+                "target_sha256": target_sha256,
+                "needs_update": True
+            }
+            log_message(f"✓ {venv_name} needs update", "INFO")
+        else:
+            venv_sha256_info[venv_name] = {
+                "source_sha256": source_sha256,
+                "target_sha256": target_sha256,
+                "needs_update": False
+            }
+            log_message(f"✓ {venv_name} is up to date", "DEBUG")
 
     # If no updates needed, skip backup and return early
     if not venvs_needing_updates:
@@ -607,14 +477,19 @@ def main(args=None):
         log_message("Running verification...")
         verification = verify_all_venvs()
         
+        # Return concise summary instead of massive data dump
         return {
             "success": True, 
             "updated": False, 
             "message": "All virtual environments already up to date",
-            "verification": verification,
+            "verification_summary": {
+                "total_venvs": len(verification),
+                "healthy_venvs": sum(1 for v in verification.values() if v.get('venv_exists') and v.get('pip_available')),
+                "package_counts": {name: v.get('package_count', 0) for name, v in verification.items()}
+            },
+            "sha256_status": venv_sha256_info,
             "backup_created": False,
-            "venv_count": len(venvs_config),
-            "config": MODULE_CONFIG
+            "venv_count": len(venvs_config)
         }
 
     log_message(f"Found {len(venvs_needing_updates)} virtual environments needing updates: {', '.join(venvs_needing_updates)}")
@@ -690,11 +565,14 @@ def main(args=None):
             "updated": len(actually_updated) > 0, 
             "results": results,
             "actually_updated": actually_updated,
-            "verification": verification,
+            "verification_summary": {
+                "total_venvs": len(verification),
+                "healthy_venvs": sum(1 for v in verification.values() if v.get('venv_exists') and v.get('pip_available')),
+                "package_counts": {name: v.get('package_count', 0) for name, v in verification.items()}
+            },
             "backup_created": backup_success,
             "backups_cleaned": cleaned_count,
-            "venv_count": len(venvs_config),
-            "config": MODULE_CONFIG
+            "venv_count": len(venvs_config)
         }
         
     except Exception as e:
@@ -717,8 +595,7 @@ def main(args=None):
             "results": results,
             "failed_venvs": failed_venvs,
             "restore_success": restore_success,
-            "backup_created": backup_success,
-            "config": MODULE_CONFIG
+            "backup_created": backup_success
         }
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.8",
+        "schema_version": "0.1.9",
         "module_name": "linker",
         "description": "HOMESERVER linker script suite update system via GitHub",
         "enabled": true

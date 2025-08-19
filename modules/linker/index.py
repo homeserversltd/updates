@@ -310,6 +310,69 @@ class LinkerUpdater:
         except Exception as e:
             log_message(f"Failed to clean up temp directory: {e}", "WARNING")
     
+    def _check_version_update_needed(self) -> Tuple[bool, Optional[str]]:
+        """
+        Check if an update is needed by comparing local and remote VERSION files.
+        
+        Returns:
+            Tuple[bool, Optional[str]]: (update_needed, remote_version)
+        """
+        try:
+            # Read local VERSION file
+            local_version_file = "/usr/local/lib/linker/VERSION"
+            if not os.path.exists(local_version_file):
+                log_message("Local VERSION file not found, update needed", "INFO")
+                return True, None
+            
+            with open(local_version_file, 'r') as f:
+                local_version = f.read().strip()
+            
+            log_message(f"Local version: {local_version}")
+            
+            # Clone repository temporarily to check remote version
+            temp_dir = tempfile.mkdtemp(prefix="linker_version_check_")
+            try:
+                # Shallow clone just for version check
+                clone_success = self._execute_command([
+                    'git', 'clone', 
+                    '--branch', self.config['config']['repository']['branch'],
+                    '--depth', '1',
+                    self.config['config']['repository']['url'],
+                    temp_dir
+                ])
+                
+                if not clone_success:
+                    log_message("Failed to clone repository for version check, assuming update needed", "WARNING")
+                    return True, None
+                
+                # Read remote VERSION file
+                remote_version_file = os.path.join(temp_dir, "VERSION")
+                if not os.path.exists(remote_version_file):
+                    log_message("Remote VERSION file not found, update needed", "WARNING")
+                    return True, None
+                
+                with open(remote_version_file, 'r') as f:
+                    remote_version = f.read().strip()
+                
+                log_message(f"Remote version: {remote_version}")
+                
+                # Compare versions
+                if local_version == remote_version:
+                    log_message("Local version matches remote version, no update needed")
+                    return False, remote_version
+                else:
+                    log_message(f"Version mismatch: local {local_version} vs remote {remote_version}, update needed")
+                    return True, remote_version
+                    
+            finally:
+                # Always cleanup temp directory
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    
+        except Exception as e:
+            log_message(f"Version check failed: {e}, assuming update needed", "WARNING")
+            return True, None
+
     def update(self) -> Dict[str, Any]:
         """Perform the complete linker update process."""
         if not self.config['metadata'].get('enabled', True):
@@ -320,7 +383,18 @@ class LinkerUpdater:
         temp_dir = None
         
         try:
-            # Step 1: Create backup
+            # Step 1: Check if update is needed
+            update_needed, remote_version = self._check_version_update_needed()
+            if not update_needed:
+                log_message("Linker is already up to date, no update needed")
+                return {
+                    "success": True,
+                    "message": "Linker is already up to date",
+                    "components_updated": 0,
+                    "version": remote_version
+                }
+            
+            # Step 2: Create backup
             if not self._backup_current_installation():
                 return {
                     "success": False,
@@ -328,7 +402,7 @@ class LinkerUpdater:
                     "message": "Failed to create backup of current installation"
                 }
             
-            # Step 2: Clone repository
+            # Step 3: Clone repository
             temp_dir = self._clone_repository()
             if not temp_dir:
                 return {
@@ -337,7 +411,7 @@ class LinkerUpdater:
                     "message": "Failed to clone GitHub repository"
                 }
             
-            # Step 3: Update components
+            # Step 4: Update components
             if not self._update_components(temp_dir):
                 log_message("Component update failed, rolling back", "ERROR")
                 self._rollback_installation()
@@ -351,7 +425,8 @@ class LinkerUpdater:
             return {
                 "success": True,
                 "message": "Linker updated successfully",
-                "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)])
+                "components_updated": len([c for c in self.config['config']['target_paths']['components'].values() if c.get('enabled', False)]),
+                "version": remote_version
             }
             
         except Exception as e:

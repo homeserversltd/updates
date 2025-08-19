@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 import subprocess
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget, get_permissions
@@ -80,43 +80,94 @@ def check(module_dir: Path) -> Dict[str, Any]:
 
     cfg = load_config(module_dir)
     files = cfg.get('files', [])
+    
+    # Simple status check - no expensive SHA256 operations needed
+    # Version checking determines if updates are needed
+    enabled_files = [f for f in files if bool(f.get('keepUpdated', True))]
+    
+    log_message(f"Sbin module status: {len(enabled_files)} enabled files")
+    
+    # Basic file existence check only
     drift = []
-    state_out = { 'files': [] }
-
-    for entry in files:
-        source = resolve_source(entry, module_dir)
+    for entry in enabled_files:
         dest = _dest_path(entry)
-        sha_remote = sha256(source)
-        sha_dest = sha256(dest)
-        mismatch = sha_remote != sha_dest
-        perm_mismatch = False
-        try:
-            st = os.stat(dest)
-            mode = int(entry.get('mode', '755'), 8)
-            # only compare mode bits
-            perm_mismatch = (st.st_mode & 0o777) != mode
-        except FileNotFoundError:
-            perm_mismatch = True
-        status = {
+        drift.append({
             'destination': str(dest),
             'exists': dest.exists(),
-            'content_match': not mismatch,
-            'sha_remote': sha_remote,
-            'sha_dest': sha_dest,
-            'perm_match': not perm_mismatch,
-            'managed': bool(entry.get('keepUpdated', True))
-        }
-        drift.append(status)
-        state_out['files'].append({
-            'destination': str(dest),
-            'source': entry.get('source'),
-            'sha_remote': sha_remote,
-            'sha_dest': sha_dest,
-            'managed': bool(entry.get('keepUpdated', True))
+            'managed': True
         })
 
+    # Persist minimal state
+    state_out = { 
+        'files': enabled_files,
+        'total_files': len(files),
+        'enabled_files': len(enabled_files)
+    }
+    
     write_state(state_out)
-    return { 'success': True, 'updated': False, 'drift': drift }
+    return { 'success': True, 'updated': False, 'drift': drift, 'enabled_files': len(enabled_files) }
+
+
+def _check_version_update_needed() -> Tuple[bool, Optional[str]]:
+    """
+    Check if an update is needed by comparing local content_version with remote VERSION file.
+    
+    Returns:
+        Tuple[bool, Optional[str]]: (update_needed, remote_version)
+    """
+    try:
+        # Load local config to get content_version
+        module_dir = Path(__file__).parent
+        cfg = load_config(module_dir)
+        local_version = cfg.get('metadata', {}).get('content_version', '0.0.0')
+        
+        log_message(f"Local content version: {local_version}")
+        
+        # Get remote version from repository
+        repo_cfg = cfg.get('repo', {})
+        if not repo_cfg.get('url'):
+            log_message("No repository URL configured, assuming update needed", "WARNING")
+            return True, None
+        
+        # Clone repository temporarily to check remote version
+        temp_dir = tempfile.mkdtemp(prefix="sbin_version_check_")
+        try:
+            # Shallow clone just for version check
+            clone_success = subprocess.run([
+                'git', 'clone', 
+                '--branch', repo_cfg.get('branch', 'master'),
+                '--depth', '1',
+                repo_cfg['url'],
+                temp_dir
+            ], capture_output=True, text=True, check=True)
+            
+            # Read remote VERSION file
+            remote_version_file = os.path.join(temp_dir, "VERSION")
+            if not os.path.exists(remote_version_file):
+                log_message("Remote VERSION file not found, assuming update needed", "WARNING")
+                return True, None
+            
+            with open(remote_version_file, 'r') as f:
+                remote_version = f.read().strip()
+            
+            log_message(f"Remote version: {remote_version}")
+            
+            # Compare versions
+            if local_version == remote_version:
+                log_message("Local content version matches remote version, no update needed")
+                return False, remote_version
+            else:
+                log_message(f"Version mismatch: local {local_version} vs remote {remote_version}, update needed")
+                return True, remote_version
+                
+        finally:
+            # Always cleanup temp directory
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                
+    except Exception as e:
+        log_message(f"Version check failed: {e}, assuming update needed", "WARNING")
+        return True, None
 
 
 def apply(module_dir: Path) -> Dict[str, Any]:
@@ -126,10 +177,23 @@ def apply(module_dir: Path) -> Dict[str, Any]:
     perm_mgr = PermissionManager('sbin')
     changed: List[str] = []
 
-    # Backup all destinations first
+    # Check if update is needed first
+    update_needed, remote_version = _check_version_update_needed()
+    if not update_needed:
+        log_message("Sbin module is already up to date, no update needed")
+        return {
+            'success': True, 
+            'updated': False, 
+            'changed': [],
+            'version': remote_version
+        }
+
+    # Backup all destinations first (only if update is needed)
     backup_targets = [(_dest_path(f)).as_posix() for f in files]
     state.backup_module_state('sbin', description='sbin files', files=backup_targets)
 
+    # Since version check passed, we know updates are needed
+    # Just copy all files and set permissions - no need for individual SHA256 checks
     for entry in files:
         source = resolve_source(entry, module_dir)
         dest = _dest_path(entry)
@@ -137,30 +201,24 @@ def apply(module_dir: Path) -> Dict[str, Any]:
             log_message(f"Skipping (keepUpdated=false): {dest}")
             continue
 
-        sha_remote = sha256(source)
-        sha_dest = sha256(dest)
-        if sha_remote == sha_dest and dest.exists():
-            # Only fix perms if they differ (defaults root:root 755)
-            desired_owner = entry.get('owner','root')
-            desired_group = entry.get('group','root')
-            desired_mode = int(entry.get('mode','755'),8)
-            cur = current_permissions(dest)
-            if cur.get('owner') != desired_owner or cur.get('group') != desired_group or cur.get('mode') != desired_mode:
-                perm_mgr.set_permissions([PermissionTarget(dest.as_posix(), desired_owner, desired_group, desired_mode)])
-            continue
-
         # Replace atomically
         dest.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile('wb', delete=False, dir=dest.parent) as tmp:
             shutil.copyfile(source, tmp.name)
             tmp_path = Path(tmp.name)
-        # set perms before swap
+        
+        # Set perms before swap
         perm_mgr.set_permissions([PermissionTarget(tmp_path.as_posix(), entry.get('owner','root'), entry.get('group','root'), int(entry.get('mode','755'),8))])
         os.replace(tmp_path, dest)
         changed.append(str(dest))
         log_message(f"Updated sbin: {dest}")
 
-    return { 'success': True, 'updated': len(changed) > 0, 'changed': changed }
+    return { 
+        'success': True, 
+        'updated': len(changed) > 0, 
+        'changed': changed,
+        'version': remote_version
+    }
 
 
 def main(args=None):

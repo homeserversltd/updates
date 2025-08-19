@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 import subprocess
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget, get_permissions
@@ -107,6 +107,68 @@ def _effective_policies(module_dir: Path, cfg: Dict[str, Any]) -> List[Dict[str,
     return discovered
 
 
+def _check_version_update_needed() -> Tuple[bool, Optional[str]]:
+    """
+    Check if an update is needed by comparing local content_version with remote VERSION file.
+    
+    Returns:
+        Tuple[bool, Optional[str]]: (update_needed, remote_version)
+    """
+    try:
+        # Load local config to get content_version
+        module_dir = Path(__file__).parent
+        cfg = load_config(module_dir)
+        local_version = cfg.get('metadata', {}).get('content_version', '0.0.0')
+        
+        log_message(f"Local content version: {local_version}")
+        
+        # Get remote version from repository
+        repo_cfg = cfg.get('repo', {})
+        if not repo_cfg.get('url'):
+            log_message("No repository URL configured, assuming update needed", "WARNING")
+            return True, None
+        
+        # Clone repository temporarily to check remote version
+        temp_dir = tempfile.mkdtemp(prefix="permissions_version_check_")
+        try:
+            # Shallow clone just for version check
+            clone_success = subprocess.run([
+                'git', 'clone', 
+                '--branch', repo_cfg.get('branch', 'master'),
+                '--depth', '1',
+                repo_cfg['url'],
+                temp_dir
+            ], capture_output=True, text=True, check=True)
+            
+            # Read remote VERSION file
+            remote_version_file = os.path.join(temp_dir, "VERSION")
+            if not os.path.exists(remote_version_file):
+                log_message("Remote VERSION file not found, assuming update needed", "WARNING")
+                return True, None
+            
+            with open(remote_version_file, 'r') as f:
+                remote_version = f.read().strip()
+            
+            log_message(f"Remote version: {remote_version}")
+            
+            # Compare versions
+            if local_version == remote_version:
+                log_message("Local content version matches remote version, no update needed")
+                return False, remote_version
+            else:
+                log_message(f"Version mismatch: local {local_version} vs remote {remote_version}, update needed")
+                return True, remote_version
+                
+        finally:
+            # Always cleanup temp directory
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                
+    except Exception as e:
+        log_message(f"Version check failed: {e}, assuming update needed", "WARNING")
+        return True, None
+
+
 def check(module_dir: Path) -> Dict[str, Any]:
     cfg = load_config(module_dir)
     policies = _effective_policies(module_dir, cfg)
@@ -170,7 +232,18 @@ def apply(module_dir: Path) -> Dict[str, Any]:
     perm_mgr = PermissionManager('permissions')
     changed: List[str] = []
 
-    # Backup all targets first
+    # Check if update is needed first
+    update_needed, remote_version = _check_version_update_needed()
+    if not update_needed:
+        log_message("Permissions module is already up to date, no update needed")
+        return {
+            'success': True, 
+            'updated': False, 
+            'changed': [],
+            'version': remote_version
+        }
+
+    # Backup all targets first (only if update is needed)
     backup_targets = [p['destination'] for p in policies]
     state.backup_module_state('permissions', description='sudoers policies', files=backup_targets)
 
@@ -214,7 +287,12 @@ def apply(module_dir: Path) -> Dict[str, Any]:
     # final full sudoers validation
     subprocess.run(['visudo', '-cf', '/etc/sudoers'], check=False)
 
-    return { 'success': True, 'updated': len(changed) > 0, 'changed': changed }
+    return { 
+        'success': True, 
+        'updated': len(changed) > 0, 
+        'changed': changed,
+        'version': remote_version
+    }
 
 
 def main(args=None):

@@ -553,14 +553,15 @@ def main(args=None):
     else:
         log_message(f"Gogs is already at the latest version ({current_version})")
         
-        # Still run verification to ensure everything is working
-        verification = verify_gogs_installation()
+        # Skip verification when no update is needed - it's not necessary
+        # Verification is only useful when we've made changes or need to diagnose issues
+        log_message("Skipping verification - no update needed")
         
         return {
             "success": True, 
             "updated": False, 
             "version": current_version,
-            "verification": verification,
+            "verification": None,  # No verification performed when not needed
             "config": MODULE_CONFIG
         }
 

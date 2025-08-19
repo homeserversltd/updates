@@ -1,7 +1,9 @@
 {
     "metadata": {
-        "schema_version": "0.1.3",
+        "schema_version": "0.1.4",
         "content_version": "1.0.0",
+        "mkdocs_version": "1.6.1",
+        "material_theme_version": "9.6.17",
         "module_name": "mkdocs",
         "description": "Mkdocs documentation server",
         "enabled": true
@@ -26,7 +28,8 @@
             }
         },
         "installation": {
-            "github_api_url": "https://api.github.com/repos/squidfunk/mkdocs-material/releases/latest"
+            "mkdocs_repo": "https://api.github.com/repos/mkdocs/mkdocs/releases/latest",
+            "material_theme_repo": "https://api.github.com/repos/squidfunk/mkdocs-material/releases/latest"
         },
         "documentation": {
             "repository_url": "https://github.com/homeserversltd/documentation.git",

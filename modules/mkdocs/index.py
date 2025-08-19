@@ -28,6 +28,7 @@ from pathlib import Path
 from updates.index import log_message
 from updates.utils.state_manager import StateManager
 from updates.utils.permissions import PermissionManager, PermissionTarget
+from typing import Tuple, Dict, Any
 
 # Load module configuration
 def load_module_config():
@@ -54,7 +55,8 @@ def get_mkdocs_paths():
             paths.append(path)
     return paths
 
-def get_current_version():
+def get_current_mkdocs_version():
+    """Get the current MkDocs software version from the virtual environment."""
     try:
         # Use the virtual environment's mkdocs
         result = subprocess.run(["/opt/docs/venv/bin/mkdocs", "--version"], capture_output=True, text=True, timeout=10)
@@ -72,16 +74,51 @@ def get_current_version():
         log_message(f"Error getting current MkDocs version: {e}", "ERROR")
         return None
 
-def get_latest_version():
+def get_current_material_theme_version():
+    """Get the current MkDocs Material theme version from the virtual environment."""
     try:
-        api_url = MODULE_CONFIG["config"]["installation"]["github_api_url"]
+        # Use pip to get the installed version of mkdocs-material
+        result = subprocess.run(["/opt/docs/venv/bin/pip", "show", "mkdocs-material"], capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            pattern = r'Version: (\d+\.\d+\.\d+)'
+            match = re.search(pattern, output)
+            if match:
+                version = match.group(1)
+                log_message(f"Current Material theme version: {version}", "INFO")
+                return version
+        log_message("Failed to get current Material theme version", "WARNING")
+        return None
+    except Exception as e:
+        log_message(f"Error getting current Material theme version: {e}", "ERROR")
+        return None
+
+def get_latest_mkdocs_version():
+    """Get the latest MkDocs software version from GitHub API."""
+    try:
+        api_url = MODULE_CONFIG["config"]["installation"]["mkdocs_repo"]
         with urllib.request.urlopen(api_url) as resp:
             data = json.load(resp)
             tag = data.get("tag_name", "")
             if tag.startswith("v"):
                 return tag[1:]
             return tag
-    except:
+    except Exception as e:
+        log_message(f"Failed to get latest MkDocs version: {e}", "WARNING")
+        return None
+
+def get_latest_material_theme_version():
+    """Get the latest MkDocs Material theme version from GitHub API."""
+    try:
+        api_url = MODULE_CONFIG["config"]["installation"]["material_theme_repo"]
+        with urllib.request.urlopen(api_url) as resp:
+            data = json.load(resp)
+            tag = data.get("tag_name", "")
+            if tag.startswith("v"):
+                return tag[1:]
+            return tag
+    except Exception as e:
+        log_message(f"Failed to get latest Material theme version: {e}", "WARNING")
         return None
 
 def get_current_docs_version():
@@ -151,32 +188,125 @@ def get_latest_docs_version():
             shutil.rmtree(temp_dir)
         return None
 
-def save_docs_version(version):
-    """Save the current documentation version to local storage and update index.json."""
+def save_versions(mkdocs_version, material_theme_version, docs_version):
+    """Save all current versions to index.json."""
     try:
-        # Save to VERSION file
-        with open(DOCS_VERSION_FILE, 'w') as f:
-            f.write(version)
-        
-        # Update content_version in index.json
+        # Update versions in index.json
         try:
             index_json_path = __file__.replace('index.py', 'index.json')
             with open(index_json_path, 'r') as f:
                 config = json.load(f)
             
-            config['metadata']['content_version'] = version
+            config['metadata']['mkdocs_version'] = mkdocs_version
+            config['metadata']['material_theme_version'] = material_theme_version
+            config['metadata']['content_version'] = docs_version
             
             with open(index_json_path, 'w') as f:
                 json.dump(config, f, indent=4)
             
-            log_message(f"Updated index.json content_version to {version}", "INFO")
+            log_message(f"Updated index.json versions: mkdocs={mkdocs_version}, theme={material_theme_version}, docs={docs_version}", "INFO")
         except Exception as e:
-            log_message(f"Failed to update index.json content_version: {e}", "WARNING")
+            log_message(f"Failed to update index.json versions: {e}", "WARNING")
+        
+        # Save docs version to VERSION file
+        if docs_version:
+            try:
+                with open(DOCS_VERSION_FILE, 'w') as f:
+                    f.write(docs_version)
+            except Exception as e:
+                log_message(f"Failed to save docs VERSION file: {e}", "WARNING")
         
         return True
     except Exception as e:
-        log_message(f"Failed to save docs version: {e}", "ERROR")
+        log_message(f"Failed to save versions: {e}", "ERROR")
         return False
+
+def _check_version_update_needed() -> Tuple[bool, bool, bool, Dict[str, Any]]:
+    """
+    Check if updates are needed by comparing local versions with remote versions.
+    
+    Returns:
+        Tuple[bool, bool, bool, Dict]: (mkdocs_update_needed, theme_update_needed, docs_update_needed, version_info)
+    """
+    try:
+        # Get current versions from index.json
+        module_dir = Path(__file__).parent
+        cfg = load_module_config()
+        local_mkdocs_version = cfg.get('metadata', {}).get('mkdocs_version', '0.0.0')
+        local_theme_version = cfg.get('metadata', {}).get('material_theme_version', '0.0.0')
+        local_docs_version = cfg.get('metadata', {}).get('content_version', '0.0.0')
+        
+        log_message(f"Local versions - MkDocs: {local_mkdocs_version}, Theme: {local_theme_version}, Docs: {local_docs_version}")
+        
+        # Get remote versions
+        remote_mkdocs_version = get_latest_mkdocs_version()
+        remote_theme_version = get_latest_material_theme_version()
+        remote_docs_version = get_latest_docs_version()
+        
+        log_message(f"Remote versions - MkDocs: {remote_mkdocs_version}, Theme: {remote_theme_version}, Docs: {remote_docs_version}")
+        
+        # Determine what needs updating
+        mkdocs_update_needed = (remote_mkdocs_version and local_mkdocs_version != remote_mkdocs_version)
+        theme_update_needed = (remote_theme_version and local_theme_version != remote_theme_version)
+        docs_update_needed = (remote_docs_version and local_docs_version != remote_docs_version)
+        
+        version_info = {
+            "local": {
+                "mkdocs": local_mkdocs_version,
+                "theme": local_theme_version,
+                "docs": local_docs_version
+            },
+            "remote": {
+                "mkdocs": remote_mkdocs_version,
+                "theme": remote_theme_version,
+                "docs": remote_docs_version
+            },
+            "updates_needed": {
+                "mkdocs": mkdocs_update_needed,
+                "theme": theme_update_needed,
+                "docs": docs_update_needed
+            }
+        }
+        
+        if not any([mkdocs_update_needed, theme_update_needed, docs_update_needed]):
+            log_message("All components are up to date, no updates needed")
+        else:
+            if mkdocs_update_needed:
+                log_message(f"MkDocs software update needed: {local_mkdocs_version} → {remote_mkdocs_version}")
+            if theme_update_needed:
+                log_message(f"Material theme update needed: {local_theme_version} → {remote_theme_version}")
+            if docs_update_needed:
+                log_message(f"Documentation update needed: {local_docs_version} → {remote_docs_version}")
+        
+        return mkdocs_update_needed, theme_update_needed, docs_update_needed, version_info
+        
+    except Exception as e:
+        log_message(f"Version check failed: {e}, assuming updates needed", "WARNING")
+        return True, True, True, {}
+
+def check(module_dir: Path) -> Dict[str, Any]:
+    """Check mode - return current status without performing updates."""
+    try:
+        mkdocs_update_needed, theme_update_needed, docs_update_needed, version_info = _check_version_update_needed()
+        
+        # Get current installation status
+        verification = verify_mkdocs_installation()
+        
+        return {
+            'success': True,
+            'updated': False,
+            'verification': verification,
+            'version_info': version_info,
+            'updates_available': {
+                'mkdocs': mkdocs_update_needed,
+                'theme': theme_update_needed,
+                'docs': docs_update_needed
+            }
+        }
+        
+    except Exception as e:
+        log_message(f"Check failed: {e}", "ERROR")
+        return {'success': False, 'error': str(e)}
 
 def clone_docs_repository():
     """Clone the documentation repository to temporary location."""
@@ -301,7 +431,7 @@ def update_documentation():
             return False
         
         # Save new version
-        if not save_docs_version(latest_docs_version):
+        if not save_versions(get_current_mkdocs_version(), get_current_material_theme_version(), latest_docs_version):
             log_message("Failed to save docs version, but content updated", "WARNING")
         
         # Cleanup
@@ -341,11 +471,13 @@ def verify_mkdocs_installation():
     verification = {
         "pip_installed": False,
         "version": None,
+        "theme_version": None,
         "service_active": False,
         "docs_version": None
     }
     try:
-        verification["version"] = get_current_version()
+        verification["version"] = get_current_mkdocs_version()
+        verification["theme_version"] = get_current_material_theme_version()
         verification["pip_installed"] = verification["version"] is not None
         verification["service_active"] = is_service_active("mkdocs")
         verification["docs_version"] = get_current_docs_version()
@@ -374,30 +506,30 @@ def main(args=None):
     # Module directory for reference
     module_dir = Path(__file__).parent
     
+    # Handle --check flag for status reporting
+    if "--check" in args:
+        return check(module_dir)
+    
     log_message("Starting mkdocs update...")
     
-    # Check for software updates
-    current_version = get_current_version()
-    latest_version = get_latest_version()
+    # Check what updates are needed using the new version checking logic
+    mkdocs_update_needed, theme_update_needed, docs_update_needed, version_info = _check_version_update_needed()
     
-    # Check for documentation updates
-    current_docs_version = get_current_docs_version()
-    latest_docs_version = get_latest_docs_version()
-    
-    software_needs_update = current_version != latest_version
-    # Only try to update docs if we can successfully get the latest version
-    docs_need_update = latest_docs_version is not None and current_docs_version != latest_docs_version
-    
-    if not software_needs_update and not docs_need_update:
+    # If no updates needed, just verify and return
+    if not any([mkdocs_update_needed, theme_update_needed, docs_update_needed]):
+        log_message("All components are up to date, no updates needed")
         verification = verify_mkdocs_installation()
         return {"success": True, "updated": False, "verification": verification}
     
-    # Backup current state if either component needs updating
+    # Backup current state if any component needs updating
     state_manager = StateManager()
     files_to_backup = get_mkdocs_paths() + [DOCS_LOCAL_PATH, DOCS_VERSION_FILE]
+    
+    backup_name = f"pre_update_mkdocs_{version_info['local']['mkdocs']}_to_{version_info['remote']['mkdocs']}_theme_{version_info['local']['theme']}_to_{version_info['remote']['theme']}_docs_{version_info['local']['docs']}_to_{version_info['remote']['docs']}"
+    
     backup_success = state_manager.backup_module_state(
         "mkdocs",
-        f"pre_update_{current_version or 'unknown'}_to_{latest_version or 'unknown'}_docs_{current_docs_version or 'unknown'}_to_{latest_docs_version or 'unknown'}",
+        backup_name,
         files=files_to_backup
     )
     if not backup_success:
@@ -407,14 +539,22 @@ def main(args=None):
         # Stop service before updates
         systemctl("stop")
         
-        # Update software if needed
-        if software_needs_update:
-            log_message(f"Updating MkDocs software from {current_version} to {latest_version}", "INFO")
+        # Update MkDocs software if needed
+        if mkdocs_update_needed:
+            current_mkdocs = version_info['local']['mkdocs']
+            latest_mkdocs = version_info['remote']['mkdocs']
+            log_message(f"Updating MkDocs software from {current_mkdocs} to {latest_mkdocs}", "INFO")
             subprocess.run(["/opt/docs/venv/bin/pip", "install", "--upgrade", "mkdocs"], check=True)
+        
+        # Update Material theme if needed
+        if theme_update_needed:
+            current_theme = version_info['local']['theme']
+            latest_theme = version_info['remote']['theme']
+            log_message(f"Updating Material theme from {current_theme} to {latest_theme}", "INFO")
             subprocess.run(["/opt/docs/venv/bin/pip", "install", "--upgrade", "mkdocs-material"], check=True)
         
         # Update documentation if needed
-        if docs_need_update:
+        if docs_update_needed:
             if not update_documentation():
                 raise Exception("Documentation update failed")
         
@@ -427,14 +567,22 @@ def main(args=None):
         
         # Verify everything is working
         verification = verify_mkdocs_installation()
-        new_version = verification.get("version")
+        new_mkdocs_version = verification.get("version")
         new_docs_version = verification.get("docs_version")
         
+        # Get new theme version after update
+        new_theme_version = get_current_material_theme_version()
+        
+        # Update local version tracking
+        save_versions(new_mkdocs_version, new_theme_version, new_docs_version)
+        
         success_conditions = [
-            # For software updates: either no update needed, or software is working (version check is lenient)
-            not software_needs_update or (new_version is not None and verification["pip_installed"]),
+            # For software updates: either no update needed, or software is working
+            not mkdocs_update_needed or (new_mkdocs_version is not None and verification["pip_installed"]),
+            # For theme updates: either no update needed, or theme version matches
+            not theme_update_needed or (new_theme_version is not None and new_theme_version == version_info['remote']['theme']),
             # For docs updates: either no update needed, or docs version matches
-            not docs_need_update or (latest_docs_version is not None and new_docs_version == latest_docs_version),
+            not docs_update_needed or (new_docs_version is not None and new_docs_version == version_info['remote']['docs']),
             # Service must be active
             verification["service_active"]
         ]
@@ -445,8 +593,10 @@ def main(args=None):
                 "success": True, 
                 "updated": True, 
                 "verification": verification,
-                "software_updated": software_needs_update,
-                "docs_updated": docs_need_update
+                "software_updated": mkdocs_update_needed,
+                "theme_updated": theme_update_needed,
+                "docs_updated": docs_update_needed,
+                "version_info": version_info
             }
         else:
             raise Exception("Post-update verification failed")
