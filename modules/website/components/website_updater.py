@@ -347,14 +347,17 @@ class WebsiteUpdater:
                         lines = result.stdout.strip().split('\n')
                         for line in lines:
                             line = line.strip()
-                            if line.startswith('✅ '):
-                                # Format: "✅ tabName (v1.0.0)"
-                                tab_name = line.split(' ')[1]  # Get the tab name after ✅
-                                installed_tabs.append({
-                                    "name": tab_name,
-                                    "version": "unknown",  # Could parse version if needed
-                                    "path": os.path.join(self.base_dir, 'premium', tab_name)
-                                })
+                            if line.startswith('[INSTALLED]'):
+                                # Format: "[INSTALLED] tabName (v1.0.0)"
+                                # Extract tab name from between [INSTALLED] and (v...)
+                                parts = line.split(' ')
+                                if len(parts) >= 2:
+                                    tab_name = parts[1]  # Get the tab name after [INSTALLED]
+                                    installed_tabs.append({
+                                        "name": tab_name,
+                                        "version": "unknown",  # Could parse version if needed
+                                        "path": os.path.join(self.base_dir, 'premium', tab_name)
+                                    })
                         
                         log_message(f"✓ Found {len(installed_tabs)} actually installed premium tabs via installer")
                     else:
