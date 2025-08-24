@@ -238,6 +238,29 @@ class HotfixManager:
         log_message(f"All operations in pool {pool_id} applied successfully")
         return True
     
+    def _should_apply_pool(self, pool: Dict[str, Any]) -> bool:
+        """Check if a pool should be applied based on schema version targeting."""
+        target_schema_version = pool.get('target_schema_version')
+        if not target_schema_version:
+            return True  # No schema version targeting, apply to all
+        
+        # Get current hotfix module schema version
+        current_schema_version = self.config.get('metadata', {}).get('schema_version', 'unknown')
+        
+        log_message(f"Schema version check: current={current_schema_version}, target={target_schema_version}")
+        
+        # Simple version comparison - if current schema version is target or lower, apply hotfix
+        if current_schema_version == "unknown" or current_schema_version == target_schema_version:
+            return True
+        
+        # Try to parse versions for comparison
+        try:
+            from packaging import version
+            return version.parse(current_schema_version) <= version.parse(target_schema_version)
+        except ImportError:
+            # Fallback to string comparison if packaging not available
+            return current_schema_version <= target_schema_version
+    
     def _process_pool(self, pool: Dict[str, Any]) -> bool:
         """Process a single pool with backup, apply, closure, and rollback logic."""
         pool_id = pool["id"]
@@ -246,6 +269,11 @@ class HotfixManager:
         closure_commands = pool.get("closure", [])
         
         log_message(f"Processing pool: {pool_id} - {description}")
+        
+        # Check if this pool should be applied based on version
+        if not self._should_apply_pool(pool):
+            log_message(f"Pool {pool_id} skipped - version check failed")
+            return True  # Don't count as failure, just skip
         
         if not operations:
             log_message(f"Pool {pool_id} has no operations, skipping")

@@ -1,13 +1,33 @@
 {
     "metadata": {
-        "schema_version": "0.1.6",
+        "schema_version": "0.1.7",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
     "pools": [
         {
+            "id": "gogs_repository_fix",
+            "description": "Fix Gogs repository path to use local storage instead of NAS dependency",
+            "target_schema_version": "0.1.7",
+            "operations": [
+                {
+                    "target": "gogs_repository_fix.sh",
+                    "destination": "/usr/local/sbin/gogs_repository_fix.sh",
+                    "permissions": {
+                        "owner": "root",
+                        "group": "root",
+                        "mode": "755"
+                    }
+                }
+            ],
+            "closure": [
+                "/usr/local/sbin/gogs_repository_fix.sh"
+            ]
+        },
+        {
             "id": "test_hotfix_pool",
             "description": "Simple test hotfix that always passes",
+            "target_schema_version": "0.1.0",
             "operations": [
                 {
                     "target": "example.sh",
