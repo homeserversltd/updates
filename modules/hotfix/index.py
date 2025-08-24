@@ -239,7 +239,12 @@ class HotfixManager:
         return True
     
     def _should_apply_pool(self, pool: Dict[str, Any]) -> bool:
-        """Check if a pool should be applied based on schema version targeting."""
+        """Check if a pool should be applied based on schema version targeting and has_run status."""
+        # Check if pool has already run
+        if pool.get('has_run', False):
+            log_message(f"Pool {pool.get('id', 'unknown')} has already run, skipping")
+            return False
+        
         target_schema_version = pool.get('target_schema_version')
         if not target_schema_version:
             return True  # No schema version targeting, apply to all
@@ -260,6 +265,26 @@ class HotfixManager:
         except ImportError:
             # Fallback to string comparison if packaging not available
             return current_schema_version <= target_schema_version
+    
+    def _mark_pool_as_run(self, pool_id: str) -> bool:
+        """Mark a pool as having run successfully by updating the index.json file."""
+        try:
+            # Update the config in memory
+            for pool in self.config.get('pools', []):
+                if pool.get('id') == pool_id:
+                    pool['has_run'] = True
+                    break
+            
+            # Write the updated config back to disk
+            with open(self.index_file, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            
+            log_message(f"Marked pool {pool_id} as completed")
+            return True
+            
+        except Exception as e:
+            log_message(f"Failed to mark pool {pool_id} as completed: {e}", "ERROR")
+            return False
     
     def _process_pool(self, pool: Dict[str, Any]) -> bool:
         """Process a single pool with backup, apply, closure, and rollback logic."""
@@ -311,6 +336,9 @@ class HotfixManager:
                 self._rollback_pool(pool_id)
                 return False
             
+            # Mark pool as run after successful completion
+            self._mark_pool_as_run(pool_id)
+
             log_message(f"Pool {pool_id} completed successfully")
             return True
             
