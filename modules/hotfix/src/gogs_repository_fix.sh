@@ -28,6 +28,12 @@ fix_repository_path() {
         return 1
     fi
     
+    # Check if the path is already correct
+    if grep -q "ROOT = /opt/gogs/repositories" "$app_ini"; then
+        log_info "Repository path is already correct, no changes needed"
+        return 0
+    fi
+    
     log_info "Fixing repository path in app.ini"
     
     # Backup the original file
@@ -48,14 +54,29 @@ fix_repository_path() {
 
 # Create local repository directory with proper permissions
 create_local_directories() {
-    log_info "Creating local repository directories"
+    log_info "Checking local repository directories"
+    
+    # Check if directory already exists with correct permissions
+    if [ -d "/opt/gogs/repositories" ]; then
+        local owner=$(stat -c '%U:%G' "/opt/gogs/repositories")
+        local perms=$(stat -c '%a' "/opt/gogs/repositories")
+        
+        if [ "$owner" = "git:git" ] && [ "$perms" = "750" ]; then
+            log_info "Local repository directories already exist with correct permissions"
+            return 0
+        else
+            log_info "Directory exists but permissions need fixing"
+        fi
+    else
+        log_info "Creating local repository directories"
+    fi
     
     # Create the repositories directory
     mkdir -p /opt/gogs/repositories
     chown -R git:git /opt/gogs/repositories
     chmod 750 /opt/gogs/repositories
     
-    log_info "Local repository directories created with proper permissions"
+    log_info "Local repository directories created/updated with proper permissions"
 }
 
 # Update the systemd service file to remove NAS dependency
@@ -67,7 +88,13 @@ fix_service_file() {
         return 1
     fi
     
-    log_info "Updating systemd service file"
+    # Check if ReadWritePaths line already exists
+    if ! grep -q "ReadWritePaths=" "$service_file"; then
+        log_info "Service file already correct (no ReadWritePaths), no changes needed"
+        return 0
+    fi
+    
+    log_info "Updating systemd service file to remove ReadWritePaths"
     
     # Backup the original file
     cp "$service_file" "${service_file}.backup.$(date +%s)"
@@ -119,6 +146,22 @@ check_and_create_admin_user() {
 
 # Reload systemd and restart Gogs
 restart_service() {
+    log_info "Checking if Gogs service needs restart"
+    
+    # Check if service is running and healthy
+    if systemctl is-active --quiet gogs.service; then
+        # Check if the service is using the correct config
+        local current_root=$(grep "ROOT = " /opt/gogs/custom/conf/app.ini | cut -d'=' -f2 | tr -d ' ')
+        if [ "$current_root" = "/opt/gogs/repositories" ]; then
+            log_info "Gogs service is running with correct configuration, no restart needed"
+            return 0
+        else
+            log_info "Configuration changed, service restart required"
+        fi
+    else
+        log_info "Service is not running, starting required"
+    fi
+    
     log_info "Reloading systemd and restarting Gogs service"
     
     systemctl daemon-reload
