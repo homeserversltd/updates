@@ -345,17 +345,40 @@ def deploy_docs_content_from_temp(temp_dir):
                 else:
                     os.remove(item_path)
         
-        # Copy new content from temp directory
+        # Copy new content from temp directory's docs/ subdirectory
         if os.path.exists(temp_dir):
-            # Copy all files and directories except .git
-            for item in os.listdir(temp_dir):
-                if item != '.git':
-                    src = os.path.join(temp_dir, item)
+            # The temp directory contains the git repo, we want the docs/ subdirectory
+            docs_source_dir = os.path.join(temp_dir, "docs")
+            if os.path.exists(docs_source_dir):
+                # Copy all files and directories from docs/ subdirectory
+                for item in os.listdir(docs_source_dir):
+                    src = os.path.join(docs_source_dir, item)
                     dst = os.path.join(DOCS_LOCAL_PATH, item)
                     if os.path.isdir(src):
                         shutil.copytree(src, dst)
                     else:
                         shutil.copy2(src, dst)
+            else:
+                log_message(f"docs/ subdirectory not found in temp directory: {temp_dir}", "ERROR")
+                return False
+            
+            # Copy mkdocs.yml from temp directory root to /opt/docs/
+            mkdocs_yml_src = os.path.join(temp_dir, "mkdocs.yml")
+            mkdocs_yml_dst = "/opt/docs/mkdocs.yml"
+            if os.path.exists(mkdocs_yml_src):
+                shutil.copy2(mkdocs_yml_src, mkdocs_yml_dst)
+                log_message("Copied mkdocs.yml to /opt/docs/", "INFO")
+            else:
+                log_message("mkdocs.yml not found in temp directory", "WARNING")
+            
+            # Copy VERSION file from temp directory root to /opt/docs/
+            version_src = os.path.join(temp_dir, "VERSION")
+            version_dst = "/opt/docs/VERSION"
+            if os.path.exists(version_src):
+                shutil.copy2(version_src, version_dst)
+                log_message("Copied VERSION to /opt/docs/", "INFO")
+            else:
+                log_message("VERSION file not found in temp directory", "WARNING")
         
         # Set proper ownership and permissions
         admin_user = "admin"  # Default admin user
@@ -365,7 +388,7 @@ def deploy_docs_content_from_temp(temp_dir):
         except:
             pass
         
-        # Recursively set ownership
+        # Recursively set ownership for docs directory
         for root, dirs, files in os.walk(DOCS_LOCAL_PATH):
             for d in dirs:
                 path = os.path.join(root, d)
@@ -374,6 +397,12 @@ def deploy_docs_content_from_temp(temp_dir):
             for f in files:
                 path = os.path.join(root, f)
                 subprocess.run(['chown', f'{admin_user}:{admin_user}', path], 
+                             capture_output=True)
+        
+        # Set ownership for mkdocs.yml and VERSION files
+        for file_path in ["/opt/docs/mkdocs.yml", "/opt/docs/VERSION"]:
+            if os.path.exists(file_path):
+                subprocess.run(['chown', f'{admin_user}:{admin_user}', file_path], 
                              capture_output=True)
         
         return True
