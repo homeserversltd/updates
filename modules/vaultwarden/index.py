@@ -404,6 +404,22 @@ def update_vaultwarden():
                 return False
             
             log_message("Installing new binary...")
+            
+            # Ensure service is stopped before replacing binary
+            service_name = get_service_name()
+            if is_service_active(service_name):
+                log_message(f"Service {service_name} is still active, stopping...")
+                systemctl("stop", service_name)
+                # Wait for service to stop
+                for i in range(5):
+                    if not is_service_active(service_name):
+                        break
+                    time.sleep(1)
+                else:
+                    log_message("Force killing service...", "WARNING")
+                    systemctl("kill", service_name)
+                    time.sleep(2)
+            
             shutil.copy2(built_binary, target_binary)
             
             # Download and install web vault
@@ -673,6 +689,18 @@ def main(args=None):
         # Stop service before backup and update
         log_message(f"Stopping {SERVICE_NAME} service...")
         systemctl("stop", SERVICE_NAME)
+        
+        # Wait for service to actually stop
+        log_message("Waiting for service to stop...")
+        for i in range(10):  # Wait up to 10 seconds
+            if not is_service_active(SERVICE_NAME):
+                log_message("Service stopped successfully")
+                break
+            time.sleep(1)
+        else:
+            log_message("Service did not stop within 10 seconds, forcing stop...", "WARNING")
+            systemctl("kill", SERVICE_NAME)  # Force kill if needed
+            time.sleep(2)  # Give it time to actually die
         
         # Create comprehensive backup using StateManager
         backup_success = state_manager.backup_module_state(

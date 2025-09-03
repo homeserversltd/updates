@@ -13,6 +13,7 @@ Handles all file copying and synchronization operations for the website update s
 
 import os
 import shutil
+import subprocess
 from typing import Dict, Any
 from updates.index import log_message
 
@@ -251,7 +252,7 @@ class FileOperations:
             
             # STEP 2: Remove entire target src directory
             if os.path.exists(target_path):
-                shutil.rmtree(target_path)
+                subprocess.run(['rm', '-rf', target_path], check=True)
                 log_message(f"[FILE_COPY_DEBUG] ✓ Removed entire target src directory: {target_path}")
             
             # STEP 3: Copy entire source src directory to target
