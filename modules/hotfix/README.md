@@ -2,15 +2,15 @@
 
 ## Purpose
 
-The hotfix module provides emergency patch deployment capabilities for HOMESERVER systems. It serves as a safety net for critical fixes that need immediate deployment across all HOMESERVER installations when something goes wrong or when urgent patches are required.
+The hotfix module provides universal emergency patch deployment capabilities for HOMESERVER systems. It serves as a powerful safety net that can target any component in the system with intelligent version checking and script-based execution.
 
 ## What It Does
 
-- **Emergency File Replacement**: Rapidly deploy corrected files to any location in the HOMESERVER system
-- **Atomic Operations**: Groups related fixes together so they succeed or fail as a unit
-- **Safe Rollback**: Automatically reverts changes if fixes cause problems
-- **Respect Customizations**: Won't break systems where users have made their own modifications
-- **System Validation**: Verifies fixes work by testing system functionality after deployment
+- **Universal Targeting**: Fix any software, module, or system component across the entire HOMESERVER stack
+- **Intelligent Version Checking**: Only applies fixes when version conditions are met
+- **Script-Based Execution**: Simple shell scripts handle complex fixes and system modifications
+- **Flexible Conditions**: Support for module schemas, binary versions, file existence, and custom conditions
+- **Safe Execution**: Built-in timeouts, error handling, and execution tracking
 
 ## Why It Matters
 
@@ -21,18 +21,72 @@ Even the most carefully designed systems sometimes need emergency fixes. HOMESER
 - **Configuration Errors**: Corrections to configuration files that prevent proper operation
 - **Service Recovery**: Emergency repairs to restore failed services
 - **Compatibility Issues**: Quick fixes for compatibility problems with new environments
+- **System Maintenance**: One-off fixes that need to run once across all installations
 
-## Integration with HOMESERVER
+## How It Works
 
-The hotfix module integrates with HOMESERVER's update system to provide controlled emergency patching. It respects the existing backup and rollback infrastructure while providing the flexibility to fix any component of the system when needed.
+### Target-Based System
+Each hotfix is defined as a "target" with:
+- **Unique ID**: Identifier for the hotfix
+- **Description**: What the hotfix does
+- **Target ID**: What system component it targets
+- **Version Check**: Conditions that determine if the hotfix should run
+- **Execution Tracking**: Prevents duplicate runs
+
+### Version Check Types
+
+1. **Module Schema**: Check if a module's schema version is below a threshold
+   ```json
+   "version_check": {
+     "type": "module_schema",
+     "module": "gogs",
+     "max_version": "0.1.7"
+   }
+   ```
+
+2. **Binary Version**: Check if a binary's version is below a threshold
+   ```json
+   "version_check": {
+     "type": "binary_version",
+     "binary": "/usr/bin/git",
+     "max_version": "2.30.0"
+   }
+   ```
+
+3. **File Existence**: Check if a file exists (or doesn't exist)
+   ```json
+   "version_check": {
+     "type": "file_exists",
+     "path": "/etc/homeserver.factory",
+     "invert": true
+   }
+   ```
+
+4. **Always Run**: Apply the hotfix unconditionally
+   ```json
+   "version_check": {
+     "type": "always",
+     "value": true
+   }
+   ```
+
+### Script Execution
+- Each target runs a corresponding script from the `src/` directory
+- Scripts are named `{target_id}.sh` (e.g., `gogs_repository_fix.sh`)
+- Scripts have 5-minute execution timeout
+- All output is logged for debugging
 
 ## Key Features
 
-- **Pool-Based Deployment**: Groups related fixes together for atomic application
-- **Intelligent Rollback**: Automatically undoes changes if the system can't function properly
-- **Customer-Safe**: Preserves user modifications by reverting when conflicts are detected
-- **Comprehensive Backup**: Creates full backups before making any changes
-- **Validation Testing**: Runs system checks to ensure fixes work correctly
-- **Graceful Degradation**: Failed fixes don't break the overall system
+- **Universal Reach**: Can fix any component in the HOMESERVER system
+- **Smart Conditions**: Only runs when actually needed based on version checks
+- **Simple Scripts**: Easy to write and maintain shell script fixes
+- **Execution Tracking**: Prevents duplicate runs with `has_run` flag
+- **Error Handling**: Failed targets don't break other hotfixes
+- **Comprehensive Logging**: Full visibility into what's happening
 
-This module serves as HOMESERVER's emergency response system - a tool you hope you'll never need, but when you do need it, it can save the day by rapidly deploying critical fixes across all deployed systems while maintaining safety and reliability.
+## Integration with HOMESERVER
+
+The hotfix module integrates with HOMESERVER's update system to provide controlled emergency patching. It can target any module, service, or system component while respecting the existing backup and rollback infrastructure.
+
+This module serves as HOMESERVER's universal emergency response system - a powerful tool that can fix anything, anywhere, when you need it most.

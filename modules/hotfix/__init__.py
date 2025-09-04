@@ -17,22 +17,28 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 """
-Hotfix Module - Pool-Based Emergency Patch Management System
+Hotfix Module - Universal Emergency Patch Management System
 
-This module provides a simplified, robust hotfix system with pool-based operations
-and StateManager integration for reliable backup and rollback capabilities.
+This module provides a powerful, flexible hotfix system that can target any component
+in the HOMESERVER system with intelligent version checking and script execution.
 
 Key Features:
-- Pool-based transactions: Related files grouped together with shared closure commands
-- StateManager integration: Leverages existing backup/restore infrastructure
-- Graceful failure handling: Failed pools don't break the system
-- Customer-first approach: Respects customer modifications through closure validation
-- finalClosure support: System-wide validation after all pools complete
+- Universal targeting: Can fix any software, module, or system component
+- Flexible version checking: Supports module schemas, binary versions, file existence
+- Script-based execution: Simple shell scripts in src/ directory
+- Intelligent conditions: Only runs when version conditions are met
+- StateManager integration: Reliable backup and restore capabilities
+
+Version Check Types:
+- module_schema: Check module schema version against max_version
+- binary_version: Check binary version using --version flag
+- file_exists: Check if file exists (with invert option)
+- always: Always run (for universal fixes)
 
 Components:
-- HotfixManager: Main pool orchestration and execution
-- Pool-based operations: Atomic file replacement groups
-- StateManager integration: Reliable backup and restore
+- HotfixManager: Main target orchestration and execution
+- Version checking: Flexible condition evaluation
+- Script execution: Direct shell script execution from src/
 """
 
 import os

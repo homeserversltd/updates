@@ -1,55 +1,41 @@
 {
     "metadata": {
-        "schema_version": "0.1.8",
+        "schema_version": "0.1.9",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
-    "pools": [
+    "targets": [
         {
             "id": "gogs_repository_fix",
             "description": "Fix Gogs repository path to use local storage instead of NAS dependency",
-            "target_schema_version": "0.1.8",
-            "has_run": false,
-            "operations": [
-                {
-                    "target": "gogs_repository_fix.sh",
-                    "destination": "/usr/local/sbin/gogs_repository_fix.sh",
-                    "permissions": {
-                        "owner": "root",
-                        "group": "root",
-                        "mode": "755"
-                    }
-                }
-            ],
-            "closure": [
-                "/usr/local/sbin/gogs_repository_fix.sh"
-            ]
+            "target_id": "gogs",
+            "version_check": {
+                "type": "module_schema",
+                "module": "gogs",
+                "max_version": "0.1.7"
+            },
+            "has_run": false
         },
         {
-            "id": "test_hotfix_pool",
+            "id": "factory_config_fix",
+            "description": "Ensure factory config exists as immutable backup",
+            "target_id": "system",
+            "version_check": {
+                "type": "file_exists",
+                "path": "/etc/homeserver.factory",
+                "invert": true
+            },
+            "has_run": false
+        },
+        {
+            "id": "test_hotfix",
             "description": "Simple test hotfix that always passes",
-            "target_schema_version": "0.1.0",
-            "has_run": false,
-            "operations": [
-                {
-                    "target": "example.sh",
-                    "destination": "/tmp/hotfix_test_example.sh",
-                    "permissions": {
-                        "owner": "root",
-                        "group": "root",
-                        "mode": "755"
-                    }
-                }
-            ],
-            "closure": [
-                "echo 'Hotfix test pool completed successfully'",
-                "ls -la /tmp/hotfix_test_example.sh",
-                "echo 'All systems operational'"
-            ]
+            "target_id": "test",
+            "version_check": {
+                "type": "always",
+                "value": true
+            },
+            "has_run": false
         }
-    ],
-    "finalClosure": [
-        "echo 'Final hotfix validation completed'",
-        "echo 'System ready'"
     ]
 }

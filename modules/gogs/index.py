@@ -133,6 +133,81 @@ def get_latest_gogs_version():
         log_message(f"Failed to get latest version info: {e}", "ERROR")
         return None
 
+def validate_critical_data(install_dir):
+    """
+    Ensure critical user data exists before update to prevent data loss.
+    Args:
+        install_dir: Path to Gogs installation directory
+    Returns:
+        dict: Validation results with status and details
+    """
+    validation_results = {
+        "has_repositories": False,
+        "has_custom_config": False,
+        "has_data_dir": False,
+        "repositories_count": 0,
+        "critical_paths": {},
+        "warnings": []
+    }
+    
+    try:
+        # Check for repositories directory
+        repo_path = os.path.join(install_dir, "repositories")
+        validation_results["critical_paths"]["repositories"] = repo_path
+        
+        if os.path.exists(repo_path):
+            validation_results["has_repositories"] = True
+            # Count repositories (directories at root level)
+            try:
+                repo_count = len([d for d in os.listdir(repo_path) 
+                                if os.path.isdir(os.path.join(repo_path, d))])
+                validation_results["repositories_count"] = repo_count
+                if repo_count > 0:
+                    log_message(f"Found {repo_count} repositories to preserve")
+                else:
+                    validation_results["warnings"].append("Repositories directory exists but is empty")
+            except OSError as e:
+                validation_results["warnings"].append(f"Cannot read repositories directory: {e}")
+        else:
+            validation_results["warnings"].append("Repositories directory not found - no repos to preserve")
+        
+        # Check for custom configuration
+        config_path = os.path.join(install_dir, "custom", "conf", "app.ini")
+        validation_results["critical_paths"]["config"] = config_path
+        
+        if os.path.exists(config_path):
+            validation_results["has_custom_config"] = True
+            log_message("Found custom configuration to preserve")
+        else:
+            validation_results["warnings"].append("Custom configuration not found - will use defaults")
+        
+        # Check for data directory
+        data_path = os.path.join(install_dir, "data")
+        validation_results["critical_paths"]["data"] = data_path
+        
+        if os.path.exists(data_path):
+            validation_results["has_data_dir"] = True
+            log_message("Found data directory to preserve")
+        else:
+            validation_results["warnings"].append("Data directory not found - will be created")
+        
+        # Log validation results
+        log_message("Pre-update validation completed:")
+        log_message(f"  Repositories: {'✓' if validation_results['has_repositories'] else '✗'} ({validation_results['repositories_count']} repos)")
+        log_message(f"  Custom config: {'✓' if validation_results['has_custom_config'] else '✗'}")
+        log_message(f"  Data directory: {'✓' if validation_results['has_data_dir'] else '✗'}")
+        
+        if validation_results["warnings"]:
+            for warning in validation_results["warnings"]:
+                log_message(f"  WARNING: {warning}", "WARNING")
+        
+        return validation_results
+        
+    except Exception as e:
+        log_message(f"Error during pre-update validation: {e}", "ERROR")
+        validation_results["error"] = str(e)
+        return validation_results
+
 def verify_gogs_installation():
     """
     Verify that Gogs is properly installed and functional.
@@ -187,47 +262,275 @@ def verify_gogs_installation():
     
     return verification_results
 
+def preserve_user_data(install_dir, temp_backup_dir):
+    """
+    Backup critical user data before update to prevent data loss.
+    Args:
+        install_dir: Path to current Gogs installation
+        temp_backup_dir: Temporary directory to store user data backup
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        log_message("Preserving user data before update...")
+        
+        # Directories to preserve (user data)
+        preserve_directories = ["repositories", "custom", "data", "log"]
+        
+        for dir_name in preserve_directories:
+            source_path = os.path.join(install_dir, dir_name)
+            backup_path = os.path.join(temp_backup_dir, dir_name)
+            
+            if os.path.exists(source_path):
+                log_message(f"Preserving {dir_name} directory...")
+                if os.path.isdir(source_path):
+                    shutil.copytree(source_path, backup_path, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(source_path, backup_path)
+                log_message(f"✓ Preserved {dir_name}")
+            else:
+                log_message(f"Directory {dir_name} not found - skipping", "DEBUG")
+        
+        log_message("User data preservation completed successfully")
+        return True
+        
+    except Exception as e:
+        log_message(f"Failed to preserve user data: {e}", "ERROR")
+        return False
+
+def replace_binary_only(install_dir, new_gogs_dir):
+    """
+    Replace only the Gogs binary and static files, preserving user data.
+    Args:
+        install_dir: Path to current Gogs installation
+        new_gogs_dir: Path to new Gogs installation from download
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        log_message("Replacing binary and static files...")
+        
+        # Files to replace (binary and static content)
+        replace_files = ["gogs", "LICENSE", "README.md", "README_ZH.md", "scripts"]
+        
+        for item_name in replace_files:
+            source_path = os.path.join(new_gogs_dir, item_name)
+            target_path = os.path.join(install_dir, item_name)
+            
+            if os.path.exists(source_path):
+                if os.path.isdir(source_path):
+                    # Remove existing directory and replace
+                    if os.path.exists(target_path):
+                        shutil.rmtree(target_path)
+                    shutil.copytree(source_path, target_path)
+                else:
+                    # Copy file
+                    shutil.copy2(source_path, target_path)
+                log_message(f"✓ Replaced {item_name}")
+            else:
+                log_message(f"Item {item_name} not found in new installation", "WARNING")
+        
+        log_message("Binary replacement completed successfully")
+        return True
+        
+    except Exception as e:
+        log_message(f"Failed to replace binary files: {e}", "ERROR")
+        return False
+
+def restore_user_data(install_dir, temp_backup_dir):
+    """
+    Restore user data after binary update.
+    Args:
+        install_dir: Path to Gogs installation directory
+        temp_backup_dir: Temporary directory containing user data backup
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        log_message("Restoring user data after update...")
+        
+        # Restore each preserved directory
+        for item_name in os.listdir(temp_backup_dir):
+            backup_path = os.path.join(temp_backup_dir, item_name)
+            target_path = os.path.join(install_dir, item_name)
+            
+            if os.path.isdir(backup_path):
+                # Remove existing directory and restore
+                if os.path.exists(target_path):
+                    shutil.rmtree(target_path)
+                shutil.copytree(backup_path, target_path)
+            else:
+                # Copy file
+                shutil.copy2(backup_path, target_path)
+            
+            log_message(f"✓ Restored {item_name}")
+        
+        log_message("User data restoration completed successfully")
+        return True
+        
+    except Exception as e:
+        log_message(f"Failed to restore user data: {e}", "ERROR")
+        return False
+
+def validate_preservation(install_dir, validation_before):
+    """
+    Validate that user data was preserved correctly after update.
+    Args:
+        install_dir: Path to Gogs installation directory
+        validation_before: Validation results from before update
+    Returns:
+        dict: Post-update validation results
+    """
+    try:
+        log_message("Validating data preservation after update...")
+        
+        validation_after = {
+            "repositories_preserved": False,
+            "config_preserved": False,
+            "data_preserved": False,
+            "repositories_count_after": 0,
+            "preservation_success": False
+        }
+        
+        # Check repositories
+        repo_path = os.path.join(install_dir, "repositories")
+        if os.path.exists(repo_path):
+            validation_after["repositories_preserved"] = True
+            try:
+                repo_count = len([d for d in os.listdir(repo_path) 
+                                if os.path.isdir(os.path.join(repo_path, d))])
+                validation_after["repositories_count_after"] = repo_count
+                
+                if validation_before.get("repositories_count", 0) == repo_count:
+                    log_message(f"✓ Repositories preserved: {repo_count} repos")
+                else:
+                    log_message(f"⚠ Repository count changed: {validation_before.get('repositories_count', 0)} → {repo_count}", "WARNING")
+            except OSError as e:
+                log_message(f"⚠ Cannot verify repository count: {e}", "WARNING")
+        else:
+            log_message("✗ Repositories directory missing after update", "ERROR")
+        
+        # Check custom config
+        config_path = os.path.join(install_dir, "custom", "conf", "app.ini")
+        if os.path.exists(config_path):
+            validation_after["config_preserved"] = True
+            log_message("✓ Custom configuration preserved")
+        else:
+            log_message("✗ Custom configuration missing after update", "ERROR")
+        
+        # Check data directory
+        data_path = os.path.join(install_dir, "data")
+        if os.path.exists(data_path):
+            validation_after["data_preserved"] = True
+            log_message("✓ Data directory preserved")
+        else:
+            log_message("✗ Data directory missing after update", "ERROR")
+        
+        # Overall preservation success
+        validation_after["preservation_success"] = all([
+            validation_after["repositories_preserved"],
+            validation_after["config_preserved"],
+            validation_after["data_preserved"]
+        ])
+        
+        if validation_after["preservation_success"]:
+            log_message("✓ Data preservation validation passed")
+        else:
+            log_message("✗ Data preservation validation failed", "ERROR")
+        
+        return validation_after
+        
+    except Exception as e:
+        log_message(f"Error during preservation validation: {e}", "ERROR")
+        return {"preservation_success": False, "error": str(e)}
+
 def install_gogs_binary(version):
     """
-    Install Gogs from pre-compiled binary.
+    Install Gogs from pre-compiled binary while preserving user data.
     Args:
         version: Version to install
     Returns:
-        bool: True if successful, False otherwise
+        dict: Installation results with success status and validation data
     """
     try:
         download_url = MODULE_CONFIG["config"]["installation"]["binary_download_url_template"].format(version=version)
         extract_path = MODULE_CONFIG["config"]["installation"]["extract_path"]
         
-        log_message(f"Attempting binary installation from {download_url}")
+        log_message(f"Attempting data-preserving binary installation from {download_url}")
         
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
-            log_message(f"Downloading {download_url}...")
-            urllib.request.urlretrieve(download_url, temp_file.name)
+        # Get installation directory
+        install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
+        install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
+        
+        # Pre-update validation
+        log_message("Performing pre-update validation...")
+        validation_before = validate_critical_data(install_dir)
+        
+        # Create temporary backup directory for user data
+        temp_backup_dir = tempfile.mkdtemp(prefix="gogs_user_data_")
+        
+        try:
+            # Preserve user data before update
+            if not preserve_user_data(install_dir, temp_backup_dir):
+                raise Exception("Failed to preserve user data")
             
-            # Extract to temporary location first
-            temp_extract = tempfile.mkdtemp()
-            subprocess.run(["tar", "xzf", temp_file.name, "-C", temp_extract], check=True)
-            
-            # Move to final location
-            gogs_dir = os.path.join(temp_extract, "gogs")
-            install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
-            install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
-            
-            if os.path.exists(install_dir):
-                shutil.rmtree(install_dir)
-            shutil.move(gogs_dir, install_dir)
-            
-            # Clean up
-            os.unlink(temp_file.name)
-            shutil.rmtree(temp_extract)
-            
-            log_message("Binary installation completed successfully")
-            return True
+            # Download and extract new version
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
+                log_message(f"Downloading {download_url}...")
+                urllib.request.urlretrieve(download_url, temp_file.name)
+                
+                # Extract to temporary location
+                temp_extract = tempfile.mkdtemp(prefix="gogs_new_")
+                subprocess.run(["tar", "xzf", temp_file.name, "-C", temp_extract], check=True)
+                
+                # Get path to new Gogs directory
+                new_gogs_dir = os.path.join(temp_extract, "gogs")
+                
+                # Replace binary and static files only
+                if not replace_binary_only(install_dir, new_gogs_dir):
+                    raise Exception("Failed to replace binary files")
+                
+                # Restore user data
+                if not restore_user_data(install_dir, temp_backup_dir):
+                    raise Exception("Failed to restore user data")
+                
+                # Post-update validation
+                log_message("Performing post-update validation...")
+                validation_after = validate_preservation(install_dir, validation_before)
+                
+                # Clean up temporary files
+                os.unlink(temp_file.name)
+                shutil.rmtree(temp_extract)
+                shutil.rmtree(temp_backup_dir)
+                
+                # Return results
+                result = {
+                    "success": True,
+                    "validation_before": validation_before,
+                    "validation_after": validation_after,
+                    "preservation_success": validation_after.get("preservation_success", False)
+                }
+                
+                if result["preservation_success"]:
+                    log_message("✓ Data-preserving binary installation completed successfully")
+                else:
+                    log_message("⚠ Binary installation completed but data preservation had issues", "WARNING")
+                
+                return result
+                
+        except Exception as e:
+            # Clean up on failure
+            if os.path.exists(temp_backup_dir):
+                shutil.rmtree(temp_backup_dir)
+            raise e
             
     except Exception as e:
-        log_message(f"Binary installation failed: {e}", "WARNING")
-        return False
+        log_message(f"Data-preserving binary installation failed: {e}", "ERROR")
+        return {
+            "success": False,
+            "error": str(e),
+            "preservation_success": False
+        }
 
 def install_gogs_from_source(version):
     """
@@ -493,16 +796,26 @@ def main(args=None):
         # Perform the update
         log_message("Installing update...")
         try:
-            # Try binary installation first
-            success = install_gogs_binary(latest_version)
+            # Try data-preserving binary installation first
+            install_result = install_gogs_binary(latest_version)
             
-            # If binary installation fails and fallback is enabled, try source build
-            if not success and MODULE_CONFIG["config"]["installation"].get("fallback_to_source", False):
-                log_message("Binary installation failed, attempting source build...")
-                success = install_gogs_from_source(latest_version)
-            
-            if not success:
-                raise Exception("Both binary and source installation methods failed")
+            # Check if installation was successful
+            if not install_result.get("success", False):
+                # If binary installation fails and fallback is enabled, try source build
+                if MODULE_CONFIG["config"]["installation"].get("fallback_to_source", False):
+                    log_message("Binary installation failed, attempting source build...")
+                    success = install_gogs_from_source(latest_version)
+                    if not success:
+                        raise Exception("Both binary and source installation methods failed")
+                else:
+                    raise Exception(f"Binary installation failed: {install_result.get('error', 'Unknown error')}")
+            else:
+                # Binary installation succeeded, check data preservation
+                if not install_result.get("preservation_success", False):
+                    log_message("⚠ Update completed but data preservation had issues", "WARNING")
+                    log_message("Check validation results for details")
+                else:
+                    log_message("✓ Update completed with full data preservation")
             
             # Restore permissions using the centralized permission system
             restore_gogs_permissions()
@@ -519,15 +832,15 @@ def main(args=None):
                 if not verification["binary_executable"] or not verification["version_readable"]:
                     raise Exception("Post-update verification failed - installation appears incomplete")
                 
-                # Restore Gogs permissions
-                restore_gogs_permissions()
-                
+                # Include data preservation results in final result
                 result = {
                     "success": True, 
                     "updated": True, 
                     "old_version": current_version, 
                     "new_version": new_version,
-                    "verification": verification
+                    "verification": verification,
+                    "data_preservation": install_result.get("validation_after", {}),
+                    "preservation_success": install_result.get("preservation_success", False)
                 }
                 
                 # Include config only in debug mode

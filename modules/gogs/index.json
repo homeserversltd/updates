@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.10",
+        "schema_version": "0.1.11",
         "module_name": "gogs",
         "description": "Gogs Git server",
         "enabled": true
@@ -24,8 +24,8 @@
                 "mode": "640"
             },
             "repo_path": {
-                "path": "/mnt/nas/git/repositories",
-                "mode": "755"
+                "path": "/opt/gogs/repositories",
+                "mode": "750"
             },
             "gogs_bin": {
                 "path": "/opt/gogs/gogs",
