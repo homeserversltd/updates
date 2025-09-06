@@ -105,21 +105,15 @@ class WebsiteUpdater:
             if not self.backup_manager.backup_for_website_update():
                 raise Exception("Failed to create comprehensive backup")
             
-            # Step 3.5: Create additional backup specifically for user customizations
-            log_message("Step 3.5: Creating user customization backup...")
-            if not self._create_user_customization_backup():
-                log_message("⚠ Warning: User customization backup failed", "WARNING")
-                # Don't fail the update for this, but log the warning
-            
             # Step 4: Capture premium tab state before clobbering
             log_message("Step 4: Capturing premium tab state...")
             premium_tab_state = self._capture_premium_tab_state()
             if not premium_tab_state:
                 log_message("⚠ Warning: Could not capture premium tab state", "WARNING")
             
-            # Step 4.5: Capture user customizations (themes, configs) before clobbering
-            log_message("Step 4.5: Capturing user customizations...")
-            user_customizations = self._capture_user_customizations()
+            # Step 4.5: Capture and backup user customizations (themes, configs) before clobbering
+            log_message("Step 4.5: Capturing and backing up user customizations...")
+            user_customizations = self._capture_and_backup_user_customizations()
             if not user_customizations:
                 log_message("⚠ Warning: Could not capture user customizations", "WARNING")
             
@@ -127,6 +121,12 @@ class WebsiteUpdater:
             log_message("Step 5: Validating file operations...")
             if not self.files.validate_file_operations(temp_dir):
                 raise Exception("File operation validation failed")
+            
+            # Step 5.5: Stop gunicorn service before file operations
+            log_message("Step 5.5: Stopping gunicorn service to release file handles...")
+            if not self._stop_gunicorn_service():
+                log_message("⚠ Warning: Failed to stop gunicorn service", "WARNING")
+                # Don't fail the update, but log the warning
             
             # Step 6: Update files (this clobbers src/backend)
             log_message("Step 6: Updating website files (clobbering src/backend)...")
@@ -152,14 +152,14 @@ class WebsiteUpdater:
             else:
                 log_message("⚠ No premium tab state to restore", "WARNING")
             
-            # Step 8: Run build process (now includes restored premium tabs)
-            log_message("Step 8: Running build process with premium tabs...")
+            # Step 8: Restore permissions before build process
+            log_message("Step 8: Restoring permissions before build...")
+            self._restore_permissions()  # Don't fail on permission issues
+            
+            # Step 9: Run build process (now includes restored premium tabs)
+            log_message("Step 9: Running build process with premium tabs...")
             if not self.build.run_build_process():
                 raise Exception("Build process failed")
-            
-            # Step 9: Restore permissions
-            log_message("Step 9: Restoring permissions...")
-            self._restore_permissions()  # Don't fail on permission issues
             
             # Step 10: Update version metadata
             log_message("Step 10: Updating version metadata...")
@@ -423,105 +423,6 @@ class WebsiteUpdater:
         
         return installed_tabs
     
-    def _capture_user_customizations(self) -> Optional[Dict[str, Any]]:
-        """
-        Capture user customizations that should never be clobbered.
-        
-        This includes:
-        - Custom themes in /src/config/themes/
-        - homeserver.json (already handled by backup)
-        - Any other user-created configuration files
-        
-        Returns:
-            Dict containing user customization state, or None if failed
-        """
-        try:
-            log_message("Capturing user customizations...")
-            
-            customizations = {
-                "timestamp": datetime.now().isoformat(),
-                "themes": {},
-                "other_configs": {}
-            }
-            
-            # Capture custom themes (CRITICAL - never clobber these!)
-            themes_dir = os.path.join(self.base_dir, 'src', 'config', 'themes')
-            if os.path.exists(themes_dir):
-                log_message("Capturing custom themes...")
-                
-                for theme_name in os.listdir(themes_dir):
-                    theme_path = os.path.join(themes_dir, theme_name)
-                    
-                    if os.path.isdir(theme_path):
-                        # Check if this is a user-created theme (not from repository)
-                        theme_config_path = os.path.join(theme_path, 'theme.json')
-                        
-                        if os.path.exists(theme_config_path):
-                            try:
-                                import json
-                                with open(theme_config_path, 'r') as f:
-                                    theme_config = json.load(f)
-                                
-                                # Check if this is a user theme (has user_created flag or custom metadata)
-                                is_user_theme = (
-                                    theme_config.get("user_created", False) or
-                                    theme_config.get("author") == "user" or
-                                    theme_config.get("source") == "custom" or
-                                    # If theme has custom modifications, treat as user theme
-                                    theme_config.get("last_modified_by_user")
-                                )
-                                
-                                if is_user_theme:
-                                    log_message(f"✓ Capturing user theme: {theme_name}")
-                                    
-                                    # Capture entire theme directory
-                                    customizations["themes"][theme_name] = {
-                                        "path": theme_path,
-                                        "config": theme_config,
-                                        "files": self._capture_directory_structure(theme_path)
-                                    }
-                                else:
-                                    log_message(f"Repository theme (will be updated): {theme_name}")
-                                    
-                            except Exception as e:
-                                log_message(f"Warning: Could not read theme config for {theme_name}: {e}", "WARNING")
-                                # If we can't read it, assume it's user-created and protect it
-                                customizations["themes"][theme_name] = {
-                                    "path": theme_path,
-                                    "config": {"user_created": True, "protected": True},
-                                    "files": self._capture_directory_structure(theme_path)
-                                }
-            
-            # Capture other user configuration files
-            other_configs = [
-                os.path.join(self.base_dir, 'src', 'config', 'homeserver.json'),  # Already backed up, but good to track
-                os.path.join(self.base_dir, 'src', 'config', 'custom.css'),      # User custom CSS
-            ]
-            
-            for config_path in other_configs:
-                if os.path.exists(config_path):
-                    try:
-                        import json
-                        with open(config_path, 'r') as f:
-                            config_data = json.load(f)
-                        
-                        config_name = os.path.basename(config_path)
-                        customizations["other_configs"][config_name] = {
-                            "path": config_path,
-                            "content": config_data
-                        }
-                        
-                        log_message(f"✓ Captured user config: {config_name}")
-                        
-                    except Exception as e:
-                        log_message(f"Warning: Could not read config {config_path}: {e}", "WARNING")
-            
-            log_message(f"✓ Captured {len(customizations['themes'])} user themes and {len(customizations['other_configs'])} config files")
-            return customizations
-            
-        except Exception as e:
-            log_message(f"✗ Failed to capture user customizations: {e}", "ERROR")
-            return None
     
     def _capture_directory_structure(self, directory_path: str) -> Dict[str, Any]:
         """
@@ -788,6 +689,32 @@ class WebsiteUpdater:
             log_message(f"Error restoring directory {target_path}: {e}", "ERROR")
             return False
     
+    def _stop_gunicorn_service(self) -> bool:
+        """Stop gunicorn service to release file handles before file operations."""
+        try:
+            import subprocess
+            
+            log_message("Stopping gunicorn service...")
+            
+            # Use timeout to prevent hanging
+            result = subprocess.run(
+                ['timeout', '10', 'systemctl', 'stop', 'gunicorn.service'],
+                capture_output=True,
+                text=True,
+                check=False  # Don't raise exception on failure
+            )
+            
+            if result.returncode == 0:
+                log_message("✓ Gunicorn service stopped successfully")
+                return True
+            else:
+                log_message(f"⚠ Warning: Failed to stop gunicorn service: {result.stderr}", "WARNING")
+                return False
+                
+        except Exception as e:
+            log_message(f"⚠ Exception stopping gunicorn service: {e}", "WARNING")
+            return False
+    
     def _restore_permissions(self) -> bool:
         """Restore website permissions."""
         log_message("Restoring website permissions...")
@@ -889,49 +816,123 @@ class WebsiteUpdater:
             log_message(f"Failed to update homeserver.json metadata: {e}", "ERROR")
             return False
 
-    def _create_user_customization_backup(self) -> bool:
+    def _capture_and_backup_user_customizations(self) -> Optional[Dict[str, Any]]:
         """
-        Create additional backup specifically for user customizations.
+        Capture user customizations in memory AND create filesystem backup.
         
-        This provides an extra safety net beyond the main backup,
-        ensuring user themes and configs are never lost.
+        This method combines both the in-memory capture (for restoration) and
+        filesystem backup (for safety net) into a single operation.
         
         Returns:
-            bool: True if backup successful, False otherwise
+            Dict containing user customization state for restoration, or None if failed
         """
         try:
-            log_message("Creating user customization backup...")
+            log_message("Capturing and backing up user customizations...")
             
-            # Create backup directory
+            # Create backup directory for filesystem backup
             backup_dir = "/var/backups/website/user_customizations"
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_path = os.path.join(backup_dir, f"user_customizations_{timestamp}")
-            
             os.makedirs(backup_path, exist_ok=True)
             
-            # Backup user themes
+            # Initialize in-memory capture structure
+            customizations = {
+                "timestamp": datetime.now().isoformat(),
+                "backup_path": backup_path,  # Include backup path for reference
+                "themes": {},
+                "other_configs": {}
+            }
+            
+            # Capture and backup custom themes (CRITICAL - never clobber these!)
             themes_dir = os.path.join(self.base_dir, 'src', 'config', 'themes')
             if os.path.exists(themes_dir):
+                log_message("Capturing and backing up custom themes...")
+                
+                # Create filesystem backup of themes
                 themes_backup_path = os.path.join(backup_path, 'themes')
                 import shutil
                 shutil.copytree(themes_dir, themes_backup_path, dirs_exist_ok=True)
                 log_message(f"✓ Backed up themes to: {themes_backup_path}")
+                
+                # Capture themes in memory for restoration
+                for theme_name in os.listdir(themes_dir):
+                    theme_path = os.path.join(themes_dir, theme_name)
+                    
+                    if os.path.isdir(theme_path):
+                        # Check if this is a user-created theme (not from repository)
+                        theme_config_path = os.path.join(theme_path, 'theme.json')
+                        
+                        if os.path.exists(theme_config_path):
+                            try:
+                                import json
+                                with open(theme_config_path, 'r') as f:
+                                    theme_config = json.load(f)
+                                
+                                # Check if this is a user theme (has user_created flag or custom metadata)
+                                is_user_theme = (
+                                    theme_config.get("user_created", False) or
+                                    theme_config.get("author") == "user" or
+                                    theme_config.get("source") == "custom" or
+                                    # If theme has custom modifications, treat as user theme
+                                    theme_config.get("last_modified_by_user")
+                                )
+                                
+                                if is_user_theme:
+                                    log_message(f"✓ Capturing user theme: {theme_name}")
+                                    
+                                    # Capture entire theme directory for restoration
+                                    customizations["themes"][theme_name] = {
+                                        "path": theme_path,
+                                        "config": theme_config,
+                                        "files": self._capture_directory_structure(theme_path)
+                                    }
+                                else:
+                                    log_message(f"Repository theme (will be updated): {theme_name}")
+                                    
+                            except Exception as e:
+                                log_message(f"Warning: Could not read theme config for {theme_name}: {e}", "WARNING")
+                                # If we can't read it, assume it's user-created and protect it
+                                customizations["themes"][theme_name] = {
+                                    "path": theme_path,
+                                    "config": {"user_created": True, "protected": True},
+                                    "files": self._capture_directory_structure(theme_path)
+                                }
             
-            # Backup other user configs
+            # Capture and backup other user configuration files
             user_configs = [
-                os.path.join(self.base_dir, 'src', 'config', 'custom.css'),
+                os.path.join(self.base_dir, 'src', 'config', 'homeserver.json'),  # Already backed up, but good to track
+                os.path.join(self.base_dir, 'src', 'config', 'custom.css'),      # User custom CSS
                 os.path.join(self.base_dir, 'src', 'config', 'user-settings.json')
             ]
             
+            # Create filesystem backup of configs
             configs_backup_path = os.path.join(backup_path, 'configs')
             os.makedirs(configs_backup_path, exist_ok=True)
             
             for config_path in user_configs:
                 if os.path.exists(config_path):
                     config_name = os.path.basename(config_path)
+                    
+                    # Create filesystem backup
                     config_backup_path = os.path.join(configs_backup_path, config_name)
                     shutil.copy2(config_path, config_backup_path)
                     log_message(f"✓ Backed up config: {config_name}")
+                    
+                    # Capture in memory for restoration
+                    try:
+                        import json
+                        with open(config_path, 'r') as f:
+                            config_data = json.load(f)
+                        
+                        customizations["other_configs"][config_name] = {
+                            "path": config_path,
+                            "content": config_data
+                        }
+                        
+                        log_message(f"✓ Captured user config: {config_name}")
+                        
+                    except Exception as e:
+                        log_message(f"Warning: Could not read config {config_path}: {e}", "WARNING")
             
             # Create backup manifest
             manifest = {
@@ -947,9 +948,11 @@ class WebsiteUpdater:
             with open(manifest_path, 'w') as f:
                 json.dump(manifest, f, indent=2)
             
-            log_message(f"✓ User customization backup completed: {backup_path}")
-            return True
+            log_message(f"✓ User customizations captured and backed up: {len(customizations['themes'])} themes, {len(customizations['other_configs'])} configs")
+            log_message(f"✓ Filesystem backup completed: {backup_path}")
+            
+            return customizations
             
         except Exception as e:
-            log_message(f"✗ User customization backup failed: {e}", "ERROR")
-            return False
+            log_message(f"✗ Failed to capture and backup user customizations: {e}", "ERROR")
+            return None
