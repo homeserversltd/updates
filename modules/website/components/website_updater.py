@@ -181,13 +181,13 @@ class WebsiteUpdater:
             result["error"] = str(e)
             result["message"] = f"Update failed: {e}"
             
-            # Attempt rollback using BackupManager
+            # Attempt rollback using BackupManager with forced service start
             log_message("Attempting rollback...")
             try:
-                rollback_success = self.backup_manager.restore_website_backup()
+                rollback_success = self.backup_manager.restore_website_backup_with_forced_service_start()
                 result["rollback_success"] = rollback_success
                 if rollback_success:
-                    log_message("✓ Rollback completed successfully")
+                    log_message("✓ Rollback completed successfully with forced service start")
                     result["message"] += " (rollback successful)"
                 else:
                     log_message("✗ Rollback failed", "ERROR")

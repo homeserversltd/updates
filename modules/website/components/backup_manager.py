@@ -228,6 +228,29 @@ class BackupManager:
             log_message(f"[BACKUP] ✗ Website backup restore failed: {e}", "ERROR")
             return False
     
+    def restore_website_backup_with_forced_service_start(self) -> bool:
+        """
+        Restore website backup with forced service startup (for rollback scenarios).
+        
+        Returns:
+            bool: True if restore successful, False otherwise
+        """
+        log_message("[BACKUP] Restoring website backup with forced service start...")
+        
+        try:
+            restore_success = self.state_manager.restore_module_state_with_forced_service_start("website")
+            
+            if restore_success:
+                log_message("[BACKUP] ✓ Website backup restored successfully with forced service start")
+            else:
+                log_message("[BACKUP] ✗ Website backup restore failed", "ERROR")
+            
+            return restore_success
+            
+        except Exception as e:
+            log_message(f"[BACKUP] ✗ Website backup restore failed: {e}", "ERROR")
+            return False
+    
     def restore_tab_backup(self, tab_name: str) -> bool:
         """
         Restore tab-specific backup.

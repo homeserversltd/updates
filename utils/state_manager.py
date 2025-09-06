@@ -567,13 +567,21 @@ class StateManager:
             for service in services:
                 try:
                     subprocess.run(["systemctl", "stop", service], check=True, capture_output=True)
+                    log_message(f"Stopped service: {service}")
                 except subprocess.CalledProcessError:
                     pass  # Continue even if stop fails
             
             # Restore states
             for service in services:
                 if service not in service_states:
-                    log_message(f"No backup state found for service {service}", "WARNING")
+                    log_message(f"No backup state found for service {service}, attempting to start anyway", "WARNING")
+                    # If no backup state, try to start the service anyway (for rollback scenarios)
+                    try:
+                        subprocess.run(["systemctl", "start", service], check=True, capture_output=True)
+                        success_count += 1
+                        log_message(f"Started service (no backup state): {service}")
+                    except subprocess.CalledProcessError as e:
+                        log_message(f"Failed to start service {service} (no backup state): {e}", "WARNING")
                     continue
                 
                 state = service_states[service]
@@ -582,20 +590,31 @@ class StateManager:
                     # Restore enabled/disabled state
                     if state.get("enabled", False):
                         subprocess.run(["systemctl", "enable", service], check=True, capture_output=True)
+                        log_message(f"Enabled service: {service}")
                     else:
                         subprocess.run(["systemctl", "disable", service], check=True, capture_output=True)
+                        log_message(f"Disabled service: {service}")
                     
-                    # Restore active/inactive state
+                    # Restore active/inactive state - ALWAYS try to start if it was active
                     if state.get("active", False):
                         subprocess.run(["systemctl", "start", service], check=True, capture_output=True)
+                        log_message(f"Started service: {service}")
                     else:
                         subprocess.run(["systemctl", "stop", service], check=True, capture_output=True)
+                        log_message(f"Stopped service: {service}")
                     
                     success_count += 1
                     log_message(f"Restored service: {service}")
                     
                 except subprocess.CalledProcessError as e:
                     log_message(f"Failed to restore service {service}: {e}", "WARNING")
+                    # For rollback scenarios, try to start the service even if restore failed
+                    try:
+                        subprocess.run(["systemctl", "start", service], check=True, capture_output=True)
+                        log_message(f"Successfully started service after restore failure: {service}")
+                        success_count += 1
+                    except subprocess.CalledProcessError as start_error:
+                        log_message(f"Failed to start service after restore failure {service}: {start_error}", "ERROR")
             
             log_message(f"Restored {success_count}/{len(services)} services")
             return success_count > 0
@@ -744,6 +763,82 @@ class StateManager:
             
             if overall_success:
                 log_message(f"Successfully restored module: {module_name}")
+            else:
+                log_message(f"Partial restore failure for module: {module_name}", "WARNING")
+            
+            return overall_success
+            
+        except Exception as e:
+            log_message(f"Failed to restore module {module_name}: {e}", "ERROR")
+            return False
+    
+    def restore_module_state_with_forced_service_start(self, module_name: str) -> bool:
+        """
+        Restore a module's complete state from its backup, with forced service startup.
+        
+        This method is specifically designed for rollback scenarios where we want to
+        ensure services are started regardless of their backup state.
+        
+        Args:
+            module_name: Name of the module to restore
+            
+        Returns:
+            bool: True if restore successful, False otherwise
+        """
+        module_backups = self._load_module_index()
+        
+        if module_name not in module_backups:
+            log_message(f"No backup found for module: {module_name}", "ERROR")
+            return False
+        
+        backup_info = module_backups[module_name]
+        module_backup_dir = Path(backup_info.backup_dir)
+        
+        if not module_backup_dir.exists():
+            log_message(f"Backup directory not found: {module_backup_dir}", "ERROR")
+            return False
+        
+        try:
+            log_message(f"Restoring module state with forced service start: {module_name}")
+            
+            # Restore in specific order: stop services, restore files/databases, restore services
+            services_success = True
+            if backup_info.services:
+                # Stop services first
+                for service in backup_info.services:
+                    try:
+                        subprocess.run(["systemctl", "stop", service], check=True, capture_output=True)
+                        log_message(f"Stopped service for rollback: {service}")
+                    except subprocess.CalledProcessError:
+                        pass
+            
+            # Restore files and databases
+            files_success = self._restore_files(module_backup_dir, backup_info.files)
+            databases_success = self._restore_databases(module_backup_dir, backup_info.databases)
+            
+            # Restore file permissions after files are restored
+            permissions_success = True
+            if hasattr(backup_info, 'file_permissions') and backup_info.file_permissions:
+                log_message("Restoring file permissions...")
+                permissions_success = self._restore_permissions(backup_info.file_permissions)
+            else:
+                log_message("No file permissions to restore (legacy backup or no permissions captured)")
+            
+            # Force start all services for rollback
+            if backup_info.services:
+                log_message("Forcing service startup for rollback...")
+                for service in backup_info.services:
+                    try:
+                        subprocess.run(["systemctl", "start", service], check=True, capture_output=True)
+                        log_message(f"Successfully started service for rollback: {service}")
+                    except subprocess.CalledProcessError as e:
+                        log_message(f"Failed to start service for rollback {service}: {e}", "WARNING")
+                        services_success = False
+            
+            overall_success = files_success and services_success and databases_success and permissions_success
+            
+            if overall_success:
+                log_message(f"Successfully restored module with forced service start: {module_name}")
             else:
                 log_message(f"Partial restore failure for module: {module_name}", "WARNING")
             

@@ -278,7 +278,6 @@ class FileOperations:
             
             # STEP 6: Regenerate the secret encryption key (gets clobbered during update)
             try:
-                import subprocess
                 log_message("[FILE_COPY_DEBUG] Regenerating secret encryption key...")
                 result = subprocess.run(['/usr/local/sbin/siteSecretKey.sh', 'generate'], 
                                      capture_output=True, text=True, check=True)
