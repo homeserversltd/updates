@@ -20,6 +20,7 @@ import time
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 from updates.index import log_message
+import subprocess
 
 from .backup_manager import BackupManager
 from .git_operations import GitOperations
@@ -93,6 +94,11 @@ class WebsiteUpdater:
                 result["message"] = "No update needed - all versions current"
                 log_message("✓ No update needed")
                 return result
+            
+            # Step 2.5: Handle missing critical files (just do normal update)
+            if nuclear_restore:
+                log_message("🚨 CRITICAL FILES MISSING - Proceeding with normal update process...")
+                log_message("🚨 This will restore the website from GitHub and preserve any existing config")
             
             # Step 3: Create comprehensive backup (everything)
             log_message("Step 3: Creating comprehensive backup...")
@@ -181,16 +187,16 @@ class WebsiteUpdater:
             result["error"] = str(e)
             result["message"] = f"Update failed: {e}"
             
-            # Attempt rollback using BackupManager with forced service start
-            log_message("Attempting rollback...")
+            # Attempt rollback using StateManager
+            log_message("Attempting rollback using StateManager...")
             try:
-                rollback_success = self.backup_manager.restore_website_backup_with_forced_service_start()
+                rollback_success = self.backup_manager.state_manager.restore_module_state_with_forced_service_start("website")
                 result["rollback_success"] = rollback_success
                 if rollback_success:
-                    log_message("✓ Rollback completed successfully with forced service start")
+                    log_message("✓ Rollback successful using StateManager")
                     result["message"] += " (rollback successful)"
                 else:
-                    log_message("✗ Rollback failed", "ERROR")
+                    log_message("✗ Rollback failed using StateManager", "ERROR")
                     result["message"] += " (rollback failed)"
             except Exception as rollback_error:
                 log_message(f"✗ Rollback failed: {rollback_error}", "ERROR")
@@ -206,6 +212,7 @@ class WebsiteUpdater:
             result["duration"] = duration
         
         return result
+    
     
     def _check_version_update_needed(self, temp_dir: str) -> Tuple[bool, bool, Dict[str, Any]]:
         """

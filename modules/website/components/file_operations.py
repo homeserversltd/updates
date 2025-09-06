@@ -228,6 +228,14 @@ class FileOperations:
         log_message(f"[FILE_COPY_DEBUG] Starting destructive src update: {source_path} -> {target_path}")
         
         try:
+            # STEP 0: Stop gunicorn service to release file handles
+            log_message("[FILE_COPY_DEBUG] Stopping gunicorn service to release file handles...")
+            try:
+                subprocess.run(['systemctl', 'stop', 'gunicorn.service'], check=True, capture_output=True)
+                log_message("[FILE_COPY_DEBUG] ✓ Gunicorn service stopped")
+            except subprocess.CalledProcessError as e:
+                log_message(f"[FILE_COPY_DEBUG] ⚠️ Warning: Failed to stop gunicorn service: {e}", "WARNING")
+                # Continue anyway, might still work
             # STEP 1: Backup homeserver.json and themes if they exist
             config_dir = os.path.join(target_path, 'config')
             config_backup = None
@@ -252,8 +260,37 @@ class FileOperations:
             
             # STEP 2: Remove entire target src directory
             if os.path.exists(target_path):
-                subprocess.run(['rm', '-rf', target_path], check=True)
-                log_message(f"[FILE_COPY_DEBUG] ✓ Removed entire target src directory: {target_path}")
+                try:
+                    subprocess.run(['rm', '-rf', target_path], check=True)
+                    log_message(f"[FILE_COPY_DEBUG] ✓ Removed entire target src directory: {target_path}")
+                except subprocess.CalledProcessError as e:
+                    if "Device or resource busy" in str(e) or "Device or resource busy" in (e.stderr or ""):
+                        log_message("[FILE_COPY_DEBUG] ⚠️ Directory busy, attempting force removal...", "WARNING")
+                        # Try to sync and force unmount if it's a mount point
+                        try:
+                            subprocess.run(['sync'], check=True)
+                            subprocess.run(['umount', '-f', target_path], check=False)  # Don't fail if not a mount
+                        except:
+                            pass
+                        # Try removal again
+                        try:
+                            subprocess.run(['rm', '-rf', target_path], check=True)
+                            log_message(f"[FILE_COPY_DEBUG] ✓ Force removed target src directory: {target_path}")
+                        except subprocess.CalledProcessError:
+                            # If still failing, try moving it out of the way
+                            import tempfile
+                            temp_dir = tempfile.mkdtemp()
+                            move_target = os.path.join(temp_dir, 'old_src')
+                            try:
+                                shutil.move(target_path, move_target)
+                                log_message(f"[FILE_COPY_DEBUG] ✓ Moved busy directory to: {move_target}")
+                                # Schedule cleanup for later
+                                subprocess.run(['rm', '-rf', move_target], check=False)
+                            except Exception as move_error:
+                                log_message(f"[FILE_COPY_DEBUG] ⚠️ Could not move busy directory: {move_error}", "WARNING")
+                                raise e
+                    else:
+                        raise e
             
             # STEP 3: Copy entire source src directory to target
             shutil.copytree(source_path, target_path)
@@ -287,6 +324,15 @@ class FileOperations:
                 log_message(f"[FILE_COPY_DEBUG] stderr: {e.stderr}", "WARNING")
             except FileNotFoundError:
                 log_message("[FILE_COPY_DEBUG] ⚠️ Warning: siteSecretKey.sh not found in /usr/local/sbin", "WARNING")
+            
+            # STEP 7: Restart gunicorn service
+            log_message("[FILE_COPY_DEBUG] Restarting gunicorn service...")
+            try:
+                subprocess.run(['systemctl', 'start', 'gunicorn.service'], check=True, capture_output=True)
+                log_message("[FILE_COPY_DEBUG] ✓ Gunicorn service restarted")
+            except subprocess.CalledProcessError as e:
+                log_message(f"[FILE_COPY_DEBUG] ⚠️ Warning: Failed to restart gunicorn service: {e}", "WARNING")
+                # Don't fail the update for this, the service might be started later
             
             log_message("[FILE_COPY_DEBUG] ✓ Destructive src update completed successfully")
             
