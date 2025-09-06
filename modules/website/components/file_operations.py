@@ -231,7 +231,9 @@ class FileOperations:
             # STEP 0: Stop gunicorn service to release file handles
             log_message("[FILE_COPY_DEBUG] Stopping gunicorn service to release file handles...")
             try:
-                subprocess.run(['systemctl', 'stop', 'gunicorn.service'], check=True, capture_output=True)
+                # Use timeout to prevent hanging
+                subprocess.run(['timeout', '10', 'systemctl', 'stop', 'gunicorn.service'], 
+                             check=True, capture_output=True)
                 log_message("[FILE_COPY_DEBUG] ✓ Gunicorn service stopped")
             except subprocess.CalledProcessError as e:
                 log_message(f"[FILE_COPY_DEBUG] ⚠️ Warning: Failed to stop gunicorn service: {e}", "WARNING")

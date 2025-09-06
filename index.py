@@ -1291,12 +1291,12 @@ def main():
                 else:
                     log_message("All module schemas are up to date")
                 
-                # Step 2: OS module content check (focused approach)
-                log_message("Checking OS module for available package updates...")
+                # Step 2: Content updates check (OS and Website modules)
+                log_message("Checking enabled modules for content updates...")
                 enabled_modules = get_enabled_modules(args.modules_path)
                 content_updates_available = []
                 
-                # Only check OS module for deeper content updates
+                # Check OS module for package updates
                 if "os" in enabled_modules:
                     try:
                         # Import and run the OS module's check functionality
@@ -1318,6 +1318,39 @@ def main():
                         log_message(f"  - OS module check failed: {e}", "WARNING")
                 else:
                     log_message("  - OS module not enabled, skipping package check")
+                
+                # Check Website module for content updates
+                if "website" in enabled_modules:
+                    try:
+                        # Import and run the Website module's check functionality
+                        from . import run_update
+                        check_result = run_update("modules.website", ["--check"])
+                        
+                        if isinstance(check_result, dict):
+                            if check_result.get("website_update_available", False):
+                                log_message("  - Website module: Content update available")
+                                content_updates_available.append({
+                                    "module": "website",
+                                    "count": 1,
+                                    "details": check_result
+                                })
+                            elif check_result.get("tab_updates_available", False):
+                                tab_count = check_result.get("details", {}).get("premium_tabs", {}).get("tabs_needing_updates", 0)
+                                log_message(f"  - Website module: {tab_count} premium tab updates available")
+                                content_updates_available.append({
+                                    "module": "website",
+                                    "count": tab_count,
+                                    "details": check_result
+                                })
+                            else:
+                                log_message("  - Website module: No content updates available")
+                        else:
+                            log_message("  - Website module: No content updates available")
+                            
+                    except Exception as e:
+                        log_message(f"  - Website module check failed: {e}", "WARNING")
+                else:
+                    log_message("  - Website module not enabled, skipping content check")
                 
                 # Summary
                 log_message("Check summary:")
