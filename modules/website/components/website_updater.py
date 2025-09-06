@@ -133,14 +133,16 @@ class WebsiteUpdater:
             if not self.files.update_components(temp_dir):
                 raise Exception("File update failed")
             
-            # Step 6.5: Restore user customizations (themes, configs)
-            log_message("Step 6.5: Restoring user customizations...")
+            # Step 6.5: Restore user customizations (themes, configs) or use defaults
+            log_message("Step 6.5: Restoring user customizations or using defaults...")
             if user_customizations:
                 customization_restoration_success = self._restore_user_customizations(user_customizations)
                 if not customization_restoration_success:
-                    log_message("⚠ Warning: User customization restoration failed", "WARNING")
+                    log_message("⚠ Warning: User customization restoration failed, using defaults", "WARNING")
+                    self._ensure_default_configs_exist()
             else:
-                log_message("⚠ No user customizations to restore", "WARNING")
+                log_message("ℹ No user customizations found, using default configurations from repository", "INFO")
+                self._ensure_default_configs_exist()
             
             # Step 7: Restore premium tabs using premium installer
             log_message("Step 7: Restoring premium tabs...")
@@ -570,6 +572,70 @@ class WebsiteUpdater:
             log_message(f"✗ Exception running premium installer install: {e}", "ERROR")
             return False
     
+    def _ensure_default_configs_exist(self) -> bool:
+        """
+        Ensure default configurations exist after file update.
+        
+        This method verifies that essential config files are present and
+        creates them from repository defaults if they're missing.
+        
+        Returns:
+            bool: True if all default configs are present, False otherwise
+        """
+        try:
+            log_message("Ensuring default configurations exist...")
+            
+            # Check for critical config files
+            critical_configs = [
+                os.path.join(self.base_dir, 'src', 'config', 'homeserver.json'),
+                os.path.join(self.base_dir, 'src', 'config', 'themes'),
+                os.path.join(self.base_dir, 'src', 'config', 'ports.json')
+            ]
+            
+            missing_configs = []
+            for config_path in critical_configs:
+                if not os.path.exists(config_path):
+                    missing_configs.append(config_path)
+            
+            if missing_configs:
+                log_message(f"Missing critical configs: {missing_configs}")
+                log_message("This should not happen after file update - repository should contain all defaults")
+                log_message("Website will use whatever configurations are available from the repository")
+                
+                # Check if we have a factory config to fall back to
+                factory_config = os.path.join(self.base_dir, 'src', 'config', 'homeserver.factory')
+                if os.path.exists(factory_config):
+                    log_message("Found factory config, copying to homeserver.json...")
+                    import shutil
+                    shutil.copy2(factory_config, os.path.join(self.base_dir, 'src', 'config', 'homeserver.json'))
+                    log_message("✓ Restored homeserver.json from factory config")
+                else:
+                    log_message("⚠ No factory config found - website will use repository defaults")
+            else:
+                log_message("✓ All critical configurations are present")
+            
+            # Verify themes directory exists
+            themes_dir = os.path.join(self.base_dir, 'src', 'config', 'themes')
+            if not os.path.exists(themes_dir):
+                log_message("Creating themes directory...")
+                os.makedirs(themes_dir, exist_ok=True)
+                log_message("✓ Created themes directory")
+            
+            # Check if we have any themes
+            if os.path.exists(themes_dir):
+                theme_count = len([d for d in os.listdir(themes_dir) if os.path.isdir(os.path.join(themes_dir, d))])
+                if theme_count == 0:
+                    log_message("ℹ No themes found - website will use default styling")
+                else:
+                    log_message(f"✓ Found {theme_count} theme(s) available")
+            
+            log_message("✓ Default configuration verification completed")
+            return True
+            
+        except Exception as e:
+            log_message(f"⚠ Error ensuring default configs: {e}", "WARNING")
+            return False
+
     def _restore_user_customizations(self, customizations: Dict[str, Any]) -> bool:
         """
         Restore user customizations after file update.
@@ -583,6 +649,14 @@ class WebsiteUpdater:
         try:
             if not customizations:
                 log_message("No user customizations to restore")
+                return True
+            
+            # Check if customizations are empty but valid
+            theme_count = len(customizations.get('themes', {}))
+            config_count = len(customizations.get('other_configs', {}))
+            
+            if theme_count == 0 and config_count == 0:
+                log_message("ℹ User customizations are empty - will use repository defaults")
                 return True
             
             log_message("Restoring user customizations...")
@@ -948,7 +1022,15 @@ class WebsiteUpdater:
             with open(manifest_path, 'w') as f:
                 json.dump(manifest, f, indent=2)
             
-            log_message(f"✓ User customizations captured and backed up: {len(customizations['themes'])} themes, {len(customizations['other_configs'])} configs")
+            # Log results
+            theme_count = len(customizations['themes'])
+            config_count = len(customizations['other_configs'])
+            
+            if theme_count == 0 and config_count == 0:
+                log_message("ℹ No user customizations found - will use repository defaults")
+            else:
+                log_message(f"✓ User customizations captured and backed up: {theme_count} themes, {config_count} configs")
+            
             log_message(f"✓ Filesystem backup completed: {backup_path}")
             
             return customizations
