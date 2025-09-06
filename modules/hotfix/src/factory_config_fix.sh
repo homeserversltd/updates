@@ -4,8 +4,6 @@
 # This script ensures /etc/homeserver.factory exists as an immutable backup
 # Target: All schema versions (universal hotfix)
 
-set -e
-
 SCRIPT_NAME="factory_config_fix"
 LOG_FILE="/var/log/homeserver/hotfix_factory.log"
 
@@ -29,17 +27,17 @@ SOURCE_CONFIGS=(
 
 # Find the best source config file
 find_source_config() {
-    log_info "Searching for source configuration file..."
+    log_info "Searching for source configuration file..." >&2
     
     for config_path in "${SOURCE_CONFIGS[@]}"; do
         if [ -f "$config_path" ]; then
-            log_info "Found source config: $config_path"
+            log_info "Found source config: $config_path" >&2
             echo "$config_path"
             return 0
         fi
     done
     
-    log_error "No source configuration file found in any expected location"
+    log_error "No source configuration file found in any expected location" >&2
     return 1
 }
 
