@@ -1352,6 +1352,31 @@ def main():
                 else:
                     log_message("  - Website module not enabled, skipping content check")
                 
+                # Check Sbin module for content updates
+                if "sbin" in enabled_modules:
+                    try:
+                        # Import and run the Sbin module's check functionality
+                        from . import run_update
+                        check_result = run_update("modules.sbin", ["--check"])
+                        
+                        if isinstance(check_result, dict):
+                            if check_result.get("updated", False):
+                                log_message("  - Sbin module: Content update available")
+                                content_updates_available.append({
+                                    "module": "sbin",
+                                    "count": 1,
+                                    "details": check_result
+                                })
+                            else:
+                                log_message("  - Sbin module: No content updates available")
+                        else:
+                            log_message("  - Sbin module: No content updates available")
+                            
+                    except Exception as e:
+                        log_message(f"  - Sbin module check failed: {e}", "WARNING")
+                else:
+                    log_message("  - Sbin module not enabled, skipping content check")
+                
                 # Summary
                 log_message("Check summary:")
                 if orchestrator_update_available:

@@ -81,13 +81,14 @@ def check(module_dir: Path) -> Dict[str, Any]:
     cfg = load_config(module_dir)
     files = cfg.get('files', [])
     
-    # Simple status check - no expensive SHA256 operations needed
-    # Version checking determines if updates are needed
+    # Check if version update is needed
+    update_needed, remote_version = _check_version_update_needed()
+    
     enabled_files = [f for f in files if bool(f.get('keepUpdated', True))]
     
     log_message(f"Sbin module status: {len(enabled_files)} enabled files")
     
-    # Basic file existence check only
+    # Basic file existence check
     drift = []
     for entry in enabled_files:
         dest = _dest_path(entry)
@@ -97,15 +98,23 @@ def check(module_dir: Path) -> Dict[str, Any]:
             'managed': True
         })
 
-    # Persist minimal state
+    # Persist state with version info
     state_out = { 
         'files': enabled_files,
         'total_files': len(files),
-        'enabled_files': len(enabled_files)
+        'enabled_files': len(enabled_files),
+        'update_needed': update_needed,
+        'remote_version': remote_version
     }
     
     write_state(state_out)
-    return { 'success': True, 'updated': False, 'drift': drift, 'enabled_files': len(enabled_files) }
+    return { 
+        'success': True, 
+        'updated': update_needed, 
+        'drift': drift, 
+        'enabled_files': len(enabled_files),
+        'version': remote_version
+    }
 
 
 def _check_version_update_needed() -> Tuple[bool, Optional[str]]:
