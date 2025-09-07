@@ -24,6 +24,8 @@ import sys
 import argparse
 import logging
 import subprocess
+import importlib
+import sys
 from pathlib import Path
 from datetime import datetime
 from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, detect_module_updates, update_modules, DEBUG
@@ -486,8 +488,16 @@ def run_update_with_logging(module_path: str, args=None):
     This ensures ALL module output gets streamed to the centralized log file.
     """
     try:
-        # Import the module dynamically
+        # Import the module dynamically with forced reload
         module_parts = module_path.split('.')
+        
+
+        
+        # Remove the module from cache if it exists to force reload
+        if module_path in sys.modules:
+            del sys.modules[module_path]
+        
+        # Import the module fresh from disk
         module = __import__(module_path, fromlist=[module_parts[-1]])
         
         # Check if module has a main function
@@ -1353,7 +1363,7 @@ def main():
                 if "os" in enabled_modules:
                     try:
                         # Import and run the OS module's check functionality
-                        from . import run_update
+                        from . import run_updateL
                         check_result = run_update("modules.os", ["--check"])
                         
                         if isinstance(check_result, dict) and check_result.get("upgradable", 0) > 0:
