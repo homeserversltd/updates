@@ -122,11 +122,7 @@ class WebsiteUpdater:
             if not self.files.validate_file_operations(temp_dir):
                 raise Exception("File operation validation failed")
             
-            # Step 5.5: Stop gunicorn service before file operations
-            log_message("Step 5.5: Stopping gunicorn service to release file handles...")
-            if not self._stop_gunicorn_service():
-                log_message("⚠ Warning: Failed to stop gunicorn service", "WARNING")
-                # Don't fail the update, but log the warning
+            # Step 5.5: No need to stop gunicorn - clobber-twice approach handles it gracefully
             
             # Step 6: Update files (this clobbers src/backend)
             log_message("Step 6: Updating website files (clobbering src/backend)...")
@@ -763,31 +759,6 @@ class WebsiteUpdater:
             log_message(f"Error restoring directory {target_path}: {e}", "ERROR")
             return False
     
-    def _stop_gunicorn_service(self) -> bool:
-        """Stop gunicorn service to release file handles before file operations."""
-        try:
-            import subprocess
-            
-            log_message("Stopping gunicorn service...")
-            
-            # Use timeout to prevent hanging
-            result = subprocess.run(
-                ['timeout', '10', 'systemctl', 'stop', 'gunicorn.service'],
-                capture_output=True,
-                text=True,
-                check=False  # Don't raise exception on failure
-            )
-            
-            if result.returncode == 0:
-                log_message("✓ Gunicorn service stopped successfully")
-                return True
-            else:
-                log_message(f"⚠ Warning: Failed to stop gunicorn service: {result.stderr}", "WARNING")
-                return False
-                
-        except Exception as e:
-            log_message(f"⚠ Exception stopping gunicorn service: {e}", "WARNING")
-            return False
     
     def _restore_permissions(self) -> bool:
         """Restore website permissions."""

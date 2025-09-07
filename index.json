@@ -9,6 +9,7 @@
     "packages": {
         "adblock": "0.1.0",
         "atuin": "0.1.0",
+        "sbin": "0.1.0",
         "filebrowser": "0.1.0",
         "gogs": "0.1.0",
         "ohmyposh": "0.1.0",
