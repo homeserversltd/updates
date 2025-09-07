@@ -455,45 +455,13 @@ class TabUpdater:
             return False
     
     def _restart_services(self) -> bool:
-        """Restart relevant services."""
-        log_message("Restarting services...")
+        """Restart relevant services (excluding gunicorn - handled by orchestrator)."""
+        log_message("Skipping service restart - gunicorn restart handled by orchestrator...")
         
-        try:
-            services_to_restart = ['gunicorn.service']
-            
-            for service in services_to_restart:
-                try:
-                    log_message(f"Restarting {service}...")
-                    result = subprocess.run(
-                        ['systemctl', 'restart', service],
-                        capture_output=True,
-                        text=True,
-                        timeout=30
-                    )
-                    
-                    if result.returncode == 0:
-                        log_message(f"✓ Restarted {service}")
-                    else:
-                        log_message(f"✗ Failed to restart {service}: {result.stderr}", "ERROR")
-                        return False
-                        
-                except subprocess.TimeoutExpired:
-                    log_message(f"✗ Timeout restarting {service}", "ERROR")
-                    return False
-                except Exception as e:
-                    log_message(f"✗ Error restarting {service}: {e}", "ERROR")
-                    return False
-            
-            # Give services time to start
-            import time
-            time.sleep(3)
-            
-            log_message("✓ All services restarted successfully")
-            return True
-            
-        except Exception as e:
-            log_message(f"✗ Service restart failed: {e}", "ERROR")
-            return False
+        # No services to restart here - gunicorn restart is handled by the main orchestrator
+        # to avoid killing the update process
+        log_message("✓ Service restart phase completed (deferred to orchestrator)")
+        return True
     
     def check_tab_updates(self) -> Dict[str, Any]:
         """

@@ -184,38 +184,12 @@ class BuildManager:
             return False
     
     def _start_services(self) -> bool:
-        """Start services after build."""
-        services_to_start = ['gunicorn.service']
+        """Start services after build (excluding gunicorn - handled by orchestrator)."""
+        log_message("[BUILD] Skipping gunicorn restart - handled by orchestrator...")
         
-        action = 'restart' if self.restart_service_at_end and not self.stop_services_before_build else 'start'
-        log_message(f"[BUILD] {action.capitalize()}ing services...")
-        
-        for service in services_to_start:
-            try:
-                log_message(f"[BUILD] {action.capitalize()}ing {service}...")
-                result = subprocess.run(
-                    ['systemctl', action, service],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                
-                if result.returncode != 0:
-                    log_message(f"[BUILD] ✗ Failed to {action} {service}: {result.stderr}", "ERROR")
-                    return False
-                
-                log_message(f"[BUILD] ✓ {action.capitalize()}ed {service}")
-                
-            except subprocess.TimeoutExpired:
-                log_message(f"[BUILD] ✗ Timeout {action}ing {service}", "ERROR")
-                return False
-            except Exception as e:
-                log_message(f"[BUILD] ✗ Error {action}ing {service}: {e}", "ERROR")
-                return False
-        
-        # Give services time to start
-        time.sleep(3)
-        log_message(f"[BUILD] ✓ Service {action} phase completed")
+        # No services to restart here - gunicorn restart is handled by the main orchestrator
+        # to avoid killing the update process
+        log_message("[BUILD] ✓ Service restart phase completed (deferred to orchestrator)")
         return True
     
     def _validate_services(self) -> bool:

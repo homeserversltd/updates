@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "1.0.6",
+    "schema_version": "1.0.7",
     "content_version": "1.0.0",
     "enabled": true,
     "description": "Manage /usr/local/sbin scripts with checksum + permissions"
@@ -20,7 +20,8 @@
     { "source": "tailget", "keepUpdated": true },
     { "source": "tailnetName", "keepUpdated": true },
     { "source": "thermalTest.sh", "keepUpdated": true },
-    { "source": "websiteMountVault.sh", "keepUpdated": true }
+    { "source": "websiteMountVault.sh", "keepUpdated": true },
+    { "source": "fdwebsite", "keepUpdated": true }
   ]
 }
 

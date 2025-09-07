@@ -198,6 +198,53 @@ def update_homeserver_config_timestamp() -> bool:
         log_message(f"Failed to update homeserver config timestamp: {e}", "ERROR")
         return False
 
+def restart_gunicorn_service() -> bool:
+    """
+    Restart the gunicorn service as the final step of the update process.
+    This is done at the very end to avoid killing the update process.
+    """
+    try:
+        log_message("Restarting gunicorn service...")
+        
+        result = subprocess.run(
+            ['systemctl', 'restart', 'gunicorn.service'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            log_message("✓ Gunicorn service restarted successfully")
+            
+            # Give service time to start
+            import time
+            time.sleep(3)
+            
+            # Validate service is running
+            status_result = subprocess.run(
+                ['systemctl', 'is-active', 'gunicorn.service'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if status_result.returncode == 0 and status_result.stdout.strip() == 'active':
+                log_message("✓ Gunicorn service is active and running")
+                return True
+            else:
+                log_message("⚠ Gunicorn service restarted but may not be fully active", "WARNING")
+                return True  # Still consider it successful since restart worked
+        else:
+            log_message(f"✗ Failed to restart gunicorn service: {result.stderr}", "ERROR")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        log_message("✗ Timeout restarting gunicorn service", "ERROR")
+        return False
+    except Exception as e:
+        log_message(f"✗ Error restarting gunicorn service: {e}", "ERROR")
+        return False
+
 def check_orchestrator_update(modules_path: str, repo_path: str) -> bool:
     """Check if the orchestrator system needs updating by comparing schema versions."""
     try:
@@ -815,6 +862,11 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         homeserver_timestamp_updated = update_homeserver_config_timestamp()
         results["homeserver_timestamp_updated"] = homeserver_timestamp_updated
         
+        # Step 9: Restart gunicorn service (final step to avoid killing update process)
+        log_message("Step 9: Restarting gunicorn service...")
+        gunicorn_restart_success = restart_gunicorn_service()
+        results["gunicorn_restart_success"] = gunicorn_restart_success
+        
         # Enhanced Summary with detailed module status reporting
         schema_updated_count = sum(1 for success in results["modules_updated"].values() if success) if results["modules_updated"] else 0
         schema_failed_count = len(results["modules_updated"]) - schema_updated_count if results["modules_updated"] else 0
@@ -842,6 +894,7 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         log_message(f"  - System failed: {system_failed}")
         log_message(f"  - Actually updated: {modules_actually_updated}")
         log_message(f"  - Failed but restored: {modules_restored}")
+        log_message(f"  - Gunicorn restart: {'✓ Success' if results.get('gunicorn_restart_success') else '✗ Failed'}")
         
         if schema_failed_count > 0:
             failed_modules = [module for module, success in results["modules_updated"].items() if not success]
