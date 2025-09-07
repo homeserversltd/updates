@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.9",
+        "schema_version": "0.1.10",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
@@ -34,6 +34,16 @@
             "version_check": {
                 "type": "always",
                 "value": true
+            },
+            "has_run": false
+        },
+        {
+            "id": "website_restore",
+            "description": "Emergency website restoration script for catastrophic failures",
+            "target_id": "website",
+            "version_check": {
+                "type": "manual",
+                "description": "Run manually when website is completely broken"
             },
             "has_run": false
         }

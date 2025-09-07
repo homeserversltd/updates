@@ -291,10 +291,8 @@ class FileOperations:
                 os.makedirs(themes_dir, exist_ok=True)
                 for theme_name, theme_path in themes_backup.items():
                     target_theme_path = os.path.join(themes_dir, theme_name)
-                    # Copy user theme over repository theme
-                    if os.path.exists(target_theme_path):
-                        shutil.rmtree(target_theme_path)
-                    shutil.copytree(theme_path, target_theme_path)
+                    # Copy user theme over repository theme using file-level operations
+                    self._copy_directory_contents_recursive(theme_path, target_theme_path)
                     log_message(f"[FILE] ✓ Restored user theme: {theme_name}")
             
             # STEP 4: Regenerate secret key (gets clobbered during update)
@@ -316,25 +314,36 @@ class FileOperations:
     
     def _copy_directory_contents(self, source_path: str, target_path: str) -> None:
         """
-        Copy all contents from source to target directory, creating target if needed.
-        Simple recursive copy without removing target first.
+        Copy all contents from source to target directory using file-level operations.
+        This avoids directory-level operations that can fail with "Device or resource busy".
         """
         # Ensure target directory exists
         os.makedirs(target_path, exist_ok=True)
         
-        # Copy all items from source to target
+        # Use file-level operations to avoid directory handle issues
+        self._copy_directory_contents_recursive(source_path, target_path)
+    
+    def _copy_directory_contents_recursive(self, source_path: str, target_path: str) -> None:
+        """
+        Recursively copy directory contents using file-level operations only.
+        This works around gunicorn directory handle issues.
+        """
         for item in os.listdir(source_path):
             source_item = os.path.join(source_path, item)
             target_item = os.path.join(target_path, item)
             
             if os.path.isdir(source_item):
-                # Copy directory recursively
-                if os.path.exists(target_item):
-                    shutil.rmtree(target_item)
-                shutil.copytree(source_item, target_item)
+                # Create target directory if it doesn't exist
+                os.makedirs(target_item, exist_ok=True)
+                # Recursively copy directory contents
+                self._copy_directory_contents_recursive(source_item, target_item)
             else:
-                # Copy file
-                shutil.copy2(source_item, target_item)
+                # Copy individual file - this should work even with gunicorn running
+                try:
+                    shutil.copy2(source_item, target_item)
+                    log_message(f"[FILE] ✓ Copied file: {item}")
+                except Exception as e:
+                    log_message(f"[FILE] ⚠ Warning: Could not copy {item}: {e}", "WARNING")
     
     def _is_user_created_theme(self, theme_path: str) -> bool:
         """

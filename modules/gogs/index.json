@@ -29,7 +29,7 @@
             },
             "gogs_bin": {
                 "path": "/opt/gogs/gogs",
-                "owner": "root",
+                "owner": "git",
                 "mode": "755"
             }
         },
