@@ -438,8 +438,9 @@ def update_orchestrator(modules_path: str, repo_path: str) -> bool:
         return False
 
 def get_enabled_modules(modules_path: str) -> list:
-    """Get list of all enabled modules that should be executed."""
+    """Get list of all enabled modules that should be executed, sorted by priority."""
     enabled_modules = []
+    module_priorities = []
     
     try:
         # Check both possible module locations
@@ -468,14 +469,22 @@ def get_enabled_modules(modules_path: str) -> list:
                         # Check if module is enabled (default to True if not specified)
                         enabled = config.get("metadata", {}).get("enabled", True)
                         if enabled:
-                            enabled_modules.append(item)
-                            log_message(f"Found enabled module: {item}")
+                            # Get priority (lower number = higher priority, default to 100)
+                            priority = config.get("metadata", {}).get("priority", 100)
+                            module_priorities.append((priority, item))
+                            log_message(f"Found enabled module: {item} (priority: {priority})")
                         else:
                             log_message(f"Skipping disabled module: {item}")
                     except Exception as e:
                         log_message(f"Error reading module '{item}': {e}", "WARNING")
         
+        # Sort by priority (ascending order - lower numbers first)
+        module_priorities.sort(key=lambda x: x[0])
+        enabled_modules = [module for priority, module in module_priorities]
+        
         log_message(f"Total enabled modules: {len(enabled_modules)}")
+        if enabled_modules:
+            log_message(f"Execution order: {', '.join(enabled_modules)}")
         return enabled_modules
         
     except Exception as e:

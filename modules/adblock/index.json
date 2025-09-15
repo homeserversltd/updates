@@ -3,7 +3,8 @@
         "schema_version": "0.1.5",
         "module_name": "adblock",
         "description": "Adblock module for Unbound DNS",
-        "enabled": true
+        "enabled": true,
+        "priority": 10
     },
     "config": {
         "unbound_dir": "/etc/unbound",

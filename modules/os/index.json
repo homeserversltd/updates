@@ -3,7 +3,8 @@
         "schema_version": "0.1.10",
         "module_name": "os",
         "description": "Operating system update module with intelligent repair and real-time progress",
-        "enabled": true
+        "enabled": true,
+        "priority": 3
     },
     "config": {
         "directories": {

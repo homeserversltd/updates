@@ -3,7 +3,8 @@
         "schema_version": "0.1.7",
         "module_name": "filebrowser",
         "description": "File browser web interface",
-        "enabled": true
+        "enabled": true,
+        "priority": 10
     },
     "config": {
         "directories": {

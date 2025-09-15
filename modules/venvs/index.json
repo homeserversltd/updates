@@ -3,7 +3,8 @@
         "schema_version": "0.1.14",
         "module_name": "venvs",
         "description": "Python virtual environment management for HOMESERVER services",
-        "enabled": true
+        "enabled": true,
+        "priority": 4
     },
     "config": {
         "virtual_environments": {

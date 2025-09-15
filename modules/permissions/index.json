@@ -3,6 +3,7 @@
     "schema_version": "1.0.6",
     "content_version": "1.0.0",
     "enabled": true,
+    "priority": 1,
     "description": "Manage /etc/sudoers.d flask-* policies with checksum + visudo validation"
   },
   "repo": {

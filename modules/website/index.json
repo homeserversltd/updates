@@ -4,7 +4,8 @@
         "content_version": "0.9.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",
-        "enabled": true
+        "enabled": true,
+        "priority": 5
     },
     "config": {
         "repository": {
