@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.11",
+        "schema_version": "0.1.12",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
@@ -54,6 +54,17 @@
             "version_check": {
                 "type": "file_exists",
                 "path": "/etc/systemd/system/calibre-web.service",
+                "invert": false
+            },
+            "has_run": false
+        },
+        {
+            "id": "mount_nas_service_update",
+            "description": "Update mountNas.service to new configuration with vault dependencies",
+            "target_id": "systemd",
+            "version_check": {
+                "type": "file_exists",
+                "path": "/etc/systemd/system/mountNas.service",
                 "invert": false
             },
             "has_run": false

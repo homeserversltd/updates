@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "content_version": "1.0.0",
+    "enabled": true,
+    "priority": 2,
+    "description": "Manage /vault/scripts with checksum + permissions"
+  },
+  "repo": {
+    "url": "https://github.com/homeserversltd/vault.git",
+    "branch": "master"
+  },
+  "files": [
+    { "source": "closeNAS.sh", "keepUpdated": true },
+    { "source": "exportNAS.sh", "keepUpdated": true },
+    { "source": "exportServiceSuite.sh", "keepUpdated": true },
+    { "source": "init.sh", "keepUpdated": true },
+    { "source": "mountDrive.sh", "keepUpdated": true },
+    { "source": "teardown_standalone.py", "keepUpdated": true },
+    { "source": "transmission.py", "keepUpdated": true },
+    { "source": "unmountDrive.sh", "keepUpdated": true },
+    { "source": "src/__init__.py", "keepUpdated": true },
+    { "source": "src/config.json", "keepUpdated": true },
+    { "source": "src/config.py", "keepUpdated": true },
+    { "source": "src/logger.py", "keepUpdated": true },
+    { "source": "src/rpc.py", "keepUpdated": true },
+    { "source": "src/teardown.py", "keepUpdated": true },
+    { "source": "src/templateEngine.py", "keepUpdated": true },
+    { "source": "src/utils.py", "keepUpdated": true },
+    { "source": "src/vpn.py", "keepUpdated": true },
+    { "source": "src/pia/__init__.py", "keepUpdated": true },
+    { "source": "src/pia/api_client.py", "keepUpdated": true },
+    { "source": "src/pia/auth.py", "keepUpdated": true },
+    { "source": "src/pia/integration.py", "keepUpdated": true },
+    { "source": "src/pia/openvpn.py", "keepUpdated": true },
+    { "source": "src/pia/portforward.py", "keepUpdated": true },
+    { "source": "src/pia/regions.py", "keepUpdated": true },
+    { "source": "src/pia/wireguard.py", "keepUpdated": true }
+  ]
+}
