@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "1.0.0",
+    "schema_version": "1.0.1",
     "content_version": "1.0.0",
     "enabled": true,
     "priority": 2,
@@ -31,6 +31,7 @@
     { "source": "src/pia/__init__.py", "keepUpdated": true },
     { "source": "src/pia/api_client.py", "keepUpdated": true },
     { "source": "src/pia/auth.py", "keepUpdated": true },
+    { "source": "src/pia/ca.rsa.4096.crt", "keepUpdated": true },
     { "source": "src/pia/integration.py", "keepUpdated": true },
     { "source": "src/pia/openvpn.py", "keepUpdated": true },
     { "source": "src/pia/portforward.py", "keepUpdated": true },
