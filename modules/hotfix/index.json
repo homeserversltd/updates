@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.12",
+        "schema_version": "0.1.13",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
@@ -65,6 +65,17 @@
             "version_check": {
                 "type": "file_exists",
                 "path": "/etc/systemd/system/mountNas.service",
+                "invert": false
+            },
+            "has_run": false
+        },
+        {
+            "id": "filebrowser_service_fix",
+            "description": "Remove NAS dependency from filebrowser.service to work without NAS mount",
+            "target_id": "filebrowser",
+            "version_check": {
+                "type": "file_exists",
+                "path": "/etc/systemd/system/filebrowser.service",
                 "invert": false
             },
             "has_run": false
