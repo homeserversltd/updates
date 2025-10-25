@@ -1,0 +1,29 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "content_version": "1.0.0",
+    "enabled": true,
+    "priority": 2,
+    "description": "Manage /vault/keyman credential tools with version updates"
+  },
+  "repo": {
+    "url": "https://github.com/homeserversltd/keyman.git",
+    "branch": "main"
+  },
+  "files": [
+    { "source": "change_service_suite_key.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "deletekey.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "exportkey.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "keystartup.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "newkey.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "updateLuksKey.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "updateTransmissionKey.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "utils.sh", "keepUpdated": true, "mode": "700" },
+    { "source": "keyman-crypto", "keepUpdated": true, "mode": "700" },
+    { "source": "keyman-crypto.c", "keepUpdated": true, "mode": "700" },
+    { "source": "Makefile", "keepUpdated": true, "mode": "700" },
+    { "source": "LICENSE", "keepUpdated": true, "mode": "700" },
+    { "source": "VERSION", "keepUpdated": true, "mode": "700" },
+    { "source": "README.md", "keepUpdated": true, "mode": "700" }
+  ]
+}
