@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.13",
+        "schema_version": "0.1.15",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
@@ -13,17 +13,6 @@
                 "type": "module_schema",
                 "module": "gogs",
                 "max_version": "0.1.7"
-            },
-            "has_run": false
-        },
-        {
-            "id": "factory_config_fix",
-            "description": "Ensure factory config exists as immutable backup",
-            "target_id": "system",
-            "version_check": {
-                "type": "file_exists",
-                "path": "/etc/homeserver.factory",
-                "invert": true
             },
             "has_run": false
         },
@@ -54,28 +43,6 @@
             "version_check": {
                 "type": "file_exists",
                 "path": "/etc/systemd/system/calibre-web.service",
-                "invert": false
-            },
-            "has_run": false
-        },
-        {
-            "id": "mount_nas_service_update",
-            "description": "Update mountNas.service to new configuration with vault dependencies",
-            "target_id": "systemd",
-            "version_check": {
-                "type": "file_exists",
-                "path": "/etc/systemd/system/mountNas.service",
-                "invert": false
-            },
-            "has_run": false
-        },
-        {
-            "id": "filebrowser_service_fix",
-            "description": "Remove NAS dependency from filebrowser.service to work without NAS mount",
-            "target_id": "filebrowser",
-            "version_check": {
-                "type": "file_exists",
-                "path": "/etc/systemd/system/filebrowser.service",
                 "invert": false
             },
             "has_run": false

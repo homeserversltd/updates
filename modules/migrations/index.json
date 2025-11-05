@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "content_version": "1.0.0",
+    "enabled": true,
+    "priority": 1,
+    "description": "One-time system migrations executed in order"
+  },
+  "migrations": [
+    {
+      "id": "00000001",
+      "description": "Migrate KEA DHCP from CSV to PostgreSQL backend",
+      "has_run": false
+    },
+    {
+      "id": "00000002",
+      "description": "Ensure factory config exists as immutable backup",
+      "has_run": false
+    },
+    {
+      "id": "00000003",
+      "description": "Update Mount NAS service with vault dependencies",
+      "has_run": false
+    },
+    {
+      "id": "00000004",
+      "description": "Remove NAS dependency from Filebrowser service",
+      "has_run": false
+    }
+  ]
+}
+

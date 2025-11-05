@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.35",
+        "schema_version": "0.1.36",
         "channel": "stable",
         "branch": "master",
         "repository_url": "https://github.com/homeserversltd/updates.git"
@@ -21,6 +21,7 @@
         "linker": "0.1.0",
         "mkdocs": "0.1.0",
         "vault": "0.1.0",
-        "keyman": "0.1.0"
+        "keyman": "0.1.0",
+        "migrations": "0.1.0"
     }
 }

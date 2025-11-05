@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "1.0.7",
+    "schema_version": "1.0.8",
     "content_version": "1.0.0",
     "enabled": true,
     "priority": 2,
@@ -22,7 +22,8 @@
     { "source": "tailnetName", "keepUpdated": true },
     { "source": "thermalTest.sh", "keepUpdated": true },
     { "source": "websiteMountVault.sh", "keepUpdated": true },
-    { "source": "fdwebsite", "keepUpdated": true }
+    { "source": "fdwebsite", "keepUpdated": true },
+    { "source": "safe-nas-sync.sh", "keepUpdated": true }
   ]
 }
 
