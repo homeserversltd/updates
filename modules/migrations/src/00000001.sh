@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Migration 00000001: Migrate KEA DHCP from CSV to PostgreSQL backend
+# Migration 00000001: Migrate KEA DHCP CSV files to ramdisk
 # 
-# This migration converts KEA DHCP server from memfile (CSV) backend
-# to PostgreSQL database backend for improved reliability and performance.
+# This migration moves KEA DHCP lease files from /var/lib/kea/ to /mnt/ramdisk/
+# to prevent root filesystem fullness from affecting DHCP operations.
 #
 # Idempotent: Safe to run multiple times
 # Rollback: Restores backup on failure
@@ -11,15 +11,17 @@
 set +e  # Do not exit on error - we handle errors explicitly
 
 echo "========================================"
-echo "Migration 00000001: KEA DHCP to PostgreSQL"
+echo "Migration 00000001: KEA DHCP to Ramdisk"
 echo "========================================"
 echo ""
 
 # Configuration
 KEA_CONF="/etc/kea/kea-dhcp4.conf"
-KEA_CONF_BACKUP="${KEA_CONF}.csv-backup"
+KEA_CONF_BACKUP="${KEA_CONF}.pre-ramdisk"
 KEA_SERVICE="kea-dhcp4-server.service"
-SKELETON_KEY="/root/key/skeleton.key"
+APPARMOR_PROFILE="/etc/apparmor.d/usr.sbin.kea-dhcp4"
+SYSTEMD_OVERRIDE_DIR="/etc/systemd/system/kea-dhcp4-server.service.d"
+SYSTEMD_OVERRIDE="${SYSTEMD_OVERRIDE_DIR}/ramdisk.conf"
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
@@ -47,240 +49,89 @@ error_exit() {
     exit 1
 }
 
-# IDEMPOTENCY CHECK 1: Is KEA already using PostgreSQL?
-log "Checking if KEA is already using PostgreSQL..."
+# IDEMPOTENCY CHECK: Is KEA already using ramdisk?
+log "Checking if KEA is already using ramdisk..."
 if [ -f "$KEA_CONF" ]; then
-    if grep -q '"type"[[:space:]]*:[[:space:]]*"postgresql"' "$KEA_CONF"; then
-        log "SUCCESS: KEA is already configured to use PostgreSQL"
+    if grep -q '"/mnt/ramdisk/kea-leases4.csv"' "$KEA_CONF"; then
+        log "SUCCESS: KEA is already configured to use ramdisk"
         log "Migration already applied, exiting successfully"
         exit 0
     fi
 fi
 
-# IDEMPOTENCY CHECK 2: Does KEA database already exist?
-log "Checking if KEA PostgreSQL database exists..."
-if sudo -u postgres psql -lqt 2>/dev/null | cut -d \| -f 1 | grep -qw kea; then
-    log "KEA database already exists"
-    DB_EXISTS=true
-    
-    # Extra safety: If database exists AND has lease4 table, assume migration already done
-    SCHEMA_CHECK=$(sudo -u postgres psql -d kea -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='lease4';" 2>/dev/null || echo "0")
-    if [ "$SCHEMA_CHECK" != "0" ]; then
-        log "SUCCESS: KEA database and schema already exist (migration likely already complete)"
-        log "Config check may have failed due to formatting, but system is already using PostgreSQL"
-        exit 0
-    fi
-else
-    log "KEA database does not exist yet"
-    DB_EXISTS=false
+# Deploy AppArmor profile to allow ramdisk access
+log "Deploying AppArmor profile..."
+if [ ! -f "/usr/share/kea/apparmor/kea-dhcp4.apparmor" ]; then
+    log "WARNING: AppArmor source profile not found, using embedded profile"
+    cat > "$APPARMOR_PROFILE" << 'APPARMOR_EOF'
+abi <abi/3.0>,
+
+include <tunables/global>
+
+profile kea-dhcp4 /usr/sbin/kea-dhcp4 {
+  include <abstractions/base>
+  include <abstractions/nameservice>
+  include <abstractions/mysql>
+  include <abstractions/openssl>
+
+  capability net_bind_service,
+  capability net_raw,
+
+  network inet dgram,
+  network inet stream,
+  network netlink raw,
+  network packet raw,
+
+  /etc/gss/mech.d/ r,
+  /etc/gss/mech.d/* r,
+  /etc/kea/ r,
+  /etc/kea/** r,
+  /usr/sbin/kea-dhcp4 mr,
+  /usr/sbin/kea-lfc Px,
+
+  owner /run/kea/kea-dhcp4.kea-dhcp4.pid w,
+  owner /run/lock/kea/logger_lockfile rwk,
+  owner /{tmp,run/kea}/kea4-ctrl-socket w,
+  owner /{tmp,run/kea}/kea4-ctrl-socket.lock rwk,
+
+  # Lease files in default location
+  owner /var/lib/kea/kea-leases4.csv* rw,
+
+  # Lease files in ramdisk
+  owner /mnt/ramdisk/kea-leases4.csv* rw,
+
+  owner /var/log/kea/kea-dhcp4.log rw,
+  owner /var/log/kea/kea-dhcp4.log.[0-9]* rw,
+  owner /var/log/kea/kea-dhcp4.log.lock rwk,
+}
+APPARMOR_EOF
 fi
 
-# Check if kea-admin is installed, install if missing
-log "Checking for kea-admin tool..."
-if ! command -v kea-admin >/dev/null 2>&1; then
-    log "kea-admin not found, installing..."
-    if DEBIAN_FRONTEND=noninteractive apt-get install -qq -y kea-admin >/dev/null 2>&1; then
-        log "kea-admin installed successfully"
+if [ -f "$APPARMOR_PROFILE" ]; then
+    if apparmor_parser -r "$APPARMOR_PROFILE" 2>&1; then
+        log "AppArmor profile loaded successfully"
     else
-        error_exit "Failed to install kea-admin package"
+        log "WARNING: Failed to load AppArmor profile (may not be critical)"
     fi
+fi
+
+# Deploy systemd override to create CSV files on boot
+log "Deploying systemd override for ramdisk CSV creation..."
+mkdir -p "$SYSTEMD_OVERRIDE_DIR"
+cat > "$SYSTEMD_OVERRIDE" << 'OVERRIDE_EOF'
+[Service]
+# Ensure KEA lease files exist before KEA tries to open them
+# Ramdisk is volatile, so files must be recreated on each boot
+ExecStartPre=/bin/sh -c '/usr/bin/touch /mnt/ramdisk/kea-leases4.csv && /usr/bin/chown _kea:_kea /mnt/ramdisk/kea-leases4.csv'
+ExecStartPre=/bin/sh -c '/usr/bin/touch /mnt/ramdisk/kea-leases4.csv2 && /usr/bin/chown _kea:_kea /mnt/ramdisk/kea-leases4.csv2'
+OVERRIDE_EOF
+
+if [ -f "$SYSTEMD_OVERRIDE" ]; then
+    log "Systemd override deployed"
+    systemctl daemon-reload
+    log "Systemd configuration reloaded"
 else
-    log "kea-admin is already installed"
-fi
-
-# Read Factory Access Key
-log "Reading Factory Access Key..."
-if [ ! -f "$SKELETON_KEY" ]; then
-    error_exit "Factory Access Key not found at $SKELETON_KEY"
-fi
-
-FAK=$(cat "$SKELETON_KEY" | tr -d '\n\r')
-if [ -z "$FAK" ]; then
-    error_exit "Factory Access Key is empty"
-fi
-
-log "Factory Access Key loaded successfully"
-
-# Create PostgreSQL database and user if needed
-if [ "$DB_EXISTS" = false ]; then
-    log "Creating KEA PostgreSQL database and user..."
-    
-    # Create database
-    if ! sudo -u postgres psql -c "CREATE DATABASE kea;" 2>&1; then
-        error_exit "Failed to create KEA database"
-    fi
-    log "Database 'kea' created"
-    
-    # Check if user already exists
-    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='kea'" | grep -q 1; then
-        log "User 'kea' already exists, updating password..."
-        if ! sudo -u postgres psql -c "ALTER USER kea WITH PASSWORD '$FAK';" 2>&1; then
-            error_exit "Failed to update kea user password"
-        fi
-    else
-        log "Creating user 'kea'..."
-        if ! sudo -u postgres psql -c "CREATE USER kea WITH PASSWORD '$FAK';" 2>&1; then
-            error_exit "Failed to create kea user"
-        fi
-    fi
-    log "User 'kea' configured"
-    
-    # Grant database privileges
-    if ! sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE kea TO kea;" 2>&1; then
-        error_exit "Failed to grant database privileges to kea user"
-    fi
-    log "Database privileges granted to kea user"
-    
-    # Grant schema privileges (required for table creation)
-    if ! sudo -u postgres psql -d kea -c "GRANT ALL ON SCHEMA public TO kea;" 2>&1; then
-        error_exit "Failed to grant schema privileges to kea user"
-    fi
-    log "Schema privileges granted to kea user"
-else
-    log "KEA database already exists, skipping creation"
-    
-    # Ensure user exists and password is correct
-    if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='kea'" | grep -q 1; then
-        log "Updating kea user password to match current FAK..."
-        sudo -u postgres psql -c "ALTER USER kea WITH PASSWORD '$FAK';" 2>&1 || true
-        # Ensure schema privileges are granted (in case they were missing)
-        sudo -u postgres psql -d kea -c "GRANT ALL ON SCHEMA public TO kea;" 2>&1 || true
-        log "Schema privileges ensured for existing user"
-    else
-        log "Creating user 'kea'..."
-        if ! sudo -u postgres psql -c "CREATE USER kea WITH PASSWORD '$FAK';" 2>&1; then
-            error_exit "Failed to create kea user"
-        fi
-        if ! sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE kea TO kea;" 2>&1; then
-            error_exit "Failed to grant database privileges"
-        fi
-        if ! sudo -u postgres psql -d kea -c "GRANT ALL ON SCHEMA public TO kea;" 2>&1; then
-            error_exit "Failed to grant schema privileges"
-        fi
-    fi
-fi
-
-# Configure PostgreSQL peer authentication for www-data and _kea
-log "Configuring PostgreSQL peer authentication..."
-
-# Create PostgreSQL users matching OS usernames (required for peer auth)
-log "Creating PostgreSQL users to match OS users..."
-
-# Create www-data database user
-if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='www-data'" | grep -q 1; then
-    log "PostgreSQL user 'www-data' already exists"
-else
-    log "Creating PostgreSQL user 'www-data'"
-    if ! sudo -u postgres psql -c 'CREATE USER "www-data";' 2>&1; then
-        error_exit "Failed to create www-data database user"
-    fi
-fi
-
-# Create _kea database user
-if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='_kea'" | grep -q 1; then
-    log "PostgreSQL user '_kea' already exists"
-else
-    log "Creating PostgreSQL user '_kea'"
-    if ! sudo -u postgres psql -c 'CREATE USER "_kea";' 2>&1; then
-        error_exit "Failed to create _kea database user"
-    fi
-fi
-
-# Grant permissions to both users on kea database
-log "Granting database permissions..."
-sudo -u postgres psql -d kea -c 'GRANT CONNECT ON DATABASE kea TO "www-data"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO "www-data";' 2>&1 || true
-sudo -u postgres psql -d kea -c 'GRANT ALL ON DATABASE kea TO "_kea"; GRANT ALL ON SCHEMA public TO "_kea"; GRANT ALL ON ALL TABLES IN SCHEMA public TO "_kea"; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "_kea";' 2>&1 || true
-
-# Grant DEFAULT privileges so www-data can see future rows inserted by _kea
-log "Granting default privileges for future inserts..."
-sudo -u postgres psql -d kea -c 'ALTER DEFAULT PRIVILEGES FOR ROLE "_kea" IN SCHEMA public GRANT SELECT ON TABLES TO "www-data";' 2>&1 || true
-log "Database permissions granted"
-
-# Backup pg_hba.conf
-if [ ! -f "/etc/postgresql/15/main/pg_hba.conf.pre-kea-migration" ]; then
-    cp /etc/postgresql/15/main/pg_hba.conf /etc/postgresql/15/main/pg_hba.conf.pre-kea-migration
-    log "Backed up pg_hba.conf"
-fi
-
-# Add peer auth rules (no mapping needed - OS user matches DB user exactly)
-log "Adding peer authentication rules..."
-if ! grep -q "local[[:space:]]*kea[[:space:]]*www-data[[:space:]]*peer" /etc/postgresql/15/main/pg_hba.conf; then
-    sed -i '3i # KEA database access via peer auth (OS user = DB user)\nlocal   kea             www-data                                peer\nlocal   kea             _kea                                    peer\n' /etc/postgresql/15/main/pg_hba.conf
-    log "Added peer authentication rules to pg_hba.conf"
-else
-    log "Peer authentication rules already exist"
-fi
-
-# Reload PostgreSQL cluster to apply changes
-log "Reloading PostgreSQL configuration..."
-if pg_ctlcluster 15 main reload 2>&1; then
-    log "PostgreSQL configuration reloaded successfully"
-else
-    log "WARNING: Failed to reload PostgreSQL"
-fi
-
-# Test peer authentication for both users
-log "Testing peer authentication for www-data..."
-cd /tmp
-if sudo -u www-data psql -d kea -c "SELECT 1;" >/dev/null 2>&1; then
-    log "SUCCESS: Peer authentication working for www-data"
-else
-    log "WARNING: Peer authentication for www-data not working yet"
-fi
-
-log "Testing peer authentication for _kea..."
-if sudo -u _kea psql -d kea -c "SELECT 1;" >/dev/null 2>&1; then
-    log "SUCCESS: Peer authentication working for _kea"
-else
-    log "WARNING: Peer authentication for _kea not working yet"
-fi
-
-# Initialize KEA schema if needed
-log "Checking if KEA schema is initialized..."
-SCHEMA_CHECK=$(sudo -u postgres psql -d kea -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='lease4';" 2>/dev/null || echo "0")
-
-if [ "$SCHEMA_CHECK" = "0" ]; then
-    log "Initializing KEA database schema..."
-    
-    # Load schema directly from the installed KEA schema file
-    SCHEMA_FILE="/usr/share/kea/scripts/pgsql/dhcpdb_create.pgsql"
-    
-    if [ ! -f "$SCHEMA_FILE" ]; then
-        error_exit "KEA schema file not found at $SCHEMA_FILE"
-    fi
-    
-    log "Loading schema from $SCHEMA_FILE"
-    
-    # Load the schema as the kea user with password (for initial setup)
-    if PGPASSWORD="$FAK" psql -h localhost -U kea -d kea -f "$SCHEMA_FILE" 2>&1; then
-        log "KEA schema initialized successfully"
-    else
-        error_exit "Failed to initialize KEA schema"
-    fi
-    
-    # Verify schema was created
-    VERIFY_CHECK=$(sudo -u postgres psql -d kea -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='lease4';" 2>/dev/null || echo "0")
-    if [ "$VERIFY_CHECK" = "0" ]; then
-        error_exit "Schema initialization appeared to succeed but lease4 table not found"
-    fi
-    
-    log "Schema verification passed - lease4 table created"
-else
-    log "KEA schema already initialized (found lease4 table)"
-fi
-
-# Test PostgreSQL connection with password (for kea user maintenance)
-log "Testing PostgreSQL connection with password for kea user..."
-if ! PGPASSWORD="$FAK" psql -h localhost -U kea -d kea -c "SELECT 1;" >/dev/null 2>&1; then
-    log "WARNING: Password-based connection failed, but peer auth may still work"
-fi
-
-# Test peer authentication for www-data
-log "Testing peer authentication for www-data user..."
-if sudo -u www-data psql -h localhost -U kea -d kea -c "SELECT 1;" >/dev/null 2>&1; then
-    log "SUCCESS: Peer authentication verified for www-data"
-else
-    log "WARNING: Peer authentication not working yet (may require gunicorn restart)"
+    error_exit "Failed to create systemd override"
 fi
 
 # Backup current KEA configuration
@@ -294,8 +145,16 @@ else
     error_exit "KEA configuration file not found at $KEA_CONF"
 fi
 
-# Update KEA configuration to use PostgreSQL
-log "Updating KEA configuration to use PostgreSQL..."
+# Create initial CSV files in ramdisk
+log "Creating initial CSV files in ramdisk..."
+touch /mnt/ramdisk/kea-leases4.csv
+touch /mnt/ramdisk/kea-leases4.csv2
+chown _kea:_kea /mnt/ramdisk/kea-leases4.csv*
+chmod 644 /mnt/ramdisk/kea-leases4.csv*
+log "CSV files created with proper ownership"
+
+# Update KEA configuration to use ramdisk
+log "Updating KEA configuration to use ramdisk..."
 
 # Use Python to modify the JSON config safely
 python3 << EOF
@@ -306,17 +165,13 @@ try:
     with open('$KEA_CONF', 'r') as f:
         config = json.load(f)
     
-    # Update lease-database configuration for peer authentication
-    # Note: host="/var/run/postgresql" forces Unix socket (KEA defaults to TCP)
-    # Note: password="" explicit empty string required by KEA for peer auth
-    # Note: user="_kea" matches OS user running the service for peer auth
+    # Update lease-database configuration to use memfile on ramdisk
     if 'Dhcp4' in config:
         config['Dhcp4']['lease-database'] = {
-            'type': 'postgresql',
-            'name': 'kea',
-            'user': '_kea',
-            'password': '',
-            'host': '/var/run/postgresql'
+            'type': 'memfile',
+            'persist': True,
+            'name': '/mnt/ramdisk/kea-leases4.csv',
+            'lfc-interval': 3600
         }
         
         # Write updated config
@@ -360,23 +215,12 @@ fi
 
 log "KEA service restarted and running successfully"
 
-# Verify lease database is accessible
-log "Verifying lease database access..."
-LEASE_CHECK=$(PGPASSWORD="$FAK" psql -h localhost -U kea -d kea -tAc "SELECT COUNT(*) FROM lease4;" 2>/dev/null || echo "ERROR")
-
-if [ "$LEASE_CHECK" = "ERROR" ]; then
-    log "WARNING: Could not query lease4 table, but service is running"
+# Verify ramdisk files are accessible
+log "Verifying ramdisk files exist and are accessible..."
+if [ -f "/mnt/ramdisk/kea-leases4.csv" ] && [ -f "/mnt/ramdisk/kea-leases4.csv2" ]; then
+    log "Ramdisk CSV files verified"
 else
-    log "Lease database accessible (current leases: $LEASE_CHECK)"
-fi
-
-# Optional: Remove old CSV lease files
-if [ -f "/var/lib/kea/kea-leases4.csv" ]; then
-    log "Removing old CSV lease files..."
-    rm -f /var/lib/kea/kea-leases4.csv
-    rm -f /var/lib/kea/kea-leases4.csv.1
-    rm -f /var/lib/kea/kea-leases4.csv.2
-    log "Old CSV files removed"
+    error_exit "Failed to create ramdisk CSV files"
 fi
 
 # Success
@@ -385,8 +229,12 @@ log "========================================"
 log "SUCCESS: Migration completed"
 log "========================================"
 log ""
-log "KEA DHCP has been successfully migrated from CSV to PostgreSQL"
+log "KEA DHCP lease files moved to ramdisk at /mnt/ramdisk/"
+log "AppArmor profile updated to allow ramdisk access"
+log "Systemd override configured to recreate files on boot"
 log "Backup configuration saved at: $KEA_CONF_BACKUP"
+log ""
+log "Network DHCP will continue operating normally"
 log ""
 
 exit 0
