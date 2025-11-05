@@ -160,54 +160,75 @@ else
     fi
 fi
 
-# Configure PostgreSQL peer authentication for www-data
+# Configure PostgreSQL peer authentication for www-data and _kea
 log "Configuring PostgreSQL peer authentication..."
 
+# Create PostgreSQL users matching OS usernames (required for peer auth)
+log "Creating PostgreSQL users to match OS users..."
+
+# Create www-data database user
+if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='www-data'" | grep -q 1; then
+    log "PostgreSQL user 'www-data' already exists"
+else
+    log "Creating PostgreSQL user 'www-data'"
+    if ! sudo -u postgres psql -c 'CREATE USER "www-data";' 2>&1; then
+        error_exit "Failed to create www-data database user"
+    fi
+fi
+
+# Create _kea database user
+if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='_kea'" | grep -q 1; then
+    log "PostgreSQL user '_kea' already exists"
+else
+    log "Creating PostgreSQL user '_kea'"
+    if ! sudo -u postgres psql -c 'CREATE USER "_kea";' 2>&1; then
+        error_exit "Failed to create _kea database user"
+    fi
+fi
+
+# Grant permissions to both users on kea database
+log "Granting database permissions..."
+sudo -u postgres psql -d kea -c 'GRANT CONNECT ON DATABASE kea TO "www-data"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO "www-data";' 2>&1 || true
+sudo -u postgres psql -d kea -c 'GRANT ALL ON DATABASE kea TO "_kea"; GRANT ALL ON SCHEMA public TO "_kea"; GRANT ALL ON ALL TABLES IN SCHEMA public TO "_kea"; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "_kea";' 2>&1 || true
+log "Database permissions granted"
+
 # Backup pg_hba.conf
-if [ ! -f "/etc/postgresql/15/main/pg_hba.conf.backup" ]; then
-    cp /etc/postgresql/15/main/pg_hba.conf /etc/postgresql/15/main/pg_hba.conf.backup
+if [ ! -f "/etc/postgresql/15/main/pg_hba.conf.pre-kea-migration" ]; then
+    cp /etc/postgresql/15/main/pg_hba.conf /etc/postgresql/15/main/pg_hba.conf.pre-kea-migration
     log "Backed up pg_hba.conf"
 fi
 
-# Check if peer auth rule already exists
-if grep -q "local[[:space:]]*kea[[:space:]]*www-data[[:space:]]*peer" /etc/postgresql/15/main/pg_hba.conf; then
-    log "Peer authentication already configured for www-data"
+# Add peer auth rules (no mapping needed - OS user matches DB user exactly)
+log "Adding peer authentication rules..."
+if ! grep -q "local[[:space:]]*kea[[:space:]]*www-data[[:space:]]*peer" /etc/postgresql/15/main/pg_hba.conf; then
+    sed -i '3i # KEA database access via peer auth (OS user = DB user)\nlocal   kea             www-data                                peer\nlocal   kea             _kea                                    peer\n' /etc/postgresql/15/main/pg_hba.conf
+    log "Added peer authentication rules to pg_hba.conf"
 else
-    log "Adding peer authentication rule for www-data"
-    # Add peer auth rule at the beginning (before other rules)
-    sed -i '/^# Database administrative login/i\# KEA database access for www-data via peer auth\nlocal   kea             www-data                                peer map=keamap\n' /etc/postgresql/15/main/pg_hba.conf
-    log "Added peer authentication rule to pg_hba.conf"
+    log "Peer authentication rules already exist"
 fi
 
-# Backup pg_ident.conf
-if [ ! -f "/etc/postgresql/15/main/pg_ident.conf.backup" ]; then
-    cp /etc/postgresql/15/main/pg_ident.conf /etc/postgresql/15/main/pg_ident.conf.backup
-    log "Backed up pg_ident.conf"
-fi
-
-# Check if identity mapping already exists
-if grep -q "keamap[[:space:]]*www-data[[:space:]]*kea" /etc/postgresql/15/main/pg_ident.conf; then
-    log "Identity mapping already configured"
-else
-    log "Adding identity mapping for www-data -> kea"
-    echo "keamap          www-data                kea" >> /etc/postgresql/15/main/pg_ident.conf
-    log "Added identity mapping to pg_ident.conf"
-fi
-
-# Reload PostgreSQL to apply changes
+# Reload PostgreSQL cluster to apply changes
 log "Reloading PostgreSQL configuration..."
-if systemctl reload postgresql; then
+if pg_ctlcluster 15 main reload 2>&1; then
     log "PostgreSQL configuration reloaded successfully"
 else
-    log "WARNING: Failed to reload PostgreSQL, changes may not be active yet"
+    log "WARNING: Failed to reload PostgreSQL"
 fi
 
-# Test peer authentication as www-data
+# Test peer authentication for both users
 log "Testing peer authentication for www-data..."
-if sudo -u www-data psql -h localhost -U kea -d kea -c "SELECT 1;" >/dev/null 2>&1; then
+cd /tmp
+if sudo -u www-data psql -d kea -c "SELECT 1;" >/dev/null 2>&1; then
     log "SUCCESS: Peer authentication working for www-data"
 else
-    log "WARNING: Peer authentication test failed, but continuing (may work after gunicorn restart)"
+    log "WARNING: Peer authentication for www-data not working yet"
+fi
+
+log "Testing peer authentication for _kea..."
+if sudo -u _kea psql -d kea -c "SELECT 1;" >/dev/null 2>&1; then
+    log "SUCCESS: Peer authentication working for _kea"
+else
+    log "WARNING: Peer authentication for _kea not working yet"
 fi
 
 # Initialize KEA schema if needed
@@ -281,14 +302,17 @@ try:
     with open('$KEA_CONF', 'r') as f:
         config = json.load(f)
     
-    # Update lease-database configuration
+    # Update lease-database configuration for peer authentication
+    # Note: host="/var/run/postgresql" forces Unix socket (KEA defaults to TCP)
+    # Note: password="" explicit empty string required by KEA for peer auth
+    # Note: user="_kea" matches OS user running the service for peer auth
     if 'Dhcp4' in config:
         config['Dhcp4']['lease-database'] = {
             'type': 'postgresql',
-            'host': 'localhost',
             'name': 'kea',
-            'user': 'kea',
-            'password': '$FAK'
+            'user': '_kea',
+            'password': '',
+            'host': '/var/run/postgresql'
         }
         
         # Write updated config
