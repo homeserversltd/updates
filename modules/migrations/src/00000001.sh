@@ -125,11 +125,17 @@ if [ "$DB_EXISTS" = false ]; then
     fi
     log "User 'kea' configured"
     
-    # Grant privileges
+    # Grant database privileges
     if ! sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE kea TO kea;" 2>&1; then
-        error_exit "Failed to grant privileges to kea user"
+        error_exit "Failed to grant database privileges to kea user"
     fi
-    log "Privileges granted to kea user"
+    log "Database privileges granted to kea user"
+    
+    # Grant schema privileges (required for table creation)
+    if ! sudo -u postgres psql -d kea -c "GRANT ALL ON SCHEMA public TO kea;" 2>&1; then
+        error_exit "Failed to grant schema privileges to kea user"
+    fi
+    log "Schema privileges granted to kea user"
 else
     log "KEA database already exists, skipping creation"
     
@@ -137,13 +143,19 @@ else
     if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='kea'" | grep -q 1; then
         log "Updating kea user password to match current FAK..."
         sudo -u postgres psql -c "ALTER USER kea WITH PASSWORD '$FAK';" 2>&1 || true
+        # Ensure schema privileges are granted (in case they were missing)
+        sudo -u postgres psql -d kea -c "GRANT ALL ON SCHEMA public TO kea;" 2>&1 || true
+        log "Schema privileges ensured for existing user"
     else
         log "Creating user 'kea'..."
         if ! sudo -u postgres psql -c "CREATE USER kea WITH PASSWORD '$FAK';" 2>&1; then
             error_exit "Failed to create kea user"
         fi
         if ! sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE kea TO kea;" 2>&1; then
-            error_exit "Failed to grant privileges"
+            error_exit "Failed to grant database privileges"
+        fi
+        if ! sudo -u postgres psql -d kea -c "GRANT ALL ON SCHEMA public TO kea;" 2>&1; then
+            error_exit "Failed to grant schema privileges"
         fi
     fi
 fi
@@ -155,27 +167,29 @@ SCHEMA_CHECK=$(sudo -u postgres psql -d kea -tAc "SELECT COUNT(*) FROM informati
 if [ "$SCHEMA_CHECK" = "0" ]; then
     log "Initializing KEA database schema..."
     
-    # Use kea-admin to initialize schema
-    if command -v kea-admin >/dev/null 2>&1; then
-        # Create temporary password file for kea-admin
-        TEMP_PGPASS="/tmp/.pgpass.kea.$$"
-        echo "localhost:5432:kea:kea:$FAK" > "$TEMP_PGPASS"
-        chmod 600 "$TEMP_PGPASS"
-        
-        export PGPASSFILE="$TEMP_PGPASS"
-        
-        if kea-admin db-init pgsql -u kea -p "$FAK" -n kea -d kea -h localhost 2>&1; then
-            log "KEA schema initialized successfully"
-        else
-            rm -f "$TEMP_PGPASS"
-            error_exit "Failed to initialize KEA schema"
-        fi
-        
-        rm -f "$TEMP_PGPASS"
-        unset PGPASSFILE
-    else
-        log "WARNING: kea-admin not found, schema may need manual initialization"
+    # Load schema directly from the installed KEA schema file
+    SCHEMA_FILE="/usr/share/kea/scripts/pgsql/dhcpdb_create.pgsql"
+    
+    if [ ! -f "$SCHEMA_FILE" ]; then
+        error_exit "KEA schema file not found at $SCHEMA_FILE"
     fi
+    
+    log "Loading schema from $SCHEMA_FILE"
+    
+    # Load the schema as the kea user
+    if PGPASSWORD="$FAK" psql -h localhost -U kea -d kea -f "$SCHEMA_FILE" 2>&1; then
+        log "KEA schema initialized successfully"
+    else
+        error_exit "Failed to initialize KEA schema"
+    fi
+    
+    # Verify schema was created
+    VERIFY_CHECK=$(sudo -u postgres psql -d kea -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='lease4';" 2>/dev/null || echo "0")
+    if [ "$VERIFY_CHECK" = "0" ]; then
+        error_exit "Schema initialization appeared to succeed but lease4 table not found"
+    fi
+    
+    log "Schema verification passed - lease4 table created"
 else
     log "KEA schema already initialized (found lease4 table)"
 fi
