@@ -190,6 +190,10 @@ fi
 log "Granting database permissions..."
 sudo -u postgres psql -d kea -c 'GRANT CONNECT ON DATABASE kea TO "www-data"; GRANT SELECT ON ALL TABLES IN SCHEMA public TO "www-data";' 2>&1 || true
 sudo -u postgres psql -d kea -c 'GRANT ALL ON DATABASE kea TO "_kea"; GRANT ALL ON SCHEMA public TO "_kea"; GRANT ALL ON ALL TABLES IN SCHEMA public TO "_kea"; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "_kea";' 2>&1 || true
+
+# Grant DEFAULT privileges so www-data can see future rows inserted by _kea
+log "Granting default privileges for future inserts..."
+sudo -u postgres psql -d kea -c 'ALTER DEFAULT PRIVILEGES FOR ROLE "_kea" IN SCHEMA public GRANT SELECT ON TABLES TO "www-data";' 2>&1 || true
 log "Database permissions granted"
 
 # Backup pg_hba.conf
