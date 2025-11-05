@@ -75,6 +75,19 @@ else
     DB_EXISTS=false
 fi
 
+# Check if kea-admin is installed, install if missing
+log "Checking for kea-admin tool..."
+if ! command -v kea-admin >/dev/null 2>&1; then
+    log "kea-admin not found, installing..."
+    if DEBIAN_FRONTEND=noninteractive apt-get install -qq -y kea-admin >/dev/null 2>&1; then
+        log "kea-admin installed successfully"
+    else
+        error_exit "Failed to install kea-admin package"
+    fi
+else
+    log "kea-admin is already installed"
+fi
+
 # Read Factory Access Key
 log "Reading Factory Access Key..."
 if [ ! -f "$SKELETON_KEY" ]; then
