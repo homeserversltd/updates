@@ -31,7 +31,7 @@ class BuildManager:
         
     def run_build_process(self) -> bool:
         """
-        Run the complete build process including NPM install, build, and service restart.
+        Run the complete build process including pip install, NPM install, build, and service restart.
         
         Returns:
             bool: True if build completed successfully, False otherwise
@@ -44,19 +44,23 @@ class BuildManager:
                 if not self._stop_services():
                     return False
             
-            # Step 2: Install NPM dependencies
+            # Step 2: Install Python dependencies
+            if not self._pip_install():
+                return False
+            
+            # Step 3: Install NPM dependencies
             if not self._npm_install():
                 return False
             
-            # Step 3: Build the frontend
+            # Step 4: Build the frontend
             if not self._npm_build():
                 return False
             
-            # Step 4: Start or restart services
+            # Step 5: Start or restart services
             if not self._start_services():
                 return False
             
-            # Step 5: Validate services are running
+            # Step 6: Validate services are running
             if not self._validate_services():
                 return False
             
@@ -98,6 +102,69 @@ class BuildManager:
         time.sleep(2)
         log_message("[BUILD] ✓ Service stop phase completed")
         return True
+    
+    def _pip_install(self) -> bool:
+        """Install Python dependencies from requirements.txt."""
+        log_message("[BUILD] Installing Python dependencies...")
+        
+        requirements_file = os.path.join(self.base_dir, 'requirements.txt')
+        venv_path = os.path.join(self.base_dir, 'venv')
+        
+        # Check if requirements.txt exists
+        if not os.path.exists(requirements_file):
+            log_message("[BUILD] ⚠ requirements.txt not found, skipping pip install", "WARNING")
+            return True
+        
+        # Check if venv exists
+        if not os.path.exists(venv_path):
+            log_message("[BUILD] ⚠ Virtual environment not found at {venv_path}, skipping pip install", "WARNING")
+            return True
+        
+        try:
+            pip_executable = os.path.join(venv_path, 'bin', 'pip')
+            
+            # Upgrade pip first (quietly)
+            log_message("[BUILD] Upgrading pip...")
+            result = subprocess.run(
+                [pip_executable, 'install', '--upgrade', 'pip', '--quiet'],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                log_message(f"[BUILD] ⚠ pip upgrade had issues, continuing anyway: {result.stderr}", "WARNING")
+            
+            # Install requirements
+            log_message(f"[BUILD] Installing packages from requirements.txt...")
+            result = subprocess.run(
+                [pip_executable, 'install', '-r', requirements_file, '--quiet'],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode != 0:
+                log_message(f"[BUILD] ✗ pip install failed: {result.stderr}", "ERROR")
+                return False
+            
+            if result.stdout:
+                # Log summary
+                lines = result.stdout.strip().split('\n')
+                if lines:
+                    log_message(f"[BUILD] pip install output ({len(lines)} lines):")
+                    for line in lines[-5:]:  # Show last 5 lines
+                        log_message(f"[BUILD]   {line}")
+            
+            log_message("[BUILD] ✓ Python dependencies installed successfully")
+            return True
+            
+        except subprocess.TimeoutExpired:
+            log_message("[BUILD] ✗ pip install timed out", "ERROR")
+            return False
+        except Exception as e:
+            log_message(f"[BUILD] ✗ pip install failed: {e}", "ERROR")
+            return False
     
     def _npm_install(self) -> bool:
         """Install NPM dependencies."""
