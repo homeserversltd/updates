@@ -95,10 +95,12 @@ profile kea-dhcp4 /usr/sbin/kea-dhcp4 {
   owner /{tmp,run/kea}/kea4-ctrl-socket.lock rwk,
 
   # Lease files in default location
-  owner /var/lib/kea/kea-leases4.csv* rw,
+  owner /var/lib/kea/kea-leases4.csv rw,
+  owner /var/lib/kea/kea-leases4.csv2 rw,
 
   # Lease files in ramdisk
-  owner /mnt/ramdisk/kea-leases4.csv* rw,
+  owner /mnt/ramdisk/kea-leases4.csv rw,
+  owner /mnt/ramdisk/kea-leases4.csv2 rw,
 
   owner /var/log/kea/kea-dhcp4.log rw,
   owner /var/log/kea/kea-dhcp4.log.[0-9]* rw,
@@ -119,6 +121,10 @@ fi
 log "Deploying systemd override for ramdisk CSV creation..."
 mkdir -p "$SYSTEMD_OVERRIDE_DIR"
 cat > "$SYSTEMD_OVERRIDE" << 'OVERRIDE_EOF'
+[Unit]
+RequiresMountsFor=/mnt/ramdisk
+After=mnt-ramdisk.mount
+
 [Service]
 # Ensure KEA lease files exist before KEA tries to open them
 # Ramdisk is volatile, so files must be recreated on each boot
