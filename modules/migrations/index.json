@@ -7,11 +7,6 @@
     "description": "One-time system migrations executed in order"
   },
   "migrations": [
-      {
-        "id": "00000001",
-        "description": "Move KEA DHCP lease files to ramdisk",
-        "has_run": false
-      },
     {
       "id": "00000002",
       "description": "Ensure factory config exists as immutable backup",
