@@ -98,10 +98,11 @@ profile kea-dhcp4 /usr/sbin/kea-dhcp4 {
   owner /var/lib/kea/kea-leases4.csv rw,
   owner /var/lib/kea/kea-leases4.csv2 rw,
 
-  # Lease files in ramdisk
-  owner /mnt/ramdisk/kea-leases4.csv rw,
-  owner /mnt/ramdisk/kea-leases4.csv2 rw,
-
+  # Lease files in ramdisk (for systems with limited root space)
+  /mnt/ramdisk/ rw,
+  /mnt/ramdisk/kea-leases4.csv rw,
+  /mnt/ramdisk/kea-leases4.csv2 rw,
+  
   owner /var/log/kea/kea-dhcp4.log rw,
   owner /var/log/kea/kea-dhcp4.log.[0-9]* rw,
   owner /var/log/kea/kea-dhcp4.log.lock rwk,
@@ -121,15 +122,12 @@ fi
 log "Deploying systemd override for ramdisk CSV creation..."
 mkdir -p "$SYSTEMD_OVERRIDE_DIR"
 cat > "$SYSTEMD_OVERRIDE" << 'OVERRIDE_EOF'
-[Unit]
-RequiresMountsFor=/mnt/ramdisk
-After=mnt-ramdisk.mount
-
 [Service]
 # Ensure KEA lease files exist before KEA tries to open them
 # Ramdisk is volatile, so files must be recreated on each boot
-ExecStartPre=/bin/sh -c '/usr/bin/touch /mnt/ramdisk/kea-leases4.csv && /usr/bin/chown _kea:_kea /mnt/ramdisk/kea-leases4.csv'
-ExecStartPre=/bin/sh -c '/usr/bin/touch /mnt/ramdisk/kea-leases4.csv2 && /usr/bin/chown _kea:_kea /mnt/ramdisk/kea-leases4.csv2'
+PermissionsStartOnly=true
+ExecStartPre=+/usr/bin/touch /mnt/ramdisk/kea-leases4.csv /mnt/ramdisk/kea-leases4.csv2
+ExecStartPre=+/usr/bin/chown _kea:_kea /mnt/ramdisk/kea-leases4.csv /mnt/ramdisk/kea-leases4.csv2
 OVERRIDE_EOF
 
 if [ -f "$SYSTEMD_OVERRIDE" ]; then

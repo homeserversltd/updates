@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "1.0.7",
+    "schema_version": "1.0.8",
     "content_version": "1.0.0",
     "enabled": true,
     "priority": 1,
@@ -10,7 +10,7 @@
       {
         "id": "00000001",
         "description": "Move KEA DHCP lease files to ramdisk",
-        "has_run": true
+        "has_run": false
       },
     {
       "id": "00000002",
