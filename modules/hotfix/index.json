@@ -38,14 +38,13 @@
         },
         {
             "id": "calibre_helper_daemon_install",
-            "description": "Ensure Calibre Helper Daemon is installed if Calibre Web exists",
+            "description": "[DEPRECATED] Old complex Calibre Helper Daemon (replaced by migration 00000005)",
             "target_id": "calibre",
             "version_check": {
-                "type": "file_exists",
-                "path": "/etc/systemd/system/calibre-web.service",
-                "invert": false
+                "type": "manual",
+                "description": "Deprecated - use migration 00000005 instead"
             },
-            "has_run": false
+            "has_run": true
         }
     ]
 }

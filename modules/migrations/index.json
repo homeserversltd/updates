@@ -21,6 +21,11 @@
       "id": "00000004",
       "description": "Remove NAS dependency from Filebrowser service",
       "has_run": false
+    },
+    {
+      "id": "00000005",
+      "description": "Replace complex Calibre Helper Daemon with simple inotify watcher",
+      "has_run": false
     }
   ]
 }
