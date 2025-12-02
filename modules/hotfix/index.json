@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.15",
+        "schema_version": "0.1.16",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
@@ -35,16 +35,6 @@
                 "description": "Run manually when website is completely broken"
             },
             "has_run": false
-        },
-        {
-            "id": "calibre_helper_daemon_install",
-            "description": "[DEPRECATED] Old complex Calibre Helper Daemon (replaced by migration 00000005)",
-            "target_id": "calibre",
-            "version_check": {
-                "type": "manual",
-                "description": "Deprecated - use migration 00000005 instead"
-            },
-            "has_run": true
         }
     ]
 }
