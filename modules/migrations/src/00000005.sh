@@ -177,10 +177,8 @@ log ""
 # Check if inotify-tools is installed
 if ! command -v inotifywait &> /dev/null; then
     log "Installing inotify-tools..."
-    if ! apt update -qq && apt install -qq -y inotify-tools; then
-        log "ERROR: Failed to install inotify-tools"
-        exit 1
-    fi
+    apt update -qq || { log "ERROR: apt update failed"; exit 1; }
+    apt install -qq -y inotify-tools || { log "ERROR: Failed to install inotify-tools"; exit 1; }
     log "inotify-tools installed"
 else
     log "inotify-tools already installed"
@@ -189,10 +187,8 @@ fi
 # Check if calibre-bin is installed
 if ! command -v calibredb &> /dev/null; then
     log "Installing calibre-bin..."
-    if ! apt update -qq && apt install -qq -y calibre-bin; then
-        log "ERROR: Failed to install calibre-bin"
-        exit 1
-    fi
+    apt update -qq || { log "ERROR: apt update failed"; exit 1; }
+    apt install -qq -y calibre-bin || { log "ERROR: Failed to install calibre-bin"; exit 1; }
     log "calibre-bin installed"
 else
     log "calibre-bin already installed"

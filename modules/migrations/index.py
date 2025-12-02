@@ -51,20 +51,20 @@ class MigrationManager:
             return {}
     
     def _log_migration(self, message: str, level: str = "INFO"):
-        """Log message to both main log and migration-specific log."""
-        import datetime
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        log_entry = f"[{timestamp}] [{level}] {message}\n"
+        """Log message to both unified system logger and migration-specific log file."""
+        # Log through unified system logger first
+        log_message(message, level)
         
-        # Log to migration log
+        # Also write to migration-specific log file for historical record
         try:
+            import datetime
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_entry = f"[{timestamp}] [{level}] {message}\n"
             with open(self.log_file, 'a') as f:
                 f.write(log_entry)
         except Exception:
+            # Don't fail if migration log file write fails
             pass
-        
-        # Also log through main system
-        log_message(message, level)
     
     def _should_run_migration(self, migration: Dict[str, Any]) -> bool:
         """Check if a migration should be executed."""
