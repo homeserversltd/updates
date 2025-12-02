@@ -544,11 +544,10 @@ def main(args=None):
     # Check what updates are needed using the new version checking logic
     mkdocs_update_needed, theme_update_needed, docs_update_needed, version_info = _check_version_update_needed()
     
-    # If no updates needed, just verify and return
+    # If no updates needed, just return
     if not any([mkdocs_update_needed, theme_update_needed, docs_update_needed]):
         log_message("All components are up to date, no updates needed")
-        verification = verify_mkdocs_installation()
-        return {"success": True, "updated": False, "verification": verification}
+        return {"success": True, "updated": False}
     
     # Backup current state if any component needs updating
     state_manager = StateManager()

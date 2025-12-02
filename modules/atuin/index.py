@@ -790,14 +790,10 @@ def main(args=None):
     else:
         log_message(f"Atuin is already at the latest version ({current_version})")
         
-        # Still run verification to ensure everything is working
-        verification = verify_atuin_installation(admin_user)
-        
         return {
             "success": True, 
             "updated": False, 
             "version": current_version,
-            "verification": verification,
             "config": MODULE_CONFIG
         }
 

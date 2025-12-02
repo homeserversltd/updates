@@ -779,11 +779,8 @@ def main(args=None):
     else:
         log_message(f"Vaultwarden is already at the latest version ({current_version})")
         
-        # Still run verification to ensure everything is working
-        verification = verify_vaultwarden_installation()
-        
         return conditional_config_return(
-            {"success": True, "updated": False, "version": current_version, "verification": verification},
+            {"success": True, "updated": False, "version": current_version},
             MODULE_CONFIG
         )
 

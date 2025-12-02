@@ -560,14 +560,10 @@ def main(args=None):
     else:
         log_message(f"Navidrome is already at the latest version ({current_version})")
         
-        # Still run verification to ensure everything is working
-        verification = verify_navidrome_installation()
-        
         result = {
             "success": True, 
             "updated": False, 
-            "version": current_version,
-            "verification": verification
+            "version": current_version
         }
         
         # Include config only in debug mode

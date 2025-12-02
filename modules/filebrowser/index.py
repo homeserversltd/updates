@@ -423,14 +423,10 @@ def main(args=None):
     else:
         log_message(f"Filebrowser is already at the latest version ({current_version})")
         
-        # Still run verification to ensure everything is working
-        verification = verify_filebrowser_installation()
-        
         return {
             "success": True, 
             "updated": False, 
             "version": current_version,
-            "verification": verification,
             "config": MODULE_CONFIG
         }
 
