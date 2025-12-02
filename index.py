@@ -1449,6 +1449,32 @@ def main():
                 else:
                     log_message("  - Sbin module not enabled, skipping content check")
                 
+                # Check Migrations module for pending migrations
+                if "migrations" in enabled_modules:
+                    try:
+                        # Import and run the Migrations module's check functionality
+                        from . import run_update
+                        check_result = run_update("modules.migrations", ["--check"])
+                        
+                        if isinstance(check_result, dict):
+                            pending_count = check_result.get("pending_migrations", 0)
+                            if pending_count > 0:
+                                log_message(f"  - Migrations module: {pending_count} pending migrations")
+                                content_updates_available.append({
+                                    "module": "migrations",
+                                    "count": pending_count,
+                                    "details": check_result
+                                })
+                            else:
+                                log_message("  - Migrations module: No pending migrations")
+                        else:
+                            log_message("  - Migrations module: No pending migrations")
+                            
+                    except Exception as e:
+                        log_message(f"  - Migrations module check failed: {e}", "WARNING")
+                else:
+                    log_message("  - Migrations module not enabled, skipping migration check")
+                
                 # Summary
                 log_message("Check summary:")
                 if orchestrator_update_available:
