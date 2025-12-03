@@ -174,7 +174,7 @@ Action: Skip update process entirely
 
 This ensures your `homeserver.json` version always reflects the actual website code deployed, never artificially incremented by module configuration changes.
 
-- **Unified Control Panel**: Single interface for all 14+ enterprise services
+- **Unified Control Panel**: Single interface for all 10 enterprise services
 - **Real-time Monitoring**: Live system stats, service status, network activity
 - **Administrative Dashboard**: Complete server management from anywhere
 - **Service Integration**: Seamless access to Jellyfin, Vaultwarden, Gogs, and more
