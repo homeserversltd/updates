@@ -160,7 +160,7 @@ def get_latest_docs_version():
         result = subprocess.run([
             "git", "clone", "--depth", "1", 
             "https://github.com/homeserversltd/documentation.git", temp_dir
-        ], capture_output=True, text=True, timeout=60)
+        ], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
         
         if result.returncode != 0:
             log_message(f"Git clone failed: {result.stderr}", "ERROR")
@@ -319,7 +319,7 @@ def clone_docs_repository():
         result = subprocess.run([
             "git", "clone", "--depth", "1", 
             DOCS_REPO_URL, DOCS_TEMP_PATH
-        ], capture_output=True, text=True, timeout=60)
+        ], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
         
         if result.returncode != 0:
             log_message(f"Git clone failed: {result.stderr}", "ERROR")
@@ -465,7 +465,7 @@ def update_documentation():
         result = subprocess.run([
             "git", "clone", "--depth", "1", 
             "https://github.com/homeserversltd/documentation.git", temp_dir
-        ], capture_output=True, text=True, timeout=120)
+        ], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
         
         if result.returncode != 0:
             log_message(f"Git clone failed: {result.stderr}", "ERROR")
