@@ -351,13 +351,31 @@ def deploy_docs_content_from_temp(temp_dir):
             docs_source_dir = os.path.join(temp_dir, "docs")
             if os.path.exists(docs_source_dir):
                 # Copy all files and directories from docs/ subdirectory
+                items_copied = []
+                items_failed = []
                 for item in os.listdir(docs_source_dir):
                     src = os.path.join(docs_source_dir, item)
                     dst = os.path.join(DOCS_LOCAL_PATH, item)
-                    if os.path.isdir(src):
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
+                    try:
+                        if os.path.isdir(src):
+                            # Remove destination if it exists (shouldn't after cleanup, but be safe)
+                            if os.path.exists(dst):
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                            log_message(f"Copied directory: {item}", "INFO")
+                        else:
+                            shutil.copy2(src, dst)
+                            log_message(f"Copied file: {item}", "INFO")
+                        items_copied.append(item)
+                    except Exception as e:
+                        log_message(f"Failed to copy {item}: {e}", "ERROR")
+                        items_failed.append(item)
+                
+                if items_failed:
+                    log_message(f"Failed to copy {len(items_failed)} items: {', '.join(items_failed)}", "ERROR")
+                    return False
+                
+                log_message(f"Successfully copied {len(items_copied)} items from repository", "INFO")
             else:
                 log_message(f"docs/ subdirectory not found in temp directory: {temp_dir}", "ERROR")
                 return False
