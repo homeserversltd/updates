@@ -61,10 +61,16 @@ class GitOperations:
             
             log_message(f"[GIT] Running: {' '.join(clone_cmd)}")
             
+            # Set environment to prevent credential prompts
+            env = os.environ.copy()
+            env['GIT_TERMINAL_PROMPT'] = '0'
+            
             result = subprocess.run(
                 clone_cmd,
                 capture_output=True,
                 text=True,
+                stdin=subprocess.DEVNULL,
+                env=env,
                 timeout=300  # 5 minute timeout
             )
             

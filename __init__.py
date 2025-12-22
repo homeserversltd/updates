@@ -153,14 +153,21 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
             shutil.rmtree(local_path)
         
         # Clone repository fresh
-        log_message(f"Cloning repository {repo_url} (branch: {branch}) to {local_path}")
+        log_message(f"[SYNC] Cloning repository {repo_url} (branch: {branch}) to {local_path}")
+        
+        # Set environment to prevent credential prompts
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        
         result = subprocess.run(
             ["git", "clone", "-b", branch, repo_url, local_path],
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL,
+            env=env,
             check=True
         )
-        log_message(f"Git clone completed")
+        log_message(f"[SYNC] Git clone completed successfully")
         
         return True
     except subprocess.CalledProcessError as e:

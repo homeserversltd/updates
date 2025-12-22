@@ -157,10 +157,12 @@ def get_latest_docs_version():
             shutil.rmtree(temp_dir)
         
         # Clone the repository to get the latest VERSION (public repo, no credentials needed)
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
         result = subprocess.run([
             "git", "clone", "--depth", "1", 
             "https://github.com/homeserversltd/documentation.git", temp_dir
-        ], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        ], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, env=env)
         
         if result.returncode != 0:
             log_message(f"Git clone failed: {result.stderr}", "ERROR")
@@ -316,10 +318,12 @@ def clone_docs_repository():
             shutil.rmtree(DOCS_TEMP_PATH)
         
         # Clone the repository (public repo, no credentials needed)
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
         result = subprocess.run([
             "git", "clone", "--depth", "1", 
             DOCS_REPO_URL, DOCS_TEMP_PATH
-        ], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+        ], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, env=env)
         
         if result.returncode != 0:
             log_message(f"Git clone failed: {result.stderr}", "ERROR")
@@ -462,10 +466,12 @@ def update_documentation():
             shutil.rmtree(temp_dir)
         
         log_message("Cloning documentation repository...", "INFO")
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
         result = subprocess.run([
             "git", "clone", "--depth", "1", 
             "https://github.com/homeserversltd/documentation.git", temp_dir
-        ], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        ], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, env=env)
         
         if result.returncode != 0:
             log_message(f"Git clone failed: {result.stderr}", "ERROR")

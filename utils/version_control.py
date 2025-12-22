@@ -32,10 +32,15 @@ from .index import log_message
 def get_git_root() -> str:
     """Get the root directory of the Git repository."""
     try:
+        log_message("[VERSION_CONTROL] Getting git root directory")
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
         result = subprocess.run(
             ['git', 'rev-parse', '--show-toplevel'],
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL,
+            env=env,
             check=True
         )
         return result.stdout.strip()
@@ -51,15 +56,20 @@ def load_manifest() -> Dict[str, Any]:
 def get_module_tags(module_name: str) -> list[str]:
     """Get all Git tags for a specific module."""
     try:
+        log_message(f"[VERSION_CONTROL] Getting tags for module: {module_name}")
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
         result = subprocess.run(
             ['git', 'tag', '-l', f'{module_name}-v*'],
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL,
+            env=env,
             check=True
         )
         return sorted(result.stdout.strip().split('\n'))
     except subprocess.CalledProcessError as e:
-        log_message(f"Failed to get tags for {module_name}: {e}", "ERROR")
+        log_message(f"[VERSION_CONTROL] Failed to get tags for {module_name}: {e}", "ERROR")
         return []
 
 def checkout_module_version(module_name: str, target_version: Optional[str] = None) -> bool:
@@ -100,10 +110,15 @@ def checkout_module_version(module_name: str, target_version: Optional[str] = No
         module_path = os.path.join('initialization/files/user_local_lib/updates', module_name)
         
         # Checkout the specific version for this module
+        log_message(f"[VERSION_CONTROL] Checking out {target_tag} for {module_name}")
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
         result = subprocess.run(
             ['git', 'checkout', target_tag, '--', module_path],
             capture_output=True,
-            text=True
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env=env
         )
         
         if result.returncode != 0:

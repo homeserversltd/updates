@@ -66,14 +66,17 @@ run_python_updates() {
     case "$mode" in
         "check")
             log_message "Running update check (no changes will be made)..."
+            log_message "Executing: /usr/bin/python3 -m updates.index --check-only"
             cd /usr/local/lib && /usr/bin/python3 -m updates.index --check-only
             ;;
         "legacy")
             log_message "Running legacy manifest-based updates..."
+            log_message "Executing: /usr/bin/python3 -m updates.index --legacy"
             cd /usr/local/lib && /usr/bin/python3 -m updates.index --legacy
             ;;
         "full"|*)
             log_message "Running schema-based updates..."
+            log_message "Executing: /usr/bin/python3 -m updates.index"
             cd /usr/local/lib && /usr/bin/python3 -m updates.index
             ;;
     esac
@@ -298,6 +301,11 @@ main() {
     
     # Handle update operations
     log_message "Mode: $mode"
+    
+    # Log execution context for debugging
+    log_message "About to execute Python update orchestrator: $PYTHON_ORCHESTRATOR"
+    log_message "Python command: /usr/bin/python3 -m updates.index"
+    log_message "Working directory: /usr/local/lib"
     
     if run_python_updates "$mode"; then
         log_message "Update manager completed successfully"

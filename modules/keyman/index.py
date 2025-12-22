@@ -38,14 +38,24 @@ def ensure_repo_checkout(module_dir: Path, repo_cfg: Dict[str, Any]) -> Path:
     if not repo_url:
         return module_dir / 'src'
     cache_dir = module_dir / '.repo'
+    
+    # Set environment to prevent credential prompts
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    
     try:
         if not cache_dir.exists():
-            subprocess.run(['git', 'clone', '--depth', '1', '--branch', branch, repo_url, str(cache_dir)], check=True, capture_output=True)
+            log_message(f"[KEYMAN] Cloning repository {repo_url} (branch: {branch}) to {cache_dir}")
+            subprocess.run(['git', 'clone', '--depth', '1', '--branch', branch, repo_url, str(cache_dir)], 
+                         check=True, capture_output=True, stdin=subprocess.DEVNULL, env=env)
         else:
-            subprocess.run(['git', '-C', str(cache_dir), 'fetch', '--depth', '1', 'origin', branch], check=True, capture_output=True)
-            subprocess.run(['git', '-C', str(cache_dir), 'reset', '--hard', f'origin/{branch}'], check=True, capture_output=True)
+            log_message(f"[KEYMAN] Fetching updates from {repo_url} (branch: {branch})")
+            subprocess.run(['git', '-C', str(cache_dir), 'fetch', '--depth', '1', 'origin', branch], 
+                         check=True, capture_output=True, stdin=subprocess.DEVNULL, env=env)
+            subprocess.run(['git', '-C', str(cache_dir), 'reset', '--hard', f'origin/{branch}'], 
+                         check=True, capture_output=True, stdin=subprocess.DEVNULL, env=env)
     except subprocess.CalledProcessError as e:
-        log_message(f"git repo sync failed: {e.stderr}", 'ERROR')
+        log_message(f"[KEYMAN] git repo sync failed: {e.stderr}", 'ERROR')
         return module_dir / 'src'
     return cache_dir
 
@@ -142,13 +152,16 @@ def _check_version_update_needed() -> Tuple[bool, Optional[str]]:
         temp_dir = tempfile.mkdtemp(prefix="keyman_version_check_")
         try:
             # Shallow clone just for version check
+            log_message(f"[KEYMAN] Cloning repository for version check: {repo_cfg['url']} (branch: {repo_cfg.get('branch', 'master')})")
+            env = os.environ.copy()
+            env['GIT_TERMINAL_PROMPT'] = '0'
             clone_success = subprocess.run([
                 'git', 'clone', 
                 '--branch', repo_cfg.get('branch', 'master'),
                 '--depth', '1',
                 repo_cfg['url'],
                 temp_dir
-            ], capture_output=True, text=True, check=True)
+            ], capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env, check=True)
             
             # Read remote VERSION file
             remote_version_file = os.path.join(temp_dir, "VERSION")
