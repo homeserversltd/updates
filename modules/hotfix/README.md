@@ -90,3 +90,7 @@ Each hotfix is defined as a "target" with:
 The hotfix module integrates with HOMESERVER's update system to provide controlled emergency patching. It can target any module, service, or system component while respecting the existing backup and rollback infrastructure.
 
 This module serves as HOMESERVER's universal emergency response system - a powerful tool that can fix anything, anywhere, when you need it most.
+
+## Current Hotfixes
+
+- **homeserver_logrotate**: Install log rotation and cron for /var/log/homeserver/*.log

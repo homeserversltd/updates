@@ -1,38 +1,18 @@
 {
     "metadata": {
-        "schema_version": "0.1.16",
+        "schema_version": "0.1.17",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
         "enabled": true
     },
     "targets": [
         {
-            "id": "gogs_repository_fix",
-            "description": "Fix Gogs repository path to use local storage instead of NAS dependency",
-            "target_id": "gogs",
+            "id": "homeserver_logrotate",
+            "description": "Install log rotation and cron for /var/log/homeserver/*.log",
+            "target_id": "homeserver",
             "version_check": {
-                "type": "module_schema",
-                "module": "gogs",
-                "max_version": "0.1.7"
-            },
-            "has_run": false
-        },
-        {
-            "id": "test_hotfix",
-            "description": "Simple test hotfix that always passes",
-            "target_id": "test",
-            "version_check": {
-                "type": "always",
-                "value": true
-            },
-            "has_run": false
-        },
-        {
-            "id": "website_restore",
-            "description": "Emergency website restoration script for catastrophic failures",
-            "target_id": "website",
-            "version_check": {
-                "type": "manual",
-                "description": "Run manually when website is completely broken"
+                "type": "file_exists",
+                "path": "/etc/logrotate.d/homeserver",
+                "invert": true
             },
             "has_run": false
         }
