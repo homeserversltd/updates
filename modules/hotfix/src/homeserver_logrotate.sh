@@ -48,7 +48,7 @@ fi
 # Set permissions
 INFO "Setting permissions on logrotate config and cron file"
 /usr/bin/chmod 644 "/etc/logrotate.d/homeserver" "/etc/cron.d/homeserver-logrotate"
-/usr/sbin/chown root:root "/etc/logrotate.d/homeserver" "/etc/cron.d/homeserver-logrotate"
+/bin/chown root:root "/etc/logrotate.d/homeserver" "/etc/cron.d/homeserver-logrotate"
 
 # Run logrotate force
 INFO "Running logrotate force on /etc/logrotate.d/homeserver"
