@@ -192,6 +192,10 @@ Migration `00000001` demonstrates proper migration design:
 
 This pattern ensures reliable, repeatable migrations across all HOMESERVER installations.
 
+## Example: CRA to Vite (00000006)
+
+Migration `00000006` completes the frontend build-tool migration from Create React App to Vite across the platform. It is idempotent (exits early if `vite.config.ts` exists and `react-scripts` is gone), updates `package.json`, creates `vite.config.ts` with `process.env` defines, ensures `public/index.html` has the Vite entry, runs `npm install` and `npm run build`, and restarts Gunicorn. Output remains in `build/`; Flask contract unchanged.
+
 ## Troubleshooting
 
 ### Migration Stuck in Failed State

@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "1.0.10",
+    "schema_version": "1.0.11",
     "content_version": "1.0.0",
     "enabled": true,
     "priority": 1,
@@ -25,6 +25,11 @@
     {
       "id": "00000005",
       "description": "Replace complex Calibre Helper Daemon with simple inotify watcher",
+      "has_run": false
+    },
+    {
+      "id": "00000006",
+      "description": "Migrate HOMESERVER frontend from Create React App to Vite",
       "has_run": false
     }
   ]
