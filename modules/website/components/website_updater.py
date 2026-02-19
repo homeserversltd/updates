@@ -205,9 +205,29 @@ class WebsiteUpdater:
             # Cleanup
             if temp_dir:
                 self.git.cleanup_repository(temp_dir)
-            
+
             duration = time.time() - start_time
             result["duration"] = duration
+
+            # Safety net: ensure gunicorn is always running when we exit.
+            # The rollback path calls systemctl stop gunicorn (killing our own
+            # process), so this may never execute in that scenario. However, if
+            # the failure happens BEFORE the rollback stops gunicorn, or if the
+            # rollback is skipped entirely, this guarantees the site comes back.
+            try:
+                svc_check = subprocess.run(
+                    ["systemctl", "is-active", "gunicorn.service"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if svc_check.stdout.strip() != "active":
+                    log_message("[SAFETY] Gunicorn is not active — restarting...")
+                    subprocess.run(
+                        ["systemctl", "start", "gunicorn.service"],
+                        capture_output=True, timeout=15
+                    )
+                    log_message("[SAFETY] Gunicorn restart issued")
+            except Exception as safety_err:
+                log_message(f"[SAFETY] Gunicorn safety-net check failed: {safety_err}", "WARNING")
         
         return result
     
