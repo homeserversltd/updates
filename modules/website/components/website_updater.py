@@ -185,19 +185,25 @@ class WebsiteUpdater:
             result["error"] = str(e)
             result["message"] = f"Update failed: {e}"
             
-            # Attempt rollback using StateManager
-            log_message("Attempting rollback using StateManager...")
+            # Attempt rollback — files only, gunicorn lifecycle managed here
+            # StateManager no longer manages gunicorn (services list is empty),
+            # so restore_module_state only restores files while gunicorn stays alive.
+            log_message("Attempting rollback using StateManager (files only)...")
             try:
-                rollback_success = self.backup_manager.state_manager.restore_module_state_with_forced_service_start("website")
+                rollback_success = self.backup_manager.state_manager.restore_module_state("website")
                 result["rollback_success"] = rollback_success
                 if rollback_success:
-                    log_message("✓ Rollback successful using StateManager")
+                    log_message("Rollback file restoration successful — restarting gunicorn...")
                     result["message"] += " (rollback successful)"
+                    subprocess.run(
+                        ["systemctl", "restart", "gunicorn.service"],
+                        capture_output=True, timeout=15
+                    )
                 else:
-                    log_message("✗ Rollback failed using StateManager", "ERROR")
+                    log_message("Rollback failed using StateManager", "ERROR")
                     result["message"] += " (rollback failed)"
             except Exception as rollback_error:
-                log_message(f"✗ Rollback failed: {rollback_error}", "ERROR")
+                log_message(f"Rollback failed: {rollback_error}", "ERROR")
                 result["rollback_success"] = False
                 result["message"] += f" (rollback failed: {rollback_error})"
         
@@ -210,10 +216,9 @@ class WebsiteUpdater:
             result["duration"] = duration
 
             # Safety net: ensure gunicorn is always running when we exit.
-            # The rollback path calls systemctl stop gunicorn (killing our own
-            # process), so this may never execute in that scenario. However, if
-            # the failure happens BEFORE the rollback stops gunicorn, or if the
-            # rollback is skipped entirely, this guarantees the site comes back.
+            # The rollback path restores files without stopping gunicorn, then
+            # issues a restart as its last action. This safety net catches edge
+            # cases where the restart command itself fails or times out.
             try:
                 svc_check = subprocess.run(
                     ["systemctl", "is-active", "gunicorn.service"],

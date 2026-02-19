@@ -55,9 +55,15 @@ class BackupManager:
             os.path.join(self.base_dir, 'build'),         # Build assets (will be regenerated)
         ]
         
-        # Services that need backup/restore
-        self.website_services = ["gunicorn.service"]
-        self.tab_services = ["gunicorn.service"]  # Same service, different context
+        # Companion services to stop/start during backup/restore.
+        # Gunicorn is intentionally excluded — the website module runs inside
+        # gunicorn, so letting StateManager stop it kills the update process.
+        # website_updater.py manages gunicorn lifecycle directly.
+        # If we ever add a sister service (e.g. a dedicated API or file-conversion
+        # helper on its own port) that depends on the website files, register it
+        # here so StateManager can safely cycle it during updates and rollbacks.
+        self.website_services = []
+        self.tab_services = []
     
     def backup_for_website_update(self, description: str = None) -> bool:
         """
