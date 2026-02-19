@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.49",
+        "schema_version": "0.1.50",
         "content_version": "0.9.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",
@@ -74,6 +74,12 @@
                     "source_path": "package.json",
                     "target_path": "/var/www/homeserver/package.json",
                     "description": "NPM package configuration"
+                },
+                "vite_config": {
+                    "enabled": true,
+                    "source_path": "vite.config.ts",
+                    "target_path": "/var/www/homeserver/vite.config.ts",
+                    "description": "Vite build configuration"
                 },
                 "license": {
                     "enabled": true,
