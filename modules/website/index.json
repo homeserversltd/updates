@@ -1,11 +1,11 @@
 {
     "metadata": {
-        "schema_version": "0.1.51",
+        "schema_version": "0.1.52",
         "content_version": "0.9.0",
         "module_name": "website",
         "description": "HOMESERVER website frontend/backend update system via GitHub with version checking",
         "enabled": true,
-        "priority": 5
+        "priority": 6
     },
     "config": {
         "repository": {

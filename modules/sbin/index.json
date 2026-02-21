@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "schema_version": "1.0.9",
+    "schema_version": "1.0.10",
     "content_version": "1.0.0",
     "enabled": true,
-    "priority": 2,
+    "priority": 3,
     "description": "Manage /usr/local/sbin scripts with checksum + permissions"
   },
   "repo": {

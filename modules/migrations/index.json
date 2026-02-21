@@ -3,7 +3,7 @@
     "schema_version": "1.0.11",
     "content_version": "1.0.0",
     "enabled": true,
-    "priority": 1,
+    "priority": 2,
     "description": "One-time system migrations executed in order"
   },
   "migrations": [

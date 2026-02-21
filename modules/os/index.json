@@ -1,10 +1,10 @@
 {
     "metadata": {
-        "schema_version": "0.1.10",
+        "schema_version": "0.1.11",
         "module_name": "os",
         "description": "Operating system update module with intelligent repair and real-time progress",
         "enabled": true,
-        "priority": 3
+        "priority": 4
     },
     "config": {
         "directories": {

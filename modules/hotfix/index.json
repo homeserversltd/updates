@@ -1,8 +1,9 @@
 {
     "metadata": {
-        "schema_version": "0.1.17",
+        "schema_version": "0.1.18",
         "description": "Emergency hotfixes and critical patches for homeserver systems",
-        "enabled": true
+        "enabled": true,
+        "priority": 1
     },
     "targets": [
         {
