@@ -223,6 +223,9 @@ WATCHER_EOF
     log "Created watcher script: $NEW_WATCHER_SCRIPT"
 else
     log "Watcher script already exists: $NEW_WATCHER_SCRIPT"
+    # Ensure executable (may have been overwritten by a deploy that didn't set +x)
+    chmod +x "$NEW_WATCHER_SCRIPT"
+    log "Ensured watcher script is executable"
 fi
 
 # Create new service file if it doesn't exist
