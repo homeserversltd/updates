@@ -31,7 +31,16 @@
       "id": "00000006",
       "description": "Migrate HOMESERVER frontend from Create React App to Vite",
       "has_run": false
+    },
+    {
+      "id": "00000007",
+      "description": "Apply PARTLABELs (homeserver-*) to system partitions (drive-agnostic retrofit)",
+      "has_run": false
+    },
+    {
+      "id": "00000008",
+      "description": "Apply wan0/lan0 .link files and Kea drop-in (stable interface naming + Kea after networkd-wait-online)",
+      "has_run": false
     }
   ]
 }
-

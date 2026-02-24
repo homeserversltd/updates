@@ -1,32 +1,21 @@
 {
-    "metadata": {
-        "schema_version": "0.1.19",
-        "description": "Emergency hotfixes and critical patches for homeserver systems",
-        "enabled": true,
-        "priority": 1
-    },
-    "targets": [
-        {
-            "id": "homeserver_logrotate",
-            "description": "Install log rotation and cron for /var/log/homeserver/*.log",
-            "target_id": "homeserver",
-            "version_check": {
-                "type": "file_exists",
-                "path": "/etc/logrotate.d/homeserver",
-                "invert": true
-            },
-            "has_run": false
-        },
-        {
-            "id": "partlabel_migration",
-            "description": "Apply PARTLABELs (homeserver-*) to system partitions for drive-agnostic code",
-            "target_id": "homeserver",
-            "version_check": {
-                "type": "file_exists",
-                "path": "/dev/disk/by-partlabel/homeserver-root",
-                "invert": true
-            },
-            "has_run": false
-        }
-    ]
+  "metadata": {
+    "schema_version": "0.1.20",
+    "description": "Emergency hotfixes and critical patches for homeserver systems",
+    "enabled": true,
+    "priority": 1
+  },
+  "targets": [
+    {
+      "id": "homeserver_logrotate",
+      "description": "Install log rotation and cron for /var/log/homeserver/*.log",
+      "target_id": "homeserver",
+      "version_check": {
+        "type": "file_exists",
+        "path": "/etc/logrotate.d/homeserver",
+        "invert": true
+      },
+      "has_run": false
+    }
+  ]
 }
