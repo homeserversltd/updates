@@ -11,7 +11,8 @@
         "repository": {
             "url": "https://github.com/homeserversltd/website.git",
             "branch": "master",
-            "temp_directory": "/tmp/homeserver-website-update"
+            "temp_directory": "/tmp/homeserver-website-update",
+            "default_branch": "master"
         },
         "target_paths": {
             "base_directory": "/var/www/homeserver",

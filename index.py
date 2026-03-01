@@ -1131,11 +1131,11 @@ def list_modules(modules_path: str) -> bool:
         modules_search_path = os.path.join(modules_path, "modules")
         if not os.path.exists(modules_search_path):
             modules_search_path = modules_path
-        
+
         if not os.path.exists(modules_search_path):
             log_message("No modules directory found", "ERROR")
             return False
-        
+
         modules = []
         for item in os.listdir(modules_search_path):
             item_path = os.path.join(modules_search_path, item)
@@ -1148,41 +1148,156 @@ def list_modules(modules_path: str) -> bool:
                     try:
                         with open(index_file, 'r') as f:
                             config = json.load(f)
-                        
+
                         enabled = config.get("metadata", {}).get("enabled", True)
                         schema_version = config.get("metadata", {}).get("schema_version", "unknown")
                         description = config.get("metadata", {}).get("description", "No description")
-                        
+
+                        # Check for branch in module's index.json
+                        branch = None
+                        default_branch = None
+
+                        # Try repo.branch first (sbin, vault, permissions, keyman)
+                        if "repo" in config and "branch" in config["repo"]:
+                            branch = config["repo"]["branch"]
+                            default_branch = config["repo"].get("default_branch", branch)
+                        # Try config.repository.branch (website, linker)
+                        elif "config" in config and "repository" in config["config"] and "branch" in config["config"]["repository"]:
+                            branch = config["config"]["repository"]["branch"]
+                            default_branch = config["config"]["repository"].get("default_branch", branch)
+
+                        # If we have a branch, ensure default_branch is set
+                        if branch and not default_branch:
+                            default_branch = branch
+                            # Write back default_branch to index.json
+                            if "repo" in config and "branch" in config["repo"]:
+                                config["repo"]["default_branch"] = default_branch
+                            elif "config" in config and "repository" in config["config"]:
+                                config["config"]["repository"]["default_branch"] = default_branch
+                            with open(index_file, 'w') as f:
+                                json.dump(config, f, indent=4)
+
                         modules.append({
                             "name": item,
                             "enabled": enabled,
                             "version": schema_version,
-                            "description": description
+                            "description": description,
+                            "branch": branch,
+                            "default_branch": default_branch
                         })
                     except Exception as e:
                         log_message(f"Error reading module '{item}': {e}", "WARNING")
-        
+
         if not modules:
             log_message("No modules found")
             return True
-        
+
         # Sort by name
         modules.sort(key=lambda x: x["name"])
-        
+
         log_message("Available modules:")
-        log_message("-" * 80)
+        # Log each module in format expected by backend parser
         for module in modules:
             status = "ENABLED" if module["enabled"] else "DISABLED"
-            log_message(f"{module['name']:<15} {status:<10} v{module['version']:<10} {module['description']}")
-        
+            if module["branch"]:
+                # Format: name STATUS v{version} BRANCH {branch} {default_branch} {description}
+                # BRANCH marker ensures parser only treats tokens as branch when module has repo
+                log_message(f"{module['name']} {status} v{module['version']} BRANCH {module['branch']} {module['default_branch']} {module['description']}")
+            else:
+                # Format: name STATUS v{version} {description} (unchanged)
+                log_message(f"{module['name']} {status} v{module['version']} {module['description']}")
+
         enabled_count = sum(1 for m in modules if m["enabled"])
-        log_message("-" * 80)
         log_message(f"Total: {len(modules)} modules ({enabled_count} enabled, {len(modules) - enabled_count} disabled)")
-        
         return True
-        
+
     except Exception as e:
         log_message(f"Failed to list modules: {e}", "ERROR")
+        return False
+
+def set_module_branch(modules_path: str, module_name: str, branch: str) -> bool:
+    """Set branch for a module after validating it exists on remote"""
+    try:
+        # Validate module name (alphanumeric, underscores, hyphens only)
+        import re
+        if not re.match(r'^[a-zA-Z0-9_-]+$', module_name):
+            log_message(f"Invalid module name: {module_name}", "ERROR")
+            return False
+
+        # Validate branch name (no .., /, non-printable)
+        if ".." in branch or "/" in branch or not branch.isprintable():
+            log_message(f"Invalid branch name: {branch}", "ERROR")
+            return False
+
+        # Find module path
+        module_path = os.path.join(modules_path, "modules", module_name)
+        if not os.path.exists(module_path):
+            module_path = os.path.join(modules_path, module_name)
+
+        if not os.path.exists(module_path):
+            log_message(f"Module '{module_name}' not found", "ERROR")
+            return False
+
+        index_file = os.path.join(module_path, "index.json")
+        if not os.path.exists(index_file):
+            log_message(f"Module '{module_name}' has no index.json", "ERROR")
+            return False
+
+        # Load module config
+        with open(index_file, 'r') as f:
+            config = json.load(f)
+
+        # Get repo URL
+        repo_url = None
+        if "repo" in config and "url" in config["repo"]:
+            repo_url = config["repo"]["url"]
+        elif "config" in config and "repository" in config["config"] and "url" in config["config"]["repository"]:
+            repo_url = config["config"]["repository"]["url"]
+
+        if not repo_url:
+            log_message(f"Module '{module_name}' has no repository URL", "ERROR")
+            return False
+
+        # Validate branch exists on remote
+        log_message(f"Validating branch '{branch}' exists on {repo_url}")
+        result = subprocess.run(
+            ["git", "ls-remote", repo_url, f"refs/heads/{branch}"],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode != 0 or not result.stdout.strip():
+            log_message(f"Branch '{branch}' not found on remote repository", "ERROR")
+            return False
+
+        log_message(f"Branch '{branch}' validated successfully")
+
+        # Update branch in config
+        if "repo" in config and "branch" in config["repo"]:
+            config["repo"]["branch"] = branch
+            if "default_branch" not in config["repo"]:
+                config["repo"]["default_branch"] = branch
+        elif "config" in config and "repository" in config["config"] and "branch" in config["config"]["repository"]:
+            config["config"]["repository"]["branch"] = branch
+            if "default_branch" not in config["config"]["repository"]:
+                config["config"]["repository"]["default_branch"] = branch
+        else:
+            log_message(f"Module '{module_name}' does not support branch configuration", "ERROR")
+            return False
+
+        # Write back config
+        with open(index_file, 'w') as f:
+            json.dump(config, f, indent=4)
+
+        log_message(f"Module '{module_name}' branch set to '{branch}'")
+        return True
+
+    except subprocess.TimeoutExpired:
+        log_message("Timeout validating branch on remote", "ERROR")
+        return False
+    except Exception as e:
+        log_message(f"Failed to set module branch: {e}", "ERROR")
         return False
 
 def get_module_status(modules_path: str, module_name: str = None) -> bool:
@@ -1270,6 +1385,8 @@ def main():
                        help="Disable a component in a module")
     parser.add_argument("--list-modules", action="store_true",
                        help="List all modules with status")
+    parser.add_argument("--set-module-branch", nargs=2, metavar=("MODULE", "BRANCH"),
+                       help="Set branch for a module")
     parser.add_argument("--module-status", metavar="MODULE",
                        help="Get status for a specific module")
     parser.add_argument("--all-status", action="store_true",
@@ -1303,7 +1420,12 @@ def main():
         elif args.list_modules:
             success = list_modules(args.modules_path)
             sys.exit(0 if success else 1)
-        
+
+        elif args.set_module_branch:
+            module_name, branch = args.set_module_branch
+            success = set_module_branch(args.modules_path, module_name, branch)
+            sys.exit(0 if success else 1)
+
         elif args.module_status:
             success = get_module_status(args.modules_path, args.module_status)
             sys.exit(0 if success else 1)

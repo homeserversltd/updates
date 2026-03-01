@@ -97,9 +97,10 @@ run_module_management() {
     local operation="$1"
     local target="$2"
     local component="$3"
-    
+    local branch="$4"
+
     log_message "Running module management operation: $operation"
-    
+
     case "$operation" in
         "enable")
             if [ -n "$component" ]; then
@@ -122,6 +123,10 @@ run_module_management() {
         "list")
             log_message "Listing all modules..."
             cd /usr/local/lib && /usr/bin/python3 -m updates.index --list-modules
+            ;;
+        "set-branch")
+            log_message "Setting branch for module '$target' to '$branch'..."
+            cd /usr/local/lib && /usr/bin/python3 -m updates.index --set-module-branch "$target" "$branch"
             ;;
         "status")
             if [ -n "$target" ]; then
@@ -162,12 +167,14 @@ show_usage() {
     echo "  --enable-component <module> <component>   Enable a specific component"
     echo "  --disable-component <module> <component>  Disable a specific component"
     echo "  --list-modules                   List all available modules"
+    echo "  --set-module-branch <module> <branch>    Set branch for a module"
     echo "  --status [module]                Show status (all modules or specific module)"
     echo ""
     echo "Examples:"
     echo "  $0 --enable website              # Enable website module"
     echo "  $0 --disable adblock             # Disable adblock module"
     echo "  $0 --enable-component website frontend   # Enable frontend component in website"
+    echo "  $0 --set-module-branch website develop   # Set website module to develop branch"
     echo "  $0 --status website              # Show website module status"
     echo "  $0 --list-modules                # List all modules with status"
     echo ""
@@ -184,7 +191,8 @@ main() {
     local operation=""
     local target=""
     local component=""
-    
+    local branch=""
+
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -242,6 +250,17 @@ main() {
                 operation="list"
                 shift
                 ;;
+            --set-module-branch)
+                operation="set-branch"
+                target="$2"
+                branch="$3"
+                if [ -z "$target" ] || [ -z "$branch" ]; then
+                    log_message "Error: --set-module-branch requires module name and branch"
+                    show_usage
+                    exit 1
+                fi
+                shift 3
+                ;;
             --status)
                 operation="status"
                 target="$2"
@@ -290,7 +309,7 @@ main() {
             log_message "Component: $component"
         fi
         
-        if run_module_management "$operation" "$target" "$component"; then
+        if run_module_management "$operation" "$target" "$component" "$branch"; then
             log_message "Module management completed successfully"
             exit 0
         else

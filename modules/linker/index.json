@@ -9,7 +9,8 @@
         "repository": {
             "url": "https://github.com/homeserversltd/linker.git",
             "branch": "master",
-            "temp_directory": "/tmp/homeserver-linker-update"
+            "temp_directory": "/tmp/homeserver-linker-update",
+            "default_branch": "master"
         },
         "target_paths": {
             "components": {
@@ -28,4 +29,4 @@
             }
         }
     }
-} 
+}

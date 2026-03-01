@@ -1,30 +1,68 @@
 {
-  "metadata": {
-    "schema_version": "1.0.10",
-    "content_version": "1.0.0",
-    "enabled": true,
-    "priority": 3,
-    "description": "Manage /usr/local/sbin scripts with checksum + permissions"
-  },
-  "repo": {
-    "url": "https://github.com/homeserversltd/sbin.git",
-    "branch": "master"
-  },
-  "files": [
-    { "source": "createCertBundle.sh", "keepUpdated": true },
-    { "source": "factoryFallback.sh", "keepUpdated": true },
-    { "source": "harddrive_test.sh", "keepUpdated": true },
-    { "source": "setupNAS.sh", "keepUpdated": true },
-    { "source": "siteSecretKey.sh", "keepUpdated": true },
-    { "source": "sslKey.sh", "keepUpdated": true },
-    { "source": "tailUp", "keepUpdated": true },
-    { "source": "tailget", "keepUpdated": true },
-    { "source": "tailnetName", "keepUpdated": true },
-    { "source": "thermalTest.sh", "keepUpdated": true },
-    { "source": "websiteMountVault.sh", "keepUpdated": true },
-    { "source": "fdwebsite", "keepUpdated": true },
-    { "source": "safe-nas-sync.sh", "keepUpdated": true }
-  ]
+    "metadata": {
+        "schema_version": "1.0.10",
+        "content_version": "1.0.0",
+        "enabled": true,
+        "priority": 3,
+        "description": "Manage /usr/local/sbin scripts with checksum + permissions"
+    },
+    "repo": {
+        "url": "https://github.com/homeserversltd/sbin.git",
+        "branch": "master",
+        "default_branch": "master"
+    },
+    "files": [
+        {
+            "source": "createCertBundle.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "factoryFallback.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "harddrive_test.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "setupNAS.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "siteSecretKey.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "sslKey.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "tailUp",
+            "keepUpdated": true
+        },
+        {
+            "source": "tailget",
+            "keepUpdated": true
+        },
+        {
+            "source": "tailnetName",
+            "keepUpdated": true
+        },
+        {
+            "source": "thermalTest.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "websiteMountVault.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "fdwebsite",
+            "keepUpdated": true
+        },
+        {
+            "source": "safe-nas-sync.sh",
+            "keepUpdated": true
+        }
+    ]
 }
-
-

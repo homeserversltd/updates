@@ -328,6 +328,42 @@ def detect_module_updates(local_modules_path: str, repo_modules_path: str) -> Li
     debug_log(f"🎯 Module detection complete. Found {len(modules_to_update)} modules needing updates: {modules_to_update}")
     return modules_to_update
 
+
+def _preserve_local_repository_config(backup_module_path: str, local_module_path: str, module_name: str) -> None:
+    """
+    After a schema update (copytree from repo), restore the local module's repository
+    dict (repo or config.repository) into the new index.json so user-configured url,
+    branch, and default_branch are never clobbered by the repo version.
+    """
+    backup_index = os.path.join(backup_module_path, "index.json")
+    local_index_path = os.path.join(local_module_path, "index.json")
+    if not os.path.exists(backup_index) or not os.path.exists(local_index_path):
+        return
+    try:
+        with open(backup_index, "r") as f:
+            backup_data = json.load(f)
+        with open(local_index_path, "r") as f:
+            local_data = json.load(f)
+        preserved = False
+        if "repo" in backup_data and isinstance(backup_data["repo"], dict):
+            local_data["repo"] = backup_data["repo"].copy()
+            preserved = True
+            log_message(f"Preserved repo config (url, branch, default_branch) for {module_name}")
+        if "config" in backup_data and isinstance(backup_data["config"], dict):
+            repo_config = backup_data["config"].get("repository")
+            if isinstance(repo_config, dict):
+                if "config" not in local_data:
+                    local_data["config"] = {}
+                local_data["config"]["repository"] = repo_config.copy()
+                preserved = True
+                log_message(f"Preserved config.repository (url, branch, default_branch) for {module_name}")
+        if preserved:
+            with open(local_index_path, "w") as f:
+                json.dump(local_data, f, indent=4)
+    except Exception as e:
+        log_message(f"Could not preserve repository config for {module_name}: {e}", "WARNING")
+
+
 def update_modules(modules_to_update: List[str], local_modules_path: str, repo_modules_path: str) -> Dict[str, bool]:
     """
     Update specified modules by clobbering local versions with repo versions.
@@ -355,10 +391,9 @@ def update_modules(modules_to_update: List[str], local_modules_path: str, repo_m
         try:
             repo_module_path = os.path.join(repo_search_path, module_name)
             local_module_path = os.path.join(local_search_path, module_name)
-            
+            backup_path = f"{local_module_path}.backup"
             # Create backup if local module exists
             if os.path.exists(local_module_path):
-                backup_path = f"{local_module_path}.backup"
                 if os.path.exists(backup_path):
                     shutil.rmtree(backup_path)
                 shutil.move(local_module_path, backup_path)
@@ -367,10 +402,11 @@ def update_modules(modules_to_update: List[str], local_modules_path: str, repo_m
             # Copy repo module to local
             shutil.copytree(repo_module_path, local_module_path)
             log_message(f"Updated module {module_name}")
-            
+            # Restore local repository dict (url, branch, default_branch) so schema update never clobbers it
+            if os.path.exists(backup_path):
+                _preserve_local_repository_config(backup_path, local_module_path, module_name)
             # Ensure all shell scripts in the module are executable
             make_shell_scripts_executable(local_module_path)
-            
             # Schema update successful - module will be executed later in the process
             results[module_name] = True
             
