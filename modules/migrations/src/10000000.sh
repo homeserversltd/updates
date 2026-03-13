@@ -11,9 +11,10 @@
 #
 # Woodpecker OAuth: If using Woodpecker CI (ci.home.arpa), register an OAuth2 application in Forgejo (Settings -> Applications):
 #   Redirect URI: https://ci.home.arpa/authorize
-#   Use WOODPECKER_FORGEJO_* (not GITEA_*) in Woodpecker .env and docker-compose; the Forgejo driver requires FORGEJO_* to populate client_id.
-#   Compose must have extra_hosts "git.home.arpa:host-gateway" so the server container can reach Forgejo. On the server, nftables must allow Docker:
-#   input 172.17.0.0/16 and 172.18.0.0/16 tcp dport 443; forward those subnets to lan/wan (otherwise /authorize will 504).
+#   Use WOODPECKER_FORGEJO_* (not GITEA_*) in Woodpecker .env; set WOODPECKER_GITEA_SKIP_VERIFY=true for internal cert.
+#   Recommended: server with network_mode: host (binds host 8000/9000; avoids Docker NAT/nftables issues). Agent: WOODPECKER_SERVER=host.docker.internal:9000, extra_hosts host.docker.internal:host-gateway.
+#   Nftables on server: allow Docker (172.17/172.18) -> host tcp 443 (OAuth) and tcp 9000 (agent gRPC). If pipeline runs fail with iptables "DOCKER-FORWARD", use Option B (Docker-passive): set "iptables": false in /etc/docker/daemon.json, restart Docker; existing nftables masquerade/forward covers container outbound. See controlplane/lib/install/woodpecker/README.md.
+#   If using bridge network for server instead: extra_hosts git.home.arpa:host-gateway and nftables input 172.17/172.18 tcp 443 and 9000, forward to lan/wan.
 set -e
 
 LOG_FILE="/var/log/homeserver/migrations.log"
@@ -240,5 +241,5 @@ if [ -f /root/key/skeleton.key ]; then
 fi
 
 INFO "Migration 10000000 (Gogs to Forgejo) completed. Forgejo: https://git.home.arpa"
-INFO "Post-migration: add SSH keys via Forgejo UI only; if using Woodpecker, create OAuth app in Forgejo (redirect https://ci.home.arpa/authorize), set WOODPECKER_FORGEJO_* in Woodpecker .env, ensure compose has extra_hosts for git.home.arpa and server nftables allows Docker (input 443, forward to lan/wan)"
+INFO "Post-migration: add SSH keys via Forgejo UI only; if using Woodpecker, create OAuth app in Forgejo (redirect https://ci.home.arpa/authorize), set WOODPECKER_FORGEJO_* and WOODPECKER_GITEA_SKIP_VERIFY=true in Woodpecker .env, use host network for server (see controlplane/lib/install/woodpecker/README.md)"
 exit 0
