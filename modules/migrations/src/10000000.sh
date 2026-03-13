@@ -4,6 +4,16 @@
 # 2) Install Forgejo if not present (binary, dirs, PostgreSQL forgejo DB, app.ini, systemd, SSH block), start and create admin user.
 # Idempotent: if Forgejo is already running and Gogs is gone, exit 0.
 # Repo data: use clone_all_repos_from_api (from Gogs) then push_all_repos_to_forgejo separately if needed.
+#
+# Post-migration (handoff): Do not edit /home/git/.ssh/authorized_keys or insert keys via psql; Forgejo is the gatekeeper.
+# Add SSH keys via Forgejo UI (Settings -> SSH / GPG Keys) or: sudo -u git /opt/forgejo/forgejo admin auth add-key (when available).
+# Resync keys after UI changes: sudo -u git /opt/forgejo/forgejo admin regenerate keys --config /opt/forgejo/custom/conf/app.ini
+#
+# Woodpecker OAuth: If using Woodpecker CI (ci.home.arpa), register an OAuth2 application in Forgejo (Settings -> Applications):
+#   Redirect URI: https://ci.home.arpa/authorize
+#   Use WOODPECKER_FORGEJO_* (not GITEA_*) in Woodpecker .env and docker-compose; the Forgejo driver requires FORGEJO_* to populate client_id.
+#   Compose must have extra_hosts "git.home.arpa:host-gateway" so the server container can reach Forgejo. On the server, nftables must allow Docker:
+#   input 172.17.0.0/16 and 172.18.0.0/16 tcp dport 443; forward those subnets to lan/wan (otherwise /authorize will 504).
 set -e
 
 LOG_FILE="/var/log/homeserver/migrations.log"
@@ -230,4 +240,5 @@ if [ -f /root/key/skeleton.key ]; then
 fi
 
 INFO "Migration 10000000 (Gogs to Forgejo) completed. Forgejo: https://git.home.arpa"
+INFO "Post-migration: add SSH keys via Forgejo UI only; if using Woodpecker, create OAuth app in Forgejo (redirect https://ci.home.arpa/authorize), set WOODPECKER_FORGEJO_* in Woodpecker .env, ensure compose has extra_hosts for git.home.arpa and server nftables allows Docker (input 443, forward to lan/wan)"
 exit 0
