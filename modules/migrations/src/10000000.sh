@@ -190,6 +190,9 @@ ROOT_PATH = /var/log/forgejo
 [security]
 INSTALL_LOCK = true
 SECRET_KEY   = ${SEC_ESC}
+
+[webhook]
+ALLOWED_HOST_LIST = external,loopback,private
 INIEOF
 chown git:git /opt/forgejo/custom/conf/app.ini
 chmod 640 /opt/forgejo/custom/conf/app.ini
@@ -241,5 +244,5 @@ if [ -f /root/key/skeleton.key ]; then
 fi
 
 INFO "Migration 10000000 (Gogs to Forgejo) completed. Forgejo: https://git.home.arpa"
-INFO "Post-migration: add SSH keys via Forgejo UI only; if using Woodpecker, create OAuth app in Forgejo (redirect https://ci.home.arpa/authorize), set WOODPECKER_FORGEJO_* and WOODPECKER_GITEA_SKIP_VERIFY=true in Woodpecker .env, use host network for server (see controlplane/lib/install/woodpecker/README.md)"
+INFO "Post-migration: add SSH keys via Forgejo UI only; if using Woodpecker, create OAuth app in Forgejo (redirect https://ci.home.arpa/authorize), set WOODPECKER_FORGEJO_* and WOODPECKER_GITEA_SKIP_VERIFY=true in Woodpecker .env, use host network for server (see controlplane/lib/install/woodpecker/README.md). app.ini includes [webhook] ALLOWED_HOST_LIST = external,loopback,private so push webhooks to ci.home.arpa work; Woodpecker endpoint is /api/hook (use Repair in Woodpecker repo settings)."
 exit 0
