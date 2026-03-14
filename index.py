@@ -491,6 +491,89 @@ def get_enabled_modules(modules_path: str) -> list:
         log_message(f"Failed to get enabled modules: {e}", "ERROR")
         return enabled_modules
 
+
+def _load_module_metadata(modules_path: str, module_name: str) -> dict:
+    """Load metadata (and config) from a module's index.json. Returns {} on failure."""
+    for base in [os.path.join(modules_path, "modules"), modules_path]:
+        index_file = os.path.join(base, module_name, "index.json")
+        if os.path.exists(index_file):
+            try:
+                with open(index_file, "r") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return {}
+
+
+def _is_service_active(service_name: str) -> bool:
+    """Return True if systemctl reports the service as active."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "--quiet", service_name],
+            capture_output=True,
+            timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def resolve_group_winners(modules_path: str, enabled_modules: list) -> list:
+    """
+    Resolve grouped modules so only one implementation runs per group (ladder logic).
+    Modules with metadata.group (e.g. "git") are in a group; group_order is ascending
+    (oldest first). For each group we run systemctl is-active on service_name for each
+    implementation in order; the first active one wins and is the only one run.
+    Returns the final list of module names to execute (order preserved; group losers removed).
+    """
+    if not enabled_modules:
+        return []
+    modules_search_path = os.path.join(modules_path, "modules")
+    if not os.path.exists(modules_search_path):
+        modules_search_path = modules_path
+    # Per-module: (group, group_order, service_name)
+    meta = {}
+    group_members = {}  # group -> [(group_order, service_name, module_name), ...]
+    for name in enabled_modules:
+        data = _load_module_metadata(modules_path, name)
+        m = data.get("metadata", {})
+        group = m.get("group")
+        if not group:
+            meta[name] = (None, None, None)
+            continue
+        order = m.get("group_order", 99)
+        service = m.get("service_name", name)
+        meta[name] = (group, order, service)
+        if group not in group_members:
+            group_members[group] = []
+        group_members[group].append((order, service, name))
+    for group in group_members:
+        group_members[group].sort(key=lambda x: (x[0], x[2]))
+    # For each group, pick first active implementation
+    group_winner = {}
+    for group, members in group_members.items():
+        winner = None
+        for _order, service_name, module_name in members:
+            if _is_service_active(service_name):
+                winner = module_name
+                log_message(f"Group '{group}': running {module_name} ({service_name} active)")
+                break
+        if winner:
+            group_winner[group] = winner
+        else:
+            log_message(f"Group '{group}': no active implementation (checked {[m[2] for m in members]})", "WARNING")
+    # Build final list: same order as enabled_modules; ungrouped included; grouped only winner
+    run_list = []
+    for name in enabled_modules:
+        g, _order, _svc = meta.get(name, (None, None, None))
+        if g is None:
+            run_list.append(name)
+        elif group_winner.get(g) == name:
+            run_list.append(name)
+    log_message(f"Modules to run after group resolution: {', '.join(run_list)}")
+    return run_list
+
+
 def run_update_with_logging(module_path: str, args=None):
     """
     Enhanced version of run_update that captures and logs all subprocess output.
@@ -855,19 +938,21 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         maintenance_results = run_all_maintenance(modules_path)
         results["maintenance_results"] = maintenance_results
         
-        # Step 5: Get all enabled modules and run them
+        # Step 5: Get all enabled modules, resolve group winners (one per group), then run
         log_message("Step 5: Getting enabled modules...")
         enabled_modules = get_enabled_modules(modules_path)
         results["enabled_modules"] = enabled_modules
-        
-        if enabled_modules:
-            log_message("Step 6: Running all enabled modules...")
+        modules_to_run = resolve_group_winners(modules_path, enabled_modules)
+        results["modules_to_run"] = modules_to_run
+
+        if modules_to_run:
+            log_message("Step 6: Running resolved modules (one per group)...")
             log_message("Note: Modules are executed regardless of whether they were schema-updated")
             log_message("This ensures content and tab updates are handled after schema updates")
-            module_execution_results = run_enabled_modules(modules_path, enabled_modules)
+            module_execution_results = run_enabled_modules(modules_path, modules_to_run)
             results["modules_executed"] = module_execution_results
         else:
-            log_message("No enabled modules found to execute")
+            log_message("No modules to run (none enabled or no group winner active)")
             results["modules_executed"] = {}
         
         # Step 7: Update global index
@@ -909,6 +994,7 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
         log_message(f"  - Failed schema updates: {schema_failed_count}")
         log_message(f"  - Maintenance tasks: {maintenance_successful} successful, {maintenance_failed} failed")
         log_message(f"  - Enabled modules found: {len(enabled_modules)}")
+        log_message(f"  - Modules run (after group resolution): {len(modules_to_run)}")
         log_message(f"  - System successful: {system_successful}")
         log_message(f"  - System failed: {system_failed}")
         log_message(f"  - Actually updated: {modules_actually_updated}")

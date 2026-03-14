@@ -1,0 +1,49 @@
+{
+    "metadata": {
+        "schema_version": "0.1.0",
+        "module_name": "forgejo",
+        "description": "Forgejo Git server",
+        "enabled": true,
+        "group": "git",
+        "group_order": 2,
+        "service_name": "forgejo"
+    },
+    "config": {
+        "directories": {
+            "data_dir": {
+                "path": "/var/lib/forgejo",
+                "mode": "755"
+            },
+            "config_dir": {
+                "path": "/opt/forgejo/custom",
+                "mode": "755"
+            },
+            "install_dir": {
+                "path": "/opt/forgejo",
+                "mode": "755"
+            },
+            "config_file": {
+                "path": "/opt/forgejo/custom/conf/app.ini",
+                "mode": "640"
+            },
+            "repo_path": {
+                "path": "/opt/forgejo/repositories",
+                "mode": "750"
+            },
+            "forgejo_bin": {
+                "path": "/opt/forgejo/forgejo",
+                "owner": "git",
+                "mode": "755"
+            }
+        },
+        "installation": {
+            "releases_url": "https://codeberg.org/forgejo/forgejo/releases",
+            "binary_url_template": "https://codeberg.org/forgejo/forgejo/releases/download/v{version}/forgejo-{version}-linux-amd64",
+            "fallback_version": "14.0.2"
+        },
+        "permissions": {
+            "group": "git",
+            "owner": "git"
+        }
+    }
+}

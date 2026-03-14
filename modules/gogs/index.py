@@ -96,6 +96,36 @@ def get_gogs_paths():
     
     return paths
 
+def detect_git_server() -> str:
+    """
+    Detect which git server is present on the system: Gogs, Forgejo, or none.
+    Used to skip Gogs-specific logic when the box has been migrated to Forgejo.
+    Returns: "forgejo" | "gogs" | "none"
+    """
+    try:
+        # Prefer service state (most reliable); fallback to binary presence
+        for unit, kind in [("forgejo", "forgejo"), ("gogs", "gogs")]:
+            r = subprocess.run(
+                ["systemctl", "is-active", "--quiet", unit],
+                capture_output=True,
+                timeout=5,
+            )
+            if r.returncode == 0:
+                return kind
+        # Binary fallback (e.g. systemd not available or unit name differs)
+        if os.path.isfile("/opt/forgejo/forgejo") and os.access("/opt/forgejo/forgejo", os.X_OK):
+            return "forgejo"
+        gogs_bin_config = MODULE_CONFIG["config"]["directories"].get("gogs_bin")
+        if gogs_bin_config:
+            bin_path = gogs_bin_config["path"] if isinstance(gogs_bin_config, dict) else gogs_bin_config
+            if os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
+                return "gogs"
+        return "none"
+    except Exception as e:
+        log_message(f"detect_git_server: {e}", "WARNING")
+        return "none"
+
+
 def get_gogs_version():
     """Detect currently installed Gogs version."""
     try:
@@ -671,6 +701,7 @@ def restore_gogs_permissions():
 def main(args=None):
     """
     Main entry point for Gogs update module.
+    Detects Gogs vs Forgejo vs none; skips Gogs-specific logic when Forgejo is present (post-migration).
     Args:
         args: List of arguments (supports '--version', '--check', '--verify', '--config')
     Returns:
@@ -682,6 +713,16 @@ def main(args=None):
     # Module directory for reference
     module_dir = Path(__file__).parent
     
+    # Detect which git server is present so we don't run Gogs logic on Forgejo-migrated boxes
+    git_server = detect_git_server()
+    if git_server == "forgejo":
+        log_message("Git server is Forgejo (migrated); skipping Gogs module")
+        return {"success": True, "skipped": True, "reason": "forgejo"}
+    if git_server == "none":
+        log_message("No Gogs or Forgejo detected; skipping Gogs module")
+        return {"success": True, "skipped": True, "reason": "none"}
+    # From here: git_server == "gogs"
+
     # Handle command line arguments first
     if args and len(args) > 0:
         if args[0] == "--version":
@@ -715,7 +756,8 @@ def main(args=None):
         return {
             "success": True,
             "config": MODULE_CONFIG,
-            "paths": {k: (v["path"] if isinstance(v, dict) else v) for k, v in MODULE_CONFIG["config"]["directories"].items()}
+            "paths": {k: (v["path"] if isinstance(v, dict) else v) for k, v in MODULE_CONFIG["config"]["directories"].items()},
+            "git_server": git_server,
         }
 
     # --verify mode: comprehensive installation verification

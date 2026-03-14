@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.39",
+        "schema_version": "0.1.40",
         "channel": "stable",
         "branch": "master",
         "repository_url": "https://github.com/homeserversltd/updates.git"
@@ -23,6 +23,7 @@
         "vault": "0.1.0",
         "keyman": "0.1.0",
         "migrations": "0.1.0",
-        "zoxide": "0.1.0"
+        "zoxide": "0.1.0",
+        "forgejo": "0.1.0"
     }
 }

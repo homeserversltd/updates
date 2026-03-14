@@ -1,9 +1,12 @@
 {
     "metadata": {
-        "schema_version": "0.1.11",
+        "schema_version": "0.1.12",
         "module_name": "gogs",
         "description": "Gogs Git server",
-        "enabled": true
+        "enabled": true,
+        "group": "git",
+        "group_order": 1,
+        "service_name": "gogs"
     },
     "config": {
         "directories": {
