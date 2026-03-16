@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.40",
+        "schema_version": "0.1.41",
         "channel": "stable",
         "branch": "master",
         "repository_url": "https://github.com/homeserversltd/updates.git"
@@ -25,5 +25,20 @@
         "migrations": "0.1.0",
         "zoxide": "0.1.0",
         "forgejo": "0.1.0"
-    }
+    },
+    "interactives": [
+        {
+            "id": "10000000",
+            "name": "Migrate Gogs to Forgejo",
+            "description": "One-time migration: replace Gogs with Forgejo (Git server). Run when you are ready to switch. Update modules will then use Forgejo only (group ladder).",
+            "script": "10000000.sh",
+            "script_dir": "modules/migrations/src",
+            "has_run": false,
+            "completion_check": {
+                "type": "systemd_switch",
+                "active": "forgejo",
+                "inactive": "gogs"
+            }
+        }
+    ]
 }

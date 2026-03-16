@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "1.0.11",
+        "schema_version": "1.0.12",
         "content_version": "1.0.0",
         "enabled": true,
         "priority": 3,
@@ -62,6 +62,13 @@
         },
         {
             "source": "safe-nas-sync.sh",
+            "keepUpdated": true
+        },
+        {
+            "source": "homeserver-forgejo-migrate.py",
+            "keepUpdated": true
+        },
+        { "source": "mountvault.sh",
             "keepUpdated": true
         }
     ]
