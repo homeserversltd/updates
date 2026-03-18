@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "schema_version": "0.1.0",
+    "name": "Debian 12 → 13 in-place upgrade",
+    "description": "One-time upgrade from Bookworm to Trixie: backup APT sources, switch suite, patch Kea DHCP4, full-upgrade, trixie-backports. Reboot required."
+  },
+  "paths": {
+    "log_file": "/var/log/homeserver/migrations.log",
+    "backup_dir": "/var/backups/debian12_to_13",
+    "sources_list": "/etc/apt/sources.list",
+    "sources_d": "/etc/apt/sources.list.d",
+    "kea_conf": "/etc/kea/kea-dhcp4.conf",
+    "kea_patch_script": "kea_dhcp4_add_subnet_id.py"
+  },
+  "execution": {
+    "mode": "sequential",
+    "continue_on_error": false
+  },
+  "config": {
+    "id": "debian12_to_13",
+    "backports_line": "deb http://deb.debian.org/debian trixie-backports main",
+    "backports_filename": "trixie-backports.list"
+  }
+}

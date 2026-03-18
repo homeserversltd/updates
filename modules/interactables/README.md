@@ -13,7 +13,12 @@ interactables/
 ├── __init__.py   # Public API
 ├── README.md
 └── src/          # Scripts run by Admin UI
-    ├── debian12_to_13.sh
+    ├── debian12_to_13.py   # Entry point (fractalization); loads deb12-13/
+    ├── deb12-13/           # Debian 12→13 module (infinite-index)
+    │   ├── index.json
+    │   ├── index.py
+    │   └── README.md
+    ├── kea_dhcp4_add_subnet_id.py
     ├── gogs_to_forgejo.sh
     ├── postgres15_to_17.sh
     └── php_fpm_migrate.sh
@@ -39,10 +44,10 @@ interactables/
 
 ## Adding an Interactable
 
-1. Add script to `src/<name>.sh`; make executable.
+1. Add script to `src/<name>.sh` or `src/<name>.py`; make executable if shell.
 2. Add entry to this module's `index.json` under `interactables`: `id`, `name`, `description`, `script`, `has_run`: false; optionally `completion_check` or `show_only_if`.
 
-Script path at run time is `UPDATES_ROOT/modules/interactables/src/<script>`.
+Script path at run time is `UPDATES_ROOT/modules/interactables/src/<script>`. Backend runs `.py` with `python3`, `.sh` with `bash`.
 
 ## Troubleshooting
 
