@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.0",
+    "schema_version": "0.1.2",
     "name": "Debian 12 → 13 in-place upgrade",
     "description": "One-time upgrade from Bookworm to Trixie: backup APT sources, switch suite, patch Kea DHCP4, full-upgrade, trixie-backports. Reboot required."
   },

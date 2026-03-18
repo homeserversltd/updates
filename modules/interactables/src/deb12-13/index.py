@@ -167,6 +167,25 @@ def main(module_path: Path | None = None) -> int:
         _log(log_file, f"apt full-upgrade failed: {err}", "ERROR")
         return 1
 
+    # 6b) Update flat symlinks so Postgres/PHP point at new versioned paths
+    update_symlinks = module_path / "update_flat_symlinks.py"
+    if update_symlinks.is_file():
+        try:
+            r = subprocess.run(
+                ["/usr/bin/python3", str(update_symlinks)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if r.returncode == 0:
+                _log(log_file, "Flat symlinks for PostgreSQL and PHP-FPM updated")
+            else:
+                _log(log_file, f"Flat symlink update stderr: {r.stderr or r.stdout}", "WARNING")
+        except (subprocess.TimeoutExpired, OSError) as e:
+            _log(log_file, f"Flat symlink update failed (non-fatal): {e}", "WARNING")
+    else:
+        _log(log_file, f"update_flat_symlinks.py not found at {update_symlinks}", "WARNING")
+
     # 7) Add trixie-backports
     backports_file = sources_d / cfg.get("backports_filename", "trixie-backports.list")
     backports_file.write_text(cfg.get("backports_line", "deb http://deb.debian.org/debian trixie-backports main") + "\n")
@@ -181,9 +200,9 @@ def main(module_path: Path | None = None) -> int:
     print("")
     print(f"{id_tag}: REBOOT REQUIRED. Run: sudo reboot")
     print("")
-    print("After reboot, if you use PostgreSQL or PHP-FPM (Piwigo, Ampache, FreshRSS),")
-    print("run the 'PostgreSQL 15→17' and 'PHP-FPM migration to default PHP' interactables from Admin → Updates.")
-    print("Those migrations can fuck your shit up; run them when ready.")
+    print("Flat symlinks for PostgreSQL and PHP-FPM were updated; after reboot, services using them")
+    print("should point at the new distro versions. If you did not use the flat symlink backend before,")
+    print("you may still need the 'PostgreSQL 15→17' or 'PHP-FPM migration' interactables once.")
     print("")
     return 0
 

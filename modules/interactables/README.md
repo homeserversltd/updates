@@ -4,6 +4,8 @@
 
 User-triggered one-off actions (interactables) presented in the Admin Updates UI. This module is the **single source of truth**: `index.json` defines the list (id, name, description, script, has_run, completion_check, show_only_if). Scripts live in `src/`. The backend reads this module's index and runs scripts from `modules/interactables/src`. Execution is done by the backend (Admin updates utils), not by the update orchestrator.
 
+**Flat symlink backend:** Helpers live in `networkservices/utils.py` (ServiceUtils.ensure_postgresql_flat_symlinks, ensure_php_fpm_flat_symlinks). Postgres and PHP-FPM installers call them during install; units/configs use `/opt/homeserver/postgresql/current` and `/opt/homeserver/php-fpm/current`. After a distro upgrade, the Debian 12→13 interactable runs `deb12-13/update_flat_symlinks.py` (inside the deb12-13 container) to repoint symlinks at the new versioned paths.
+
 ## Directory Structure
 
 ```
@@ -18,6 +20,7 @@ interactables/
     │   ├── index.json
     │   ├── index.py
     │   ├── kea_dhcp4_add_subnet_id.py
+    │   ├── update_flat_symlinks.py   # Post full-upgrade: repoint flat symlinks at new Postgres/PHP
     │   └── README.md
     ├── gogs_to_forgejo.sh
     ├── postgres15_to_17.sh
