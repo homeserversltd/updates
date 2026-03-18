@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.0",
+    "schema_version": "0.1.1",
     "content_version": "0.0.1",
     "enabled": true,
     "priority": 0,
@@ -9,13 +9,35 @@
   "interactables": [
     {
       "id": "10000000",
-      "script": "10000000.sh",
-      "description": "Migrate Gogs to Forgejo"
+      "name": "Migrate Gogs to Forgejo",
+      "description": "One-time migration: replace Gogs with Forgejo (Git server). Run when you are ready to switch. Update modules will then use Forgejo only (group ladder).",
+      "script": "gogs_to_forgejo.sh",
+      "has_run": false,
+      "completion_check": {
+        "type": "systemd_switch",
+        "active": "forgejo",
+        "inactive": "gogs"
+      }
     },
     {
       "id": "debian12_to_13",
+      "name": "Debian 12 → 13 in-place upgrade",
+      "description": "One-time in-place upgrade from Bookworm to Trixie. Backs up APT sources, switches suite to trixie, runs apt full-upgrade, adds trixie-backports. Distro upgrades PostgreSQL 15→17; existing PG data needs separate migration (see docs). Reboot required after run. Only shown on Debian 12 (bookworm).",
       "script": "debian12_to_13.sh",
-      "description": "Debian 12 to 13 in-place upgrade"
+      "has_run": false,
+      "show_only_if": {
+        "debian_codename": "bookworm"
+      }
+    },
+    {
+      "id": "postgres15_to_17",
+      "name": "PostgreSQL 15 → 17 migration",
+      "description": "WARNING: May break your shit; backup first; manual intervention may be required. In-place upgrade via pg_upgrade. Stops PostgreSQL and dependent services (Vaultwarden, Gogs/Forgejo, FreshRSS), migrates cluster to 17, updates systemd unit. Proceed at your own risk. Only shown after Debian 12→13 has been run (logical next step). On Trixie, PostgreSQL 17 is the default; script installs it if missing.",
+      "script": "postgres15_to_17.sh",
+      "has_run": false,
+      "show_only_if": {
+        "after_interactive": "debian12_to_13"
+      }
     }
   ]
 }

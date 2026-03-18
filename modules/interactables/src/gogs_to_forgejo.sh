@@ -1,5 +1,5 @@
 #!/bin/bash
-# Migration 10000000: Migrate Gogs to Forgejo (full replacement).
+# Gogs to Forgejo migration (full replacement). Migration id: 10000000.
 # 1) Stop and disable Gogs; remove Gogs SSH block from sshd_config.
 # 2) Install Forgejo if not present (binary, dirs, PostgreSQL forgejo DB, app.ini, systemd, SSH block), start and create admin user.
 # Idempotent: if Forgejo is already running and Gogs is gone, exit 0.
@@ -22,10 +22,11 @@ SSHD_CONFIG="/etc/ssh/sshd_config"
 FORGEJO_VERSION="14.0.2"
 FORGEJO_URL="https://codeberg.org/forgejo/forgejo/releases/download/v${FORGEJO_VERSION}/forgejo-${FORGEJO_VERSION}-linux-amd64"
 ADMIN_USER="${ADMIN_USER:-owner}"
+ID="gogs_to_forgejo"
 
-INFO() { echo "10000000: $*" | tee -a "$LOG_FILE"; }
-WARN() { echo "10000000 WARNING: $*" | tee -a "$LOG_FILE" >&2; }
-ERROR() { echo "10000000 ERROR: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
+INFO() { echo "$ID: $*" | tee -a "$LOG_FILE"; }
+WARN() { echo "$ID WARNING: $*" | tee -a "$LOG_FILE" >&2; }
+ERROR() { echo "$ID ERROR: $*" | tee -a "$LOG_FILE" >&2; exit 1; }
 
 if [ "$EUID" -ne 0 ]; then
     ERROR "Must run as root"
@@ -52,7 +53,7 @@ fi
 if [ -f "$SSHD_CONFIG" ]; then
     if grep -q "AuthorizedKeysCommand /opt/gogs/gogs" "$SSHD_CONFIG" 2>/dev/null; then
         INFO "Removing Gogs SSH block from sshd_config"
-        cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.10000000"
+        cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.${ID}"
         # Remove block from "# Gogs SSH configuration" through the following "    X11Forwarding no" (Gogs block only)
         sed -i '/# Gogs SSH configuration/,/^[[:space:]]*X11Forwarding no[[:space:]]*$/d' "$SSHD_CONFIG"
         # If Gogs block had no comment, it may remain; user can remove manually or add comment and re-run
@@ -82,7 +83,7 @@ SSHEOF
     fi
     systemctl enable forgejo 2>/dev/null || true
     systemctl start forgejo 2>/dev/null || true
-    INFO "Migration 10000000 (Gogs to Forgejo) completed (Forgejo already installed)"
+    INFO "Gogs to Forgejo migration completed (Forgejo already installed)"
     exit 0
 fi
 
@@ -243,6 +244,6 @@ if [ -f /root/key/skeleton.key ]; then
     sudo -u git env FORGEJO_WORK_DIR=/opt/forgejo /opt/forgejo/forgejo --config /opt/forgejo/custom/conf/app.ini admin user create --name="$ADMIN_USER" --password="$PW" --email="${ADMIN_USER}@home.arpa" --admin=true 2>/dev/null || true
 fi
 
-INFO "Migration 10000000 (Gogs to Forgejo) completed. Forgejo: https://git.home.arpa"
+INFO "Gogs to Forgejo migration completed. Forgejo: https://git.home.arpa"
 INFO "Post-migration: add SSH keys via Forgejo UI only; if using Woodpecker, create OAuth app in Forgejo (redirect https://ci.home.arpa/authorize), set WOODPECKER_FORGEJO_* and WOODPECKER_GITEA_SKIP_VERIFY=true in Woodpecker .env, use host network for server (see controlplane/lib/install/woodpecker/README.md). app.ini includes [webhook] ALLOWED_HOST_LIST = external,loopback,private so push webhooks to ci.home.arpa work; Woodpecker endpoint is /api/hook (use Repair in Woodpecker repo settings)."
 exit 0

@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.41",
+        "schema_version": "0.1.42",
         "channel": "stable",
         "branch": "master",
         "repository_url": "https://github.com/homeserversltd/updates.git"
@@ -26,31 +26,5 @@
         "migrations": "0.1.0",
         "zoxide": "0.1.0",
         "forgejo": "0.1.0"
-    },
-    "interactives": [
-        {
-            "id": "10000000",
-            "name": "Migrate Gogs to Forgejo",
-            "description": "One-time migration: replace Gogs with Forgejo (Git server). Run when you are ready to switch. Update modules will then use Forgejo only (group ladder).",
-            "script": "10000000.sh",
-            "script_dir": "modules/interactables/src",
-            "has_run": false,
-            "completion_check": {
-                "type": "systemd_switch",
-                "active": "forgejo",
-                "inactive": "gogs"
-            }
-        },
-        {
-            "id": "debian12_to_13",
-            "name": "Debian 12 → 13 in-place upgrade",
-            "description": "One-time in-place upgrade from Bookworm to Trixie. Backs up APT sources, switches suite to trixie, runs apt full-upgrade, adds trixie-backports. Reboot required after run. Only shown on Debian 12 (bookworm).",
-            "script": "debian12_to_13.sh",
-            "script_dir": "modules/interactables/src",
-            "has_run": false,
-            "show_only_if": {
-                "debian_codename": "bookworm"
-            }
-        }
-    ]
+    }
 }

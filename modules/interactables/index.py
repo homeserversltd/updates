@@ -43,8 +43,8 @@ class InteractablesModuleError(Exception):
 class InteractablesManager:
     """
     Interactables module: metadata and script listing only.
-    Execution is performed by the Admin backend (utils.run_interactive) using
-    script_dir from the root index.json interactives array.
+    Execution is performed by the Admin backend (utils.run_interactive), which
+    reads this module's index.json and runs scripts from src/.
     """
 
     def __init__(self, module_path: str) -> None:
@@ -71,6 +71,7 @@ class InteractablesManager:
             script_path = self.src_dir / script_name
             result.append({
                 "id": entry.get("id", ""),
+                "name": entry.get("name", ""),
                 "script": script_name,
                 "description": entry.get("description", ""),
                 "present": script_path.is_file(),
