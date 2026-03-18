@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "schema_version": "0.1.0",
+    "content_version": "0.0.1",
+    "enabled": true,
+    "priority": 0,
+    "description": "User-triggered one-off actions (interactables) presented in Admin Updates UI"
+  },
+  "interactables": [
+    {
+      "id": "10000000",
+      "script": "10000000.sh",
+      "description": "Migrate Gogs to Forgejo"
+    },
+    {
+      "id": "debian12_to_13",
+      "script": "debian12_to_13.sh",
+      "description": "Debian 12 to 13 in-place upgrade"
+    }
+  ]
+}
