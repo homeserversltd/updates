@@ -17,8 +17,8 @@ interactables/
     ├── deb12-13/           # Debian 12→13 module (infinite-index)
     │   ├── index.json
     │   ├── index.py
+    │   ├── kea_dhcp4_add_subnet_id.py
     │   └── README.md
-    ├── kea_dhcp4_add_subnet_id.py
     ├── gogs_to_forgejo.sh
     ├── postgres15_to_17.sh
     └── php_fpm_migrate.sh

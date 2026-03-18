@@ -58,8 +58,7 @@ def main(module_path: Path | None = None) -> int:
     sources_list = Path(paths["sources_list"])
     sources_d = Path(paths["sources_d"])
     kea_conf = Path(paths["kea_conf"])
-    src_root = module_path.parent
-    kea_patch = src_root / paths["kea_patch_script"]
+    kea_patch = module_path / paths["kea_patch_script"]
     id_tag = cfg.get("id", "debian12_to_13")
 
     if os.geteuid() != 0:

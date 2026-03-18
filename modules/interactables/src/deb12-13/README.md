@@ -11,7 +11,7 @@ In-place upgrade from Bookworm to Trixie. Config in `index.json`; orchestrator i
 
 ## Paths
 
-All paths are in `index.json` under `paths`. Resolved at runtime with `expandvars`. Kea patch script is sibling of this directory: `src/kea_dhcp4_add_subnet_id.py`.
+All paths are in `index.json` under `paths`. Resolved at runtime with `expandvars`. Kea patch script lives inside this module: `kea_dhcp4_add_subnet_id.py` (same directory as index.py).
 
 ## Execution
 
