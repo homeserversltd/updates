@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.1",
+    "schema_version": "0.1.3",
     "content_version": "0.0.1",
     "enabled": true,
     "priority": 0,
@@ -34,6 +34,16 @@
       "name": "PostgreSQL 15 → 17 migration",
       "description": "WARNING: May break your shit; backup first; manual intervention may be required. In-place upgrade via pg_upgrade. Stops PostgreSQL and dependent services (Vaultwarden, Gogs/Forgejo, FreshRSS), migrates cluster to 17, updates systemd unit. Proceed at your own risk. Only shown after Debian 12→13 has been run (logical next step). On Trixie, PostgreSQL 17 is the default; script installs it if missing.",
       "script": "postgres15_to_17.sh",
+      "has_run": false,
+      "show_only_if": {
+        "after_interactive": "debian12_to_13"
+      }
+    },
+    {
+      "id": "php_fpm_migrate",
+      "name": "PHP-FPM migration to default PHP",
+      "description": "WARNING: Can fuck your shit up; backup first. After a distro upgrade (e.g. Debian 12→13), pool configs and units may still point at the old PHP. This script detects the in-use and default PHP versions at runtime and migrates pool configs (Piwigo, Ampache, FreshRSS) and systemd units to the default. No version numbers hardcoded. Only shown after Debian 12→13 has been run.",
+      "script": "php_fpm_migrate.sh",
       "has_run": false,
       "show_only_if": {
         "after_interactive": "debian12_to_13"

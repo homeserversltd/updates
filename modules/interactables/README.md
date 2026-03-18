@@ -15,7 +15,8 @@ interactables/
 └── src/          # Scripts run by Admin UI
     ├── debian12_to_13.sh
     ├── gogs_to_forgejo.sh
-    └── postgres15_to_17.sh
+    ├── postgres15_to_17.sh
+    └── php_fpm_migrate.sh
 ```
 
 ## Core Components
