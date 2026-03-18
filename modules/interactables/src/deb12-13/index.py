@@ -200,9 +200,9 @@ def main(module_path: Path | None = None) -> int:
     print("")
     print(f"{id_tag}: REBOOT REQUIRED. Run: sudo reboot")
     print("")
-    print("Flat symlinks for PostgreSQL and PHP-FPM were updated; after reboot, services using them")
-    print("should point at the new distro versions. If you did not use the flat symlink backend before,")
-    print("you may still need the 'PostgreSQL 15→17' or 'PHP-FPM migration' interactables once.")
+    print("Flat symlinks for PostgreSQL and PHP-FPM were updated. After reboot, services using them")
+    print("point at the new distro versions. If you were already on the flat symlink backend, you are done.")
+    print("Otherwise you may need the 'PostgreSQL 15→17' or 'PHP-FPM migration' interactables once.")
     print("")
     return 0
 

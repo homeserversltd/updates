@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.7",
+    "schema_version": "0.1.8",
     "content_version": "0.0.1",
     "enabled": true,
     "priority": 0,
@@ -23,7 +23,7 @@
     {
       "id": "debian12_to_13",
       "name": "Debian 12 → 13 in-place upgrade",
-      "description": "One-time in-place upgrade from Bookworm to Trixie. Backs up APT sources, switches suite to trixie, runs apt full-upgrade, adds trixie-backports. Distro upgrades PostgreSQL 15→17; existing PG data needs separate migration (see docs). Reboot required after run. Only shown on Debian 12 (bookworm).",
+      "description": "One-time in-place upgrade from Bookworm to Trixie. Backs up APT sources, switches suite to trixie, runs apt full-upgrade, updates flat symlinks for PostgreSQL and PHP-FPM so services point at new distro versions, adds trixie-backports. Reboot required. After reboot, systems on the flat symlink backend need no separate Postgres or PHP migration. Only shown on Debian 12 (bookworm).",
       "script": "debian12_to_13.py",
       "has_run": false,
       "ready": false,
@@ -34,7 +34,7 @@
     {
       "id": "postgres15_to_17",
       "name": "PostgreSQL 15 → 17 migration",
-      "description": "WARNING: May break your shit; backup first; manual intervention may be required. In-place upgrade via pg_upgrade. Stops PostgreSQL and dependent services (Vaultwarden, Gogs/Forgejo, FreshRSS), migrates cluster to 17, updates systemd unit. Proceed at your own risk. Only shown after Debian 12→13 has been run (logical next step). On Trixie, PostgreSQL 17 is the default; script installs it if missing.",
+      "description": "WARNING: May break your shit; backup first. Only needed if you are not on the flat symlink backend (Debian 12→13 already updates symlinks). In-place upgrade via pg_upgrade. Stops PostgreSQL and dependent services, migrates cluster to 17, updates systemd unit. Only shown after Debian 12→13 has been run. On Trixie, PostgreSQL 17 is the default; script installs it if missing.",
       "script": "postgres15_to_17.sh",
       "has_run": false,
       "ready": false,
@@ -45,7 +45,7 @@
     {
       "id": "php_fpm_migrate",
       "name": "PHP-FPM migration to default PHP",
-      "description": "WARNING: Can fuck your shit up; backup first. After a distro upgrade (e.g. Debian 12→13), pool configs and units may still point at the old PHP. This script detects the in-use and default PHP versions at runtime and migrates pool configs (Piwigo, Ampache, FreshRSS) and systemd units to the default. No version numbers hardcoded. Only shown after Debian 12→13 has been run.",
+      "description": "WARNING: Can fuck your shit up; backup first. Only needed if you are not on the flat symlink backend (Debian 12→13 already updates PHP-FPM symlinks). Migrates pool configs (Piwigo, Ampache, FreshRSS) and systemd units to the default PHP. Only shown after Debian 12→13 has been run.",
       "script": "php_fpm_migrate.sh",
       "has_run": false,
       "ready": false,
