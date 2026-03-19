@@ -24,7 +24,7 @@ interactables/
     │   └── README.md
     ├── gogs_to_forgejo.sh
     ├── postgres15_to_17.py
-    └── php_fpm_migrate.sh
+    └── php_fpm_migrate.py   # Pools + flat symlinks + HOMESERVER php-fpm.service
 ```
 
 ## Core Components

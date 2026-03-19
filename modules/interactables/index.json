@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.11",
+    "schema_version": "0.1.14",
     "content_version": "0.0.1",
     "enabled": true,
     "priority": 0,
@@ -23,7 +23,7 @@
     {
       "id": "debian12_to_13",
       "name": "Debian 12 → 13 in-place upgrade",
-      "description": "One-time in-place upgrade from Bookworm to Trixie. Backs up APT sources, switches suite to trixie, runs apt full-upgrade, updates flat symlinks for PostgreSQL and PHP-FPM so services point at new distro versions, adds trixie-backports. Reboot required. After reboot, systems on the flat symlink backend need no separate Postgres or PHP migration. Only shown on Debian 12 (bookworm).",
+      "description": "One-time in-place upgrade from Bookworm to Trixie. Backs up APT sources, switches suite to trixie, runs apt full-upgrade, updates flat symlinks for PostgreSQL and Piwigo PHP-FPM paths, adds trixie-backports. Reboot required. After reboot, systems on the flat symlink backend need no separate Postgres or Piwigo PHP migration. Only shown on Debian 12 (bookworm).",
       "script": "debian12_to_13.py",
       "has_run": false,
       "ready": false,
@@ -45,7 +45,7 @@
     {
       "id": "php_fpm_migrate",
       "name": "PHP-FPM migration to default PHP",
-      "description": "WARNING: Can fuck your shit up; backup first. Only needed if you are not on the flat symlink backend (Debian 12→13 already updates PHP-FPM symlinks). Migrates pool configs (Piwigo, Ampache, FreshRSS) and systemd units to the default PHP. Only shown after Debian 12→13 has been run.",
+      "description": "WARNING: Can fuck your shit up; backup first. Only needed if you are not on the flat symlink backend (Debian 12→13 already updates Piwigo PHP-FPM symlinks). Migrates Piwigo pool only, repoints flat symlinks, installs HOMESERVER php-fpm.service, disables distro phpX.Y-fpm. Only shown after Debian 12→13 has been run.",
       "script": "php_fpm_migrate.py",
       "has_run": false,
       "ready": false,

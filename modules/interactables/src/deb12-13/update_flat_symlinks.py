@@ -2,11 +2,15 @@
 """
 Update flat symlinks for PostgreSQL and PHP-FPM after a distro upgrade.
 Part of deb12-13 (Debian 12→13 in-place upgrade). Uses only stdlib.
-Creates/updates:
+
+PostgreSQL:
   /opt/homeserver/postgresql/current -> /etc/postgresql/VERSION/main
   /opt/homeserver/postgresql/bin -> /usr/lib/postgresql/VERSION/bin
+
+PHP-FPM (baseline: Piwigo is the shipped PHP consumer; prefer the /etc/php/VERSION tree
+that contains fpm/pool.d/piwigo.conf, else first version with pool.d):
   /opt/homeserver/php-fpm/current -> /etc/php/VERSION
-  /opt/homeserver/php-fpm/bin/php-fpm -> /usr/sbin/phpVERSION-fpm
+  /opt/homeserver/php-fpm/bin/php-fpm -> php-fpmVERSION or phpVERSION-fpm (Debian)
 """
 from __future__ import annotations
 
@@ -51,14 +55,20 @@ def main() -> int:
     else:
         log("/etc/postgresql not found (PostgreSQL not installed?)", "WARNING")
 
-    # PHP-FPM
+    # PHP-FPM: prefer version dir that has Piwigo pool (product baseline); else any fpm/pool.d
     php_root = Path("/etc/php")
     if php_root.exists():
         php_version = None
+        candidates: list[str] = []
         for d in sorted(php_root.iterdir()):
             if d.is_dir() and (d / "fpm/pool.d").exists():
-                php_version = d.name
+                candidates.append(d.name)
+        for dname in candidates:
+            if (php_root / dname / "fpm/pool.d/piwigo.conf").is_file():
+                php_version = dname
                 break
+        if php_version is None and candidates:
+            php_version = candidates[0]
         if php_version:
             etc_php = f"/etc/php/{php_version}"
             # Debian: php-fpm{VERSION}; some distros use php{VERSION}-fpm

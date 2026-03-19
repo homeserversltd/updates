@@ -1,12 +1,10 @@
 #!/usr/bin/python3
 """
-Interactable: Migrate PHP-FPM pool configs and systemd units to the default PHP version.
-After a distro upgrade (e.g. Debian 12→13) the default PHP may be newer; pool configs
-and units can still point at the old version. This script detects current (in-use) and
-default (new) PHP versions at runtime and migrates without hardcoding version numbers.
-Also installs the RuntimeDirectory drop-in for the distro php-X-fpm unit so /run/php
-exists at boot (avoids "unable to bind listening socket" after reboot).
-WARNING: Can fuck your shit up. Backup and run at your own risk. Only shown after Debian 12→13.
+Interactable: Migrate Piwigo PHP-FPM pool to the default PHP version after distro upgrade.
+Copies pool.d/piwigo.conf, installs HOMESERVER php-fpm.service (flat paths), disables distro
+phpX.Y-fpm units, enables php-fpm. Keep in sync with
+homeserver/initialization/networkservices/piwigo/config/php-fpm.service.
+WARNING: Can fuck your shit up. Backup first. Only shown after Debian 12→13.
 """
 from __future__ import annotations
 
@@ -18,14 +16,31 @@ from pathlib import Path
 
 LOG_FILE = os.environ.get("LOG_FILE", "/var/log/homeserver/migrations.log")
 ID = "php_fpm_migrate"
-KNOWN_POOLS = ["piwigo", "ampache", "freshrss"]
+# Baseline product PHP surface is Piwigo only (single pool to migrate)
+KNOWN_POOLS = ["piwigo"]
 SYSTEMD_SYSTEM = Path("/etc/systemd/system")
-PHP_FPM_RUNTIME_OVERRIDE = """# Ensure /run/php exists so the distro PHP-FPM www pool can create its socket there.
-# Without this, php8.x-fpm fails with: unable to bind listening socket for address
-# '/run/php/php8.x-fpm.sock': No such file or directory (distro unit has no RuntimeDirectory).
+
+# Must match networkservices/piwigo/config/php-fpm.service (single source of truth in repo)
+HOMESERVER_PHP_FPM_UNIT = """# HOMESERVER-managed PHP-FPM: paths via /opt/homeserver/php-fpm/current (symlink).
+# Portal config: services ["php-fpm"] — no PHP version numbers in homeserver.json.
+# Installer disables the distro phpX.Y-fpm unit so only this master runs (all pools in pool.d).
+[Unit]
+Description=HOMESERVER PHP-FPM (flat /opt/homeserver/php-fpm/current)
+Documentation=man:php-fpm8.4(8)
+After=network.target
+
 [Service]
+Type=notify
 RuntimeDirectory=php
 RuntimeDirectoryMode=0755
+ExecStart=/opt/homeserver/php-fpm/bin/php-fpm --nodaemonize --fpm-config /opt/homeserver/php-fpm/current/fpm/php-fpm.conf
+ExecStartPost=-/usr/lib/php/php-fpm-socket-helper install /run/php/php-fpm.sock /opt/homeserver/php-fpm/current/fpm/pool.d/www.conf 84
+ExecStopPost=-/usr/lib/php/php-fpm-socket-helper remove /run/php/php-fpm.sock /opt/homeserver/php-fpm/current/fpm/pool.d/www.conf 84
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
 """
 
 
@@ -84,10 +99,9 @@ def main() -> int:
     print("")
     print("  *** THIS CAN FUCK YOUR SHIT UP ***")
     print("")
-    print("  - PHP-FPM services (Piwigo, Ampache, FreshRSS) will be restarted.")
-    print("  - Pool configs will be copied to the new PHP version; systemd units updated.")
-    print("  - RuntimeDirectory drop-in will be installed so /run/php exists at boot.")
-    print("  - Old PHP version remains installed until you remove it (after verifying).")
+    print("  - Pool configs copied to new PHP version; flat symlinks should point at new paths.")
+    print("  - HOMESERVER php-fpm.service installed; distro phpX.Y-fpm disabled.")
+    print("  - Old PHP packages may remain until you remove them after verifying.")
     print("")
     print("==============================================")
     print("")
@@ -119,7 +133,6 @@ def main() -> int:
 
         _log(f"PHP-FPM migration: {old_ver} → {new_ver}")
 
-        # Ensure new PHP FPM is installed
         php_fpm_bin = f"/usr/sbin/php-fpm{new_ver}"
         if not Path(php_fpm_bin).exists():
             php_fpm_bin = f"/usr/sbin/php{new_ver}-fpm"
@@ -131,7 +144,6 @@ def main() -> int:
             _log(f"PHP {new_ver} pool.d not found at {pool_dst} after install.", "ERROR")
             return 1
 
-        # Copy known pool configs from old to new
         copied = 0
         for name in KNOWN_POOLS:
             src_file = pool_src / f"{name}.conf"
@@ -142,27 +154,45 @@ def main() -> int:
         if copied == 0:
             _log(f"No known pool configs found in {pool_src}; nothing copied.", "WARNING")
 
-        # Update piwigo.service if it references old PHP version
+        # Flat symlinks: /opt/homeserver/php-fpm/current → /etc/php/{new_ver}
+        flat_root = Path("/opt/homeserver/php-fpm")
+        etc_new = Path(f"/etc/php/{new_ver}")
+        if flat_root.is_dir() and etc_new.is_dir():
+            (flat_root / "bin").mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["/bin/ln", "-sfn", str(etc_new), str(flat_root / "current")],
+                check=False,
+                timeout=5,
+            )
+            for candidate in (f"/usr/sbin/php-fpm{new_ver}", f"/usr/sbin/php{new_ver}-fpm"):
+                if Path(candidate).exists():
+                    subprocess.run(
+                        ["/bin/ln", "-sfn", candidate, str(flat_root / "bin" / "php-fpm")],
+                        check=False,
+                        timeout=5,
+                    )
+                    break
+            _log(f"Updated flat symlinks under {flat_root} to PHP {new_ver}")
+
+        # HOMESERVER php-fpm.service
+        unit_path = SYSTEMD_SYSTEM / "php-fpm.service"
+        unit_path.write_text(HOMESERVER_PHP_FPM_UNIT)
+        _log(f"Wrote {unit_path}")
+
         piwigo_unit = SYSTEMD_SYSTEM / "piwigo.service"
         if piwigo_unit.is_file():
             text = piwigo_unit.read_text()
             if old_ver in text or f"php-fpm{old_ver}" in text:
                 text = text.replace(old_ver, new_ver).replace(f"php-fpm{old_ver}", f"php-fpm{new_ver}")
                 piwigo_unit.write_text(text)
-                _log(f"Updated {piwigo_unit} to PHP {new_ver}")
-
-        # Install RuntimeDirectory drop-in for php{NEW_VER}-fpm so /run/php exists at boot
-        dropin_dir = SYSTEMD_SYSTEM / f"php{new_ver}-fpm.service.d"
-        dropin_dir.mkdir(parents=True, exist_ok=True)
-        override_path = dropin_dir / "override.conf"
-        override_path.write_text(PHP_FPM_RUNTIME_OVERRIDE)
-        _log(f"Installed php{new_ver}-fpm RuntimeDirectory drop-in at {override_path}")
+                _log(f"Updated {piwigo_unit} path references if any")
 
         _run(["/bin/systemctl", "daemon-reload"], timeout=10)
+        subprocess.run(["/bin/systemctl", "disable", "--now", f"php{old_ver}-fpm"], capture_output=True, timeout=15)
+        subprocess.run(["/bin/systemctl", "disable", "--now", f"php{new_ver}-fpm"], capture_output=True, timeout=15)
+        _run(["/bin/systemctl", "enable", "php-fpm"], timeout=10)
+        _run(["/bin/systemctl", "restart", "php-fpm"], timeout=30)
 
-        # Restart new PHP FPM and Piwigo (standalone pool) if enabled
-        _log(f"Restarting php{new_ver}-fpm...")
-        _run(["/bin/systemctl", "restart", f"php{new_ver}-fpm"], timeout=30)
         r = subprocess.run(
             ["/bin/systemctl", "is-enabled", "piwigo.service"],
             capture_output=True,
@@ -170,11 +200,11 @@ def main() -> int:
             timeout=5,
         )
         if r.returncode == 0 and "enabled" in (r.stdout or "").lower():
-            _log("Restarting piwigo.service...")
+            _log("Restarting piwigo.service (optional standalone unit)...")
             subprocess.run(["/bin/systemctl", "restart", "piwigo.service"], capture_output=True, timeout=15)
 
-        _log(f"PHP-FPM migration complete ({old_ver} → {new_ver}).")
-        _log(f"Old PHP {old_ver} configs remain at {pool_src}. After verifying, you can remove php{old_ver}-fpm if desired.")
+        _log(f"PHP-FPM migration complete ({old_ver} → {new_ver}); HOMESERVER php-fpm.service is active.")
+        _log(f"Old configs remain at {pool_src}. Remove php{old_ver}-fpm when satisfied.")
         print("")
         return 0
 

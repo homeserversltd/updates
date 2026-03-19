@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 """
 Entry point for Debian 12 → 13 in-place upgrade (fractalization).
-Loads the deb12-13 module by path and runs its orchestrator. No shell; straight-line path.
+Loads the deb12-13 module by path and runs its orchestrator (APT full-upgrade, flat symlink
+updates for PostgreSQL and Piwigo PHP-FPM paths, backports, logging). No shell; straight-line path.
 """
 from __future__ import annotations
 
