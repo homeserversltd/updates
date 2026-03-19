@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.8",
+    "schema_version": "0.1.10",
     "content_version": "0.0.1",
     "enabled": true,
     "priority": 0,
@@ -35,7 +35,7 @@
       "id": "postgres15_to_17",
       "name": "PostgreSQL 15 → 17 migration",
       "description": "WARNING: May break your shit; backup first. Only needed if you are not on the flat symlink backend (Debian 12→13 already updates symlinks). In-place upgrade via pg_upgrade. Stops PostgreSQL and dependent services, migrates cluster to 17, updates systemd unit. Only shown after Debian 12→13 has been run. On Trixie, PostgreSQL 17 is the default; script installs it if missing.",
-      "script": "postgres15_to_17.sh",
+      "script": "postgres15_to_17.py",
       "has_run": false,
       "ready": false,
       "show_only_if": {

@@ -23,7 +23,7 @@ interactables/
     │   ├── update_flat_symlinks.py   # Post full-upgrade: repoint flat symlinks at new Postgres/PHP
     │   └── README.md
     ├── gogs_to_forgejo.sh
-    ├── postgres15_to_17.sh
+    ├── postgres15_to_17.py
     └── php_fpm_migrate.sh
 ```
 

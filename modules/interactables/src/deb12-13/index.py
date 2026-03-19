@@ -186,6 +186,25 @@ def main(module_path: Path | None = None) -> int:
     else:
         _log(log_file, f"update_flat_symlinks.py not found at {update_symlinks}", "WARNING")
 
+    # 6c) Ensure ip_forward sysctl so LAN->WAN routing works (Trixie/systemd-networkd can leave it 0)
+    ipforward_src = module_path / "70-homeserver-ipforward.conf"
+    ipforward_dst = Path("/etc/sysctl.d/70-homeserver-ipforward.conf")
+    if ipforward_src.is_file():
+        try:
+            content = ipforward_src.read_text()
+            ipforward_dst.parent.mkdir(parents=True, exist_ok=True)
+            ipforward_dst.write_text(content)
+            _log(log_file, f"Installed {ipforward_dst} for ip_forward persistence")
+            ok, out, err = _run(["/sbin/sysctl", "-p", str(ipforward_dst)], timeout=5)
+            if ok:
+                _log(log_file, "Applied ip_forward sysctl for current boot")
+            else:
+                _log(log_file, f"sysctl -p failed (non-fatal): {err}", "WARNING")
+        except OSError as e:
+            _log(log_file, f"Could not install ip_forward sysctl (non-fatal): {e}", "WARNING")
+    else:
+        _log(log_file, f"70-homeserver-ipforward.conf not found at {ipforward_src}", "WARNING")
+
     # 7) Add trixie-backports
     backports_file = sources_d / cfg.get("backports_filename", "trixie-backports.list")
     backports_file.write_text(cfg.get("backports_line", "deb http://deb.debian.org/debian trixie-backports main") + "\n")
