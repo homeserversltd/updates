@@ -94,3 +94,4 @@ This module serves as HOMESERVER's universal emergency response system - a power
 ## Current Hotfixes
 
 - **homeserver_logrotate**: Install log rotation and cron for /var/log/homeserver/*.log
+- **homeserver_flat_service_symlinks**: Ensure flat symlinks exist and validate for PostgreSQL and PHP-FPM

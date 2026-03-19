@@ -34,33 +34,48 @@ def main() -> int:
         log("Must run as root", "ERROR")
         return 1
 
+    had_error = False
+
     # PostgreSQL
     pg_root = Path("/etc/postgresql")
     if pg_root.exists():
-        versions = [d.name for d in pg_root.iterdir() if d.is_dir()]
+        versions = sorted([d.name for d in pg_root.iterdir() if d.is_dir()], reverse=True)
         if versions:
             pg_version = versions[0]
             main_dir = f"/etc/postgresql/{pg_version}/main"
             bin_dir = f"/usr/lib/postgresql/{pg_version}/bin"
             if Path(main_dir).exists() and Path(bin_dir).exists():
                 flat = "/opt/homeserver/postgresql"
-                run(["mkdir", "-p", flat])
-                run(["ln", "-sfn", main_dir, f"{flat}/current"])
-                run(["ln", "-sfn", bin_dir, f"{flat}/bin"])
-                log(f"PostgreSQL flat symlinks updated -> {pg_version}")
+                if not run(["mkdir", "-p", flat]):
+                    log(f"Failed to create {flat}", "ERROR")
+                    had_error = True
+                if not run(["ln", "-sfn", main_dir, f"{flat}/current"]):
+                    log(f"Failed to link {flat}/current -> {main_dir}", "ERROR")
+                    had_error = True
+                if not run(["ln", "-sfn", bin_dir, f"{flat}/bin"]):
+                    log(f"Failed to link {flat}/bin -> {bin_dir}", "ERROR")
+                    had_error = True
+                if Path(f"{flat}/current").exists() and Path(f"{flat}/bin/postgres").exists():
+                    log(f"PostgreSQL flat symlinks updated -> {pg_version}")
+                else:
+                    log("PostgreSQL flat symlink validation failed", "ERROR")
+                    had_error = True
             else:
                 log(f"PostgreSQL dirs missing: {main_dir} or {bin_dir}", "WARNING")
+                had_error = True
         else:
             log("No PostgreSQL version dir found", "WARNING")
+            had_error = True
     else:
         log("/etc/postgresql not found (PostgreSQL not installed?)", "WARNING")
+        had_error = True
 
     # PHP-FPM: prefer version dir that has Piwigo pool (product baseline); else any fpm/pool.d
     php_root = Path("/etc/php")
     if php_root.exists():
         php_version = None
         candidates: list[str] = []
-        for d in sorted(php_root.iterdir()):
+        for d in sorted(php_root.iterdir(), reverse=True):
             if d.is_dir() and (d / "fpm/pool.d").exists():
                 candidates.append(d.name)
         for dname in candidates:
@@ -79,18 +94,31 @@ def main() -> int:
                     break
             if php_fpm_bin:
                 flat = "/opt/homeserver/php-fpm"
-                run(["mkdir", "-p", f"{flat}/bin"])
-                run(["ln", "-sfn", etc_php, f"{flat}/current"])
-                run(["ln", "-sfn", php_fpm_bin, f"{flat}/bin/php-fpm"])
-                log(f"PHP-FPM flat symlinks updated -> {php_version}")
+                if not run(["mkdir", "-p", f"{flat}/bin"]):
+                    log(f"Failed to create {flat}/bin", "ERROR")
+                    had_error = True
+                if not run(["ln", "-sfn", etc_php, f"{flat}/current"]):
+                    log(f"Failed to link {flat}/current -> {etc_php}", "ERROR")
+                    had_error = True
+                if not run(["ln", "-sfn", php_fpm_bin, f"{flat}/bin/php-fpm"]):
+                    log(f"Failed to link {flat}/bin/php-fpm -> {php_fpm_bin}", "ERROR")
+                    had_error = True
+                if Path(f"{flat}/current/fpm/pool.d").exists() and Path(f"{flat}/bin/php-fpm").exists():
+                    log(f"PHP-FPM flat symlinks updated -> {php_version}")
+                else:
+                    log("PHP-FPM flat symlink validation failed", "ERROR")
+                    had_error = True
             else:
                 log(f"PHP-FPM binary not found for {php_version} (tried php-fpm{php_version}, php{php_version}-fpm)", "WARNING")
+                had_error = True
         else:
             log("No PHP FPM pool.d found", "WARNING")
+            had_error = True
     else:
         log("/etc/php not found (PHP not installed?)", "WARNING")
+        had_error = True
 
-    return 0
+    return 1 if had_error else 0
 
 
 if __name__ == "__main__":

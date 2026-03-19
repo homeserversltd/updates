@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.20",
+    "schema_version": "0.1.21",
     "description": "Emergency hotfixes and critical patches for homeserver systems",
     "enabled": true,
     "priority": 1
@@ -14,6 +14,16 @@
         "type": "file_exists",
         "path": "/etc/logrotate.d/homeserver",
         "invert": true
+      },
+      "has_run": false
+    },
+    {
+      "id": "homeserver_flat_service_symlinks",
+      "description": "Ensure flat service symlinks for PostgreSQL and PHP-FPM are present and valid",
+      "target_id": "homeserver",
+      "version_check": {
+        "type": "always",
+        "value": true
       },
       "has_run": false
     }
