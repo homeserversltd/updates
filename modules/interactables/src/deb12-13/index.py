@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -46,6 +47,85 @@ def _run(cmd: list[str], timeout: int = 300) -> tuple[bool, str, str]:
         return False, "", "Command timed out"
     except Exception as e:
         return False, "", str(e)
+
+
+def _normalize_php_service_names(homeserver_json: Path, log_file: Path) -> None:
+    """
+    Normalize PHP-related portal service names to the anonymized canonical unit: php-fpm.
+    Idempotent: safe to run repeatedly.
+    """
+    if not homeserver_json.exists():
+        _log(log_file, f"homeserver.json not found at {homeserver_json}; skipping PHP service normalization", "WARNING")
+        return
+
+    php_service_pattern = re.compile(r"^php(?:-fpm)?(?:\d+(?:\.\d+)?)?-fpm$|^php-fpm(?:\d+(?:\.\d+)?)?$")
+
+    try:
+        raw = homeserver_json.read_text()
+        config = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as e:
+        _log(log_file, f"Failed to read/parse {homeserver_json}: {e}", "WARNING")
+        return
+
+    portals = (
+        config.get("tabs", {})
+        .get("portals", {})
+        .get("data", {})
+        .get("portals", [])
+    )
+    if not isinstance(portals, list):
+        _log(log_file, "Portals structure invalid in homeserver.json; skipping PHP service normalization", "WARNING")
+        return
+
+    changed_portals = 0
+    changed_services = 0
+
+    for portal in portals:
+        services = portal.get("services")
+        if not isinstance(services, list):
+            continue
+
+        new_services: list[str] = []
+        portal_changed = False
+        saw_php = False
+
+        for service in services:
+            if isinstance(service, str) and php_service_pattern.match(service):
+                saw_php = True
+                if "php-fpm" not in new_services:
+                    new_services.append("php-fpm")
+                if service != "php-fpm":
+                    changed_services += 1
+                    portal_changed = True
+            else:
+                if service not in new_services:
+                    new_services.append(service)
+
+        # Ensure canonical php-fpm remains when any PHP service was present.
+        if saw_php and "php-fpm" not in new_services:
+            new_services.append("php-fpm")
+            portal_changed = True
+
+        if new_services != services:
+            portal["services"] = new_services
+            portal_changed = True
+
+        if portal_changed:
+            changed_portals += 1
+
+    if changed_portals == 0:
+        _log(log_file, "PHP portal service names already normalized (php-fpm)")
+        return
+
+    try:
+        homeserver_json.write_text(json.dumps(config, indent=4) + "\n")
+        _log(
+            log_file,
+            f"Normalized PHP service names to php-fpm in {homeserver_json} "
+            f"({changed_services} service entries across {changed_portals} portal(s))",
+        )
+    except OSError as e:
+        _log(log_file, f"Failed to write normalized services to {homeserver_json}: {e}", "WARNING")
 
 
 def main(module_path: Path | None = None) -> int:
@@ -185,6 +265,10 @@ def main(module_path: Path | None = None) -> int:
             _log(log_file, f"Flat symlink update failed (non-fatal): {e}", "WARNING")
     else:
         _log(log_file, f"update_flat_symlinks.py not found at {update_symlinks}", "WARNING")
+
+    # 6bb) Normalize website portal PHP service names to anonymized php-fpm unit
+    homeserver_json = Path("/var/www/homeserver/src/config/homeserver.json")
+    _normalize_php_service_names(homeserver_json, log_file)
 
     # 6c) Ensure ip_forward sysctl so LAN->WAN routing works (Trixie/systemd-networkd can leave it 0)
     ipforward_src = module_path / "70-homeserver-ipforward.conf"
