@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "0.1.10",
+    "schema_version": "0.1.11",
     "content_version": "0.0.1",
     "enabled": true,
     "priority": 0,
@@ -46,7 +46,7 @@
       "id": "php_fpm_migrate",
       "name": "PHP-FPM migration to default PHP",
       "description": "WARNING: Can fuck your shit up; backup first. Only needed if you are not on the flat symlink backend (Debian 12→13 already updates PHP-FPM symlinks). Migrates pool configs (Piwigo, Ampache, FreshRSS) and systemd units to the default PHP. Only shown after Debian 12→13 has been run.",
-      "script": "php_fpm_migrate.sh",
+      "script": "php_fpm_migrate.py",
       "has_run": false,
       "ready": false,
       "show_only_if": {
