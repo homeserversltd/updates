@@ -20,7 +20,6 @@ import os
 import json
 import subprocess
 import shutil
-import requests
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import urllib.request
@@ -162,6 +161,58 @@ def get_latest_gogs_version():
     except Exception as e:
         log_message(f"Failed to get latest version info: {e}", "ERROR")
         return None
+
+
+def _http_head_ok(url: str, timeout: int = 30) -> bool:
+    """Return True if URL responds with 2xx/3xx to HEAD (used when GitHub API is unavailable)."""
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = getattr(resp, "status", 200)
+            return 200 <= int(code) < 400
+    except Exception:
+        return False
+
+
+def resolve_gogs_linux_amd64_tarball_url(version: str) -> Optional[str]:
+    """
+    Resolve the linux/amd64 .tar.gz download URL for a Gogs release.
+
+    Upstream changed naming between 0.13.x and 0.14.x:
+    - 0.13.3: gogs_0.13.3_linux_amd64.tar.gz
+    - 0.14.2: gogs_v0.14.2_linux_amd64.tar.gz
+
+    A single string template cannot cover both; we prefer the GitHub release assets list.
+    """
+    ver_plain = version[1:] if version.startswith("v") else version
+    tag_with_v = f"v{ver_plain}"
+    api_url = f"https://api.github.com/repos/gogs/gogs/releases/tags/{tag_with_v}"
+    try:
+        req = urllib.request.Request(
+            api_url,
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "homeserver-updates-gogs"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.load(resp)
+        for asset in data.get("assets", []):
+            name = asset.get("name") or ""
+            if "linux_amd64" in name and name.endswith(".tar.gz"):
+                url = asset.get("browser_download_url")
+                if url:
+                    log_message(f"Resolved Gogs tarball from release assets: {name}")
+                    return url
+        log_message(f"No linux_amd64 .tar.gz asset in GitHub release {tag_with_v}", "WARNING")
+    except Exception as e:
+        log_message(f"GitHub API tarball resolution failed ({api_url}): {e}", "WARNING")
+
+    base = f"https://github.com/gogs/gogs/releases/download/{tag_with_v}"
+    for name in (f"gogs_{ver_plain}_linux_amd64.tar.gz", f"gogs_{tag_with_v}_linux_amd64.tar.gz"):
+        candidate = f"{base}/{name}"
+        if _http_head_ok(candidate):
+            log_message(f"Resolved Gogs tarball via URL probe: {candidate}")
+            return candidate
+    return None
+
 
 def validate_critical_data(install_dir):
     """
@@ -474,6 +525,47 @@ def validate_preservation(install_dir, validation_before):
         log_message(f"Error during preservation validation: {e}", "ERROR")
         return {"preservation_success": False, "error": str(e)}
 
+
+def _data_preserving_install_from_new_gogs_tree(install_dir: str, new_gogs_dir: str) -> Dict[str, Any]:
+    """
+    Replace packaged files under install_dir while preserving repositories/custom/data/log.
+    new_gogs_dir must match release layout (contains executable 'gogs', scripts/, etc.).
+    """
+    log_message("Performing pre-update validation...")
+    validation_before = validate_critical_data(install_dir)
+    temp_backup_dir = tempfile.mkdtemp(prefix="gogs_user_data_")
+    try:
+        if not preserve_user_data(install_dir, temp_backup_dir):
+            raise Exception("Failed to preserve user data")
+        if not replace_binary_only(install_dir, new_gogs_dir):
+            raise Exception("Failed to replace binary files")
+        if not restore_user_data(install_dir, temp_backup_dir):
+            raise Exception("Failed to restore user data")
+        log_message("Performing post-update validation...")
+        validation_after = validate_preservation(install_dir, validation_before)
+        shutil.rmtree(temp_backup_dir)
+        result = {
+            "success": True,
+            "validation_before": validation_before,
+            "validation_after": validation_after,
+            "preservation_success": validation_after.get("preservation_success", False),
+        }
+        if result["preservation_success"]:
+            log_message("✓ Data-preserving installation completed successfully")
+        else:
+            log_message("⚠ Installation completed but data preservation had issues", "WARNING")
+        return result
+    except Exception as e:
+        if os.path.exists(temp_backup_dir):
+            shutil.rmtree(temp_backup_dir)
+        log_message(f"Data-preserving install from tree failed: {e}", "ERROR")
+        return {
+            "success": False,
+            "error": str(e),
+            "preservation_success": False,
+        }
+
+
 def install_gogs_binary(version):
     """
     Install Gogs from pre-compiled binary while preserving user data.
@@ -482,161 +574,113 @@ def install_gogs_binary(version):
     Returns:
         dict: Installation results with success status and validation data
     """
+    install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
+    install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
+
+    download_url = resolve_gogs_linux_amd64_tarball_url(version)
+    if not download_url:
+        tpl = MODULE_CONFIG["config"]["installation"].get("binary_download_url_template")
+        if tpl:
+            try:
+                download_url = tpl.format(version=version)
+                log_message("Using binary_download_url_template as last resort (may 404 on some releases)")
+            except Exception as e:
+                log_message(f"Could not format binary_download_url_template: {e}", "WARNING")
+
+    if not download_url:
+        log_message("Could not resolve any linux_amd64 tarball URL for Gogs", "ERROR")
+        return {"success": False, "error": "No download URL", "preservation_success": False}
+
+    log_message(f"Attempting data-preserving binary installation from {download_url}")
+    temp_extract = tempfile.mkdtemp(prefix="gogs_new_")
+    temp_archive: Optional[str] = None
     try:
-        download_url = MODULE_CONFIG["config"]["installation"]["binary_download_url_template"].format(version=version)
-        extract_path = MODULE_CONFIG["config"]["installation"]["extract_path"]
-        
-        log_message(f"Attempting data-preserving binary installation from {download_url}")
-        
-        # Get installation directory
-        install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
-        install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
-        
-        # Pre-update validation
-        log_message("Performing pre-update validation...")
-        validation_before = validate_critical_data(install_dir)
-        
-        # Create temporary backup directory for user data
-        temp_backup_dir = tempfile.mkdtemp(prefix="gogs_user_data_")
-        
-        try:
-            # Preserve user data before update
-            if not preserve_user_data(install_dir, temp_backup_dir):
-                raise Exception("Failed to preserve user data")
-            
-            # Download and extract new version
-            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
-                log_message(f"Downloading {download_url}...")
-                urllib.request.urlretrieve(download_url, temp_file.name)
-                
-                # Extract to temporary location
-                temp_extract = tempfile.mkdtemp(prefix="gogs_new_")
-                subprocess.run(["tar", "xzf", temp_file.name, "-C", temp_extract], check=True)
-                
-                # Get path to new Gogs directory
-                new_gogs_dir = os.path.join(temp_extract, "gogs")
-                
-                # Replace binary and static files only
-                if not replace_binary_only(install_dir, new_gogs_dir):
-                    raise Exception("Failed to replace binary files")
-                
-                # Restore user data
-                if not restore_user_data(install_dir, temp_backup_dir):
-                    raise Exception("Failed to restore user data")
-                
-                # Post-update validation
-                log_message("Performing post-update validation...")
-                validation_after = validate_preservation(install_dir, validation_before)
-                
-                # Clean up temporary files
-                os.unlink(temp_file.name)
-                shutil.rmtree(temp_extract)
-                shutil.rmtree(temp_backup_dir)
-                
-                # Return results
-                result = {
-                    "success": True,
-                    "validation_before": validation_before,
-                    "validation_after": validation_after,
-                    "preservation_success": validation_after.get("preservation_success", False)
-                }
-                
-                if result["preservation_success"]:
-                    log_message("✓ Data-preserving binary installation completed successfully")
-                else:
-                    log_message("⚠ Binary installation completed but data preservation had issues", "WARNING")
-                
-                return result
-                
-        except Exception as e:
-            # Clean up on failure
-            if os.path.exists(temp_backup_dir):
-                shutil.rmtree(temp_backup_dir)
-            raise e
-            
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
+            temp_archive = temp_file.name
+        log_message(f"Downloading {download_url}...")
+        urllib.request.urlretrieve(download_url, temp_archive)
+        subprocess.run(["tar", "xzf", temp_archive, "-C", temp_extract], check=True)
+        os.unlink(temp_archive)
+        temp_archive = None
+
+        new_gogs_dir = os.path.join(temp_extract, "gogs")
+        if not os.path.isdir(new_gogs_dir):
+            raise Exception(f"Unexpected archive layout: missing {new_gogs_dir}")
+
+        result = _data_preserving_install_from_new_gogs_tree(install_dir, new_gogs_dir)
+        return result
     except Exception as e:
         log_message(f"Data-preserving binary installation failed: {e}", "ERROR")
         return {
             "success": False,
             "error": str(e),
-            "preservation_success": False
+            "preservation_success": False,
         }
+    finally:
+        if temp_archive and os.path.exists(temp_archive):
+            try:
+                os.unlink(temp_archive)
+            except OSError:
+                pass
+        if os.path.exists(temp_extract):
+            shutil.rmtree(temp_extract)
 
-def install_gogs_from_source(version):
+
+def install_gogs_from_source(version) -> Optional[Dict[str, Any]]:
     """
-    Install Gogs by building from source.
-    Args:
-        version: Version to build
-    Returns:
-        bool: True if successful, False otherwise
+    Fallback: build with go and apply the same data-preserving swap as the binary path.
+    Requires a Go toolchain compatible with Gogs' go.mod (see upstream); no Makefile.
+    Returns the same result dict shape as install_gogs_binary on success, else None.
     """
+    repo_url = MODULE_CONFIG["config"]["installation"]["source_repo_url"]
+    build_dir = "/tmp/gogs_build"
+    build_timeout = 900
+
+    install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
+    install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
+
+    log_message(f"Attempting source build for version {version}")
+    if os.path.exists(build_dir):
+        shutil.rmtree(build_dir)
+
+    tag = f"v{version}" if not str(version).startswith("v") else str(version)
     try:
-        # Hardcoded source build configuration
-        repo_url = MODULE_CONFIG["config"]["installation"]["source_repo_url"]
-        build_dir = "/tmp/gogs_build"
-        build_command = ["make", "build"]
-        build_timeout = 600
-        
-        install_dir_config = MODULE_CONFIG["config"]["directories"]["install_dir"]
-        install_dir = install_dir_config["path"] if isinstance(install_dir_config, dict) else install_dir_config
-        
-        log_message(f"Attempting source build for version {version}")
-        
-        # Clean up any existing build directory
-        if os.path.exists(build_dir):
-            shutil.rmtree(build_dir)
-        
-        # Clone the repository
-        log_message(f"Cloning repository {repo_url}")
-        subprocess.run([
-            "git", "clone", "--depth", "1", "--branch", f"v{version}",
-            repo_url, build_dir
-        ], check=True, timeout=120)
-        
-        # Change to build directory
-        original_cwd = os.getcwd()
-        os.chdir(build_dir)
-        
-        try:
-            # Check Go version
-            go_version_result = subprocess.run(["go", "version"], capture_output=True, text=True, check=True)
-            log_message(f"Using Go: {go_version_result.stdout.strip()}")
-            
-            # Build Gogs
-            log_message("Building Gogs from source...")
-            subprocess.run(build_command, check=True, timeout=build_timeout)
-            
-            # Install the built binary
-            if os.path.exists(install_dir):
-                shutil.rmtree(install_dir)
-            os.makedirs(install_dir, exist_ok=True)
-            
-            # Copy built binary and other necessary files
-            built_binary = os.path.join(build_dir, "gogs")
-            gogs_bin_config = MODULE_CONFIG["config"]["directories"]["gogs_bin"]
-            target_binary = gogs_bin_config["path"] if isinstance(gogs_bin_config, dict) else gogs_bin_config
-            
-            if os.path.exists(built_binary):
-                shutil.copy2(built_binary, target_binary)
-                os.chmod(target_binary, 0o755)
-                log_message("Source build completed successfully")
-                return True
-            else:
-                log_message("Built binary not found", "ERROR")
-                return False
-                
-        finally:
-            os.chdir(original_cwd)
-            # Clean up build directory
-            if os.path.exists(build_dir):
-                shutil.rmtree(build_dir)
-                
+        log_message(f"Cloning repository {repo_url} (ref {tag})")
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--branch", tag, repo_url, build_dir],
+            check=True,
+            timeout=300,
+        )
+        go_version_result = subprocess.run(
+            ["go", "version"], capture_output=True, text=True, check=True
+        )
+        log_message(f"Using {go_version_result.stdout.strip()}")
+        log_message("Building Gogs from source (go build)...")
+        subprocess.run(
+            ["go", "build", "-v", "-trimpath", "-o", "gogs", "."],
+            cwd=build_dir,
+            check=True,
+            timeout=build_timeout,
+        )
+        built_binary = os.path.join(build_dir, "gogs")
+        if not os.path.isfile(built_binary):
+            log_message("go build finished but gogs binary missing", "ERROR")
+            return None
+        log_message("Applying data-preserving install from source checkout...")
+        res = _data_preserving_install_from_new_gogs_tree(install_dir, build_dir)
+        if not res.get("success", False):
+            log_message(f"Install after build failed: {res.get('error')}", "ERROR")
+            return None
+        return res
     except subprocess.TimeoutExpired:
         log_message("Source build timed out", "ERROR")
-        return False
+        return None
     except Exception as e:
         log_message(f"Source build failed: {e}", "WARNING")
-        return False
+        return None
+    finally:
+        if os.path.exists(build_dir):
+            shutil.rmtree(build_dir)
 
 def restore_gogs_permissions():
     """
@@ -846,9 +890,10 @@ def main(args=None):
                 # If binary installation fails and fallback is enabled, try source build
                 if MODULE_CONFIG["config"]["installation"].get("fallback_to_source", False):
                     log_message("Binary installation failed, attempting source build...")
-                    success = install_gogs_from_source(latest_version)
-                    if not success:
+                    source_result = install_gogs_from_source(latest_version)
+                    if not source_result or not source_result.get("success", False):
                         raise Exception("Both binary and source installation methods failed")
+                    install_result = source_result
                 else:
                     raise Exception(f"Binary installation failed: {install_result.get('error', 'Unknown error')}")
             else:
