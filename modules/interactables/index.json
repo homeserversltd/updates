@@ -8,7 +8,7 @@
   },
   "interactables": [
     {
-      "id": "10000000",
+      "id": "forgejo_to_gogs",
       "name": "Migrate Gogs to Forgejo",
       "description": "One-time migration: replace Gogs with Forgejo (Git server). Run when you are ready to switch. Update modules will then use Forgejo only (group ladder).",
       "script": "gogs_to_forgejo.sh",
