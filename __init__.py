@@ -384,6 +384,53 @@ def _preserve_local_repository_config(backup_module_path: str, local_module_path
         log_message(f"Could not preserve repository config for {module_name}: {e}", "WARNING")
 
 
+def _preserve_migrations_has_run_state(backup_module_path: str, local_module_path: str, module_name: str) -> None:
+    """
+    After a schema update, merge migration completion flags from the backup
+    module into the new index.json by migration id.
+
+    The shipped repo index.json lists has_run: false for all entries; without
+    this merge, a module schema bump wipes months of on-disk migration state
+    and forces 00000002..00000006 to run again.
+    """
+    if module_name != "migrations":
+        return
+    backup_index = os.path.join(backup_module_path, "index.json")
+    local_index_path = os.path.join(local_module_path, "index.json")
+    if not os.path.exists(backup_index) or not os.path.exists(local_index_path):
+        return
+    try:
+        with open(backup_index, "r") as f:
+            backup_data = json.load(f)
+        with open(local_index_path, "r") as f:
+            local_data = json.load(f)
+        backup_migrations = backup_data.get("migrations")
+        local_migrations = local_data.get("migrations")
+        if not isinstance(backup_migrations, list) or not isinstance(local_migrations, list):
+            return
+        by_id = {
+            m.get("id"): m
+            for m in backup_migrations
+            if isinstance(m, dict) and m.get("id")
+        }
+        merged = 0
+        for m in local_migrations:
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("id")
+            if mid in by_id and by_id[mid].get("has_run") is True:
+                m["has_run"] = True
+                merged += 1
+        if merged:
+            with open(local_index_path, "w") as f:
+                json.dump(local_data, f, indent=2)
+            log_message(
+                f"Preserved has_run for {merged} migration(s) from backup (migrations module)"
+            )
+    except Exception as e:
+        log_message(f"Could not preserve migrations has_run state: {e}", "WARNING")
+
+
 def update_modules(modules_to_update: List[str], local_modules_path: str, repo_modules_path: str) -> Dict[str, bool]:
     """
     Update specified modules by clobbering local versions with repo versions.
@@ -425,6 +472,7 @@ def update_modules(modules_to_update: List[str], local_modules_path: str, repo_m
             # Restore local repository dict (url, branch, default_branch) so schema update never clobbers it
             if os.path.exists(backup_path):
                 _preserve_local_repository_config(backup_path, local_module_path, module_name)
+                _preserve_migrations_has_run_state(backup_path, local_module_path, module_name)
             # Ensure all shell scripts in the module are executable
             make_shell_scripts_executable(local_module_path)
             # Schema update successful - module will be executed later in the process

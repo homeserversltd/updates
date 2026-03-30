@@ -43,28 +43,10 @@ if [ ! -f "$PACKAGE_JSON" ]; then
     exit 0
 fi
 
-# IDEMPOTENCY CHECK 2: Already on Vite?
+# IDEMPOTENCY CHECK 2: Already on Vite? Exit with no npm/build (work was done long ago on field units)
 if [ -f "$VITE_CONFIG" ] && ! grep -q '"react-scripts"' "$PACKAGE_JSON" 2>/dev/null; then
     log "Vite already in use (vite.config.ts present, no react-scripts)"
-    log "Ensuring dependencies and build are current..."
-    cd "$WEBROOT" || { log "ERROR: Cannot cd to $WEBROOT"; exit 1; }
-    if npm install --no-audit --no-fund >/dev/null 2>&1; then
-        log "npm install completed"
-    else
-        log "WARNING: npm install had non-zero exit (continuing)"
-    fi
-    if npm run build >/dev/null 2>&1; then
-        log "npm run build completed"
-    else
-        log "WARNING: npm run build had non-zero exit (continuing)"
-    fi
-    if systemctl is-active --quiet gunicorn.service 2>/dev/null || systemctl is-active --quiet gunicorn 2>/dev/null; then
-        systemctl restart gunicorn.service 2>/dev/null || systemctl restart gunicorn 2>/dev/null
-        log "Gunicorn restarted"
-    else
-        log "Gunicorn not running or not found (skip restart)"
-    fi
-    log "SUCCESS: Migration already applied, exiting successfully"
+    log "SUCCESS: Migration already applied, nothing to do"
     exit 0
 fi
 
