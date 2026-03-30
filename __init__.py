@@ -28,6 +28,12 @@ from typing import Dict, List, Any, Optional, Union
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import datetime
+import time
+
+try:
+    import fcntl  # Unix: serialize sync_from_repo across concurrent updaters
+except ImportError:
+    fcntl = None  # type: ignore
 
 # Debug flag for verbose logging
 DEBUG = False
@@ -146,6 +152,46 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
     Returns:
         bool: True if sync successful, False otherwise
     """
+    lock_path = f"{local_path}.sync.lock"
+    lock_fd: Optional[int] = None
+
+    def _acquire_sync_lock() -> None:
+        nonlocal lock_fd
+        if fcntl is None:
+            return
+        try:
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            log_message(f"[SYNC] Acquired exclusive lock {lock_path}")
+        except OSError as e:
+            log_message(f"[SYNC] Could not acquire sync lock ({e}); continuing", "WARNING")
+            if lock_fd is not None:
+                try:
+                    os.close(lock_fd)
+                except OSError:
+                    pass
+                lock_fd = None
+
+    def _release_sync_lock() -> None:
+        nonlocal lock_fd
+        if lock_fd is None or fcntl is None:
+            return
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+        except OSError:
+            pass
+        lock_fd = None
+
+    def _unlink_stale_git_config_lock(path: str) -> None:
+        lock_file = os.path.join(path, ".git", "config.lock")
+        if os.path.isfile(lock_file):
+            try:
+                os.unlink(lock_file)
+                log_message(f"[SYNC] Removed stale git lock {lock_file}")
+            except OSError as e:
+                log_message(f"[SYNC] Could not remove stale lock {lock_file}: {e}", "WARNING")
+
     def _safe_rmtree(path: str) -> None:
         """
         Remove directory tree while tolerating transient ENOENT races.
@@ -162,40 +208,83 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
 
         shutil.rmtree(path, onerror=_onerror)
 
-    try:
-        # Always remove existing directory and clone fresh to avoid ownership/permission issues
+    def _force_remove_repo_path(path: str) -> None:
+        """If Python rmtree leaves debris (permissions, races), use rm -rf once."""
+        if not os.path.exists(path):
+            return
+        _unlink_stale_git_config_lock(path)
+        try:
+            result = subprocess.run(
+                ["/bin/rm", "-rf", path],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                log_message(
+                    f"[SYNC] /bin/rm -rf exit {result.returncode}: {result.stderr or result.stdout}",
+                    "WARNING",
+                )
+        except subprocess.TimeoutExpired:
+            log_message(f"[SYNC] Timeout removing {path}", "WARNING")
+        except Exception as e:
+            log_message(f"[SYNC] Force remove failed: {e}", "WARNING")
+
+    def _prepare_empty_clone_target() -> None:
+        """Ensure local_path does not exist before git clone (avoids config.lock races)."""
+        if not os.path.exists(local_path):
+            return
+        log_message(f"Removing existing repository at {local_path}")
+        _unlink_stale_git_config_lock(local_path)
+        try:
+            _safe_rmtree(local_path)
+        except FileNotFoundError:
+            log_message(f"[SYNC] Repository path vanished during cleanup: {local_path}")
         if os.path.exists(local_path):
-            log_message(f"Removing existing repository at {local_path}")
-            try:
-                _safe_rmtree(local_path)
-            except FileNotFoundError:
-                # Path disappeared between exists() and rmtree; safe to continue.
-                log_message(f"[SYNC] Repository path vanished during cleanup: {local_path}")
-        
-        # Clone repository fresh
-        log_message(f"[SYNC] Cloning repository {repo_url} (branch: {branch}) to {local_path}")
-        
-        # Set environment to prevent credential prompts
+            log_message(
+                f"[SYNC] Path still present after rmtree; forcing removal: {local_path}",
+                "WARNING",
+            )
+            _force_remove_repo_path(local_path)
+
+    try:
+        _acquire_sync_lock()
+
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        
-        result = subprocess.run(
-            ["git", "clone", "-b", branch, repo_url, local_path],
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            env=env,
-            check=True
-        )
-        log_message(f"[SYNC] Git clone completed successfully")
-        
-        return True
-    except subprocess.CalledProcessError as e:
-        log_message(f"Git operation failed: {e.stderr}", "ERROR")
-        return False
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        clone_cmd = ["git", "clone", "-b", branch, repo_url, local_path]
+
+        for attempt in range(2):
+            _prepare_empty_clone_target()
+            if attempt > 0:
+                time.sleep(0.5)
+            log_message(
+                f"[SYNC] Cloning repository {repo_url} (branch: {branch}) to {local_path}"
+                + ("" if attempt == 0 else " (retry after cleanup)")
+            )
+            result = subprocess.run(
+                clone_cmd,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                env=env,
+            )
+            if result.returncode == 0:
+                log_message("[SYNC] Git clone completed successfully")
+                return True
+
+            err = (result.stderr or "") + (result.stdout or "")
+            log_message(f"Git clone failed (attempt {attempt + 1}): {err}", "ERROR")
+            if attempt == 1:
+                return False
+            log_message("[SYNC] Retrying once after full cleanup", "WARNING")
+
     except Exception as e:
         log_message(f"Sync failed: {e}", "ERROR")
         return False
+    finally:
+        _release_sync_lock()
 
 def get_branch_from_index(index_data: dict) -> str:
     """
