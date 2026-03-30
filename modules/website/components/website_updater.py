@@ -16,7 +16,10 @@ the entire src/backend, requiring premium tab reinstallation.
 """
 
 import os
+import re
+import sys
 import time
+import threading
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 from updates.index import log_message
@@ -373,21 +376,20 @@ class WebsiteUpdater:
                     )
                     
                     if result.returncode == 0:
-                        # Parse the output to extract installed tab names
-                        lines = result.stdout.strip().split('\n')
-                        for line in lines:
+                        # Parse: "  [INSTALLED] tabName (v1.0.0)"
+                        for line in result.stdout.strip().split('\n'):
                             line = line.strip()
-                            if line.startswith('[INSTALLED]'):
-                                # Format: "[INSTALLED] tabName (v1.0.0)"
-                                # Extract tab name from between [INSTALLED] and (v...)
-                                parts = line.split(' ')
-                                if len(parts) >= 2:
-                                    tab_name = parts[1]  # Get the tab name after [INSTALLED]
-                                    installed_tabs.append({
-                                        "name": tab_name,
-                                        "version": "unknown",  # Could parse version if needed
-                                        "path": os.path.join(self.base_dir, 'premium', tab_name)
-                                    })
+                            m = re.match(
+                                r'^\[INSTALLED\]\s+(\S+)\s+\(v([^)]+)\)',
+                                line,
+                            )
+                            if m:
+                                tab_name, ver = m.group(1), m.group(2)
+                                installed_tabs.append({
+                                    "name": tab_name,
+                                    "version": ver,
+                                    "path": os.path.join(self.base_dir, 'premium', tab_name),
+                                })
                         
                         log_message(f"✓ Found {len(installed_tabs)} actually installed premium tabs via installer")
                     else:
@@ -419,31 +421,57 @@ class WebsiteUpdater:
     
     def _fallback_capture_premium_tab_state(self) -> List[Dict[str, Any]]:
         """
-        Fallback method to capture premium tab state by scanning directory.
-        This is the old method that incorrectly assumed all tabs in premium/ were installed.
+        When ``installer.py list --installed`` fails, use the same InstallationTracker
+        logic as the premium installer. Do **not** scan ``premium/*/index.json``; that
+        lists every shipped tab source, not tabs the user actually installed.
         """
-        installed_tabs = []
+        installed_tabs: List[Dict[str, Any]] = []
         premium_dir = os.path.join(self.base_dir, 'premium')
-        
-        if os.path.exists(premium_dir):
-            for item in os.listdir(premium_dir):
-                item_path = os.path.join(premium_dir, item)
-                tab_index_path = os.path.join(item_path, 'index.json')
-                
-                if os.path.isdir(item_path) and os.path.exists(tab_index_path):
-                    try:
-                        import json
-                        with open(tab_index_path, 'r') as f:
-                            tab_config = json.load(f)
-                        
-                        installed_tabs.append({
-                            "name": item,
-                            "version": tab_config.get("version", "unknown"),
-                            "path": item_path
-                        })
-                    except Exception as e:
-                        log_message(f"Warning: Could not read tab config for {item}: {e}", "WARNING")
-        
+        tracker_utils = os.path.join(premium_dir, 'utils', 'installation_tracker.py')
+        if not os.path.isfile(tracker_utils):
+            log_message(
+                "Premium InstallationTracker not found; cannot infer installed tabs",
+                "WARNING",
+            )
+            return installed_tabs
+        code = (
+            "import sys, logging\n"
+            f"sys.path.insert(0, {repr(premium_dir)})\n"
+            "logging.basicConfig(level=logging.ERROR)\n"
+            "from utils.installation_tracker import InstallationTracker\n"
+            "t = InstallationTracker(logging.getLogger('hs_install_tracker'))\n"
+            "for tab in t.get_installed_premium_tabs():\n"
+            "    print(tab['name'])"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, '-c', code],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=premium_dir,
+            )
+            if result.returncode != 0:
+                log_message(
+                    f"InstallationTracker fallback stderr: {result.stderr}",
+                    "WARNING",
+                )
+                return installed_tabs
+            for line in result.stdout.strip().splitlines():
+                name = line.strip()
+                if name:
+                    installed_tabs.append({
+                        "name": name,
+                        "version": "unknown",
+                        "path": os.path.join(premium_dir, name),
+                    })
+            log_message(
+                f"✓ Fallback: {len(installed_tabs)} installed tab(s) via InstallationTracker",
+            )
+        except subprocess.TimeoutExpired:
+            log_message("InstallationTracker fallback timed out after 120s", "WARNING")
+        except Exception as e:
+            log_message(f"InstallationTracker fallback failed: {e}", "WARNING")
         return installed_tabs
     
     
@@ -524,12 +552,15 @@ class WebsiteUpdater:
             tab_names = []
             for tab_info in installed_tabs:
                 tab_name = tab_info["name"]
-                # Check if premium directory exists for this tab
                 tab_path = os.path.join(self.base_dir, 'premium', tab_name)
+                # After a git clone, every shipped tab exists under premium/; only skip if truly missing.
                 if os.path.exists(tab_path):
                     tab_names.append(tab_name)
                 else:
-                    log_message(f"⚠ Warning: Premium directory not found for {tab_name}: {tab_path}")
+                    log_message(
+                        f"⚠ Warning: Premium source missing for captured tab {tab_name}: {tab_path}",
+                        "WARNING",
+                    )
             
             if not tab_names:
                 log_message("No valid premium tabs found")
@@ -554,41 +585,54 @@ class WebsiteUpdater:
     def _run_premium_installer_install(self, tab_names: List[str]) -> bool:
         """
         Run premium installer install command for tabs.
-        
-        Args:
-            tab_names: List of tab names to install
-            
-        Returns:
-            bool: True if successful, False otherwise
+        Stream combined stdout/stderr to the update log so long batch installs
+        (npm, build) do not appear hung with no output.
         """
+        cmd = [
+            "/usr/bin/python3",
+            self.premium_installer_path,
+            "install",
+        ] + tab_names
+
+        log_message(f"Running: {' '.join(cmd)}")
         try:
-            import subprocess
-            
-            # Run the premium installer install command with tab names
-            cmd = [
-                "python3", 
-                self.premium_installer_path, 
-                "install"
-            ] + tab_names
-            
-            log_message(f"Running: {' '.join(cmd)}")
-            
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                cwd=os.path.dirname(self.premium_installer_path)
+                bufsize=1,
+                cwd=os.path.dirname(self.premium_installer_path),
             )
-            
-            if result.returncode == 0:
-                log_message(f"✓ Premium installer install successful for {len(tab_names)} tabs: {', '.join(tab_names)}")
+
+            def _drain() -> None:
+                assert proc.stdout is not None
+                for line in iter(proc.stdout.readline, ''):
+                    log_message(f"[premium-installer] {line.rstrip()}")
+                proc.stdout.close()
+
+            reader = threading.Thread(target=_drain, daemon=True)
+            reader.start()
+            # Batch npm/build can run a long time; cap to avoid infinite hang.
+            ret = proc.wait(timeout=7200)
+            reader.join(timeout=30)
+            if ret == 0:
+                log_message(
+                    f"✓ Premium installer install successful for {len(tab_names)} tabs: {', '.join(tab_names)}",
+                )
                 return True
-            else:
-                log_message(f"✗ Premium installer install failed")
-                log_message(f"STDOUT: {result.stdout}")
-                log_message(f"STDERR: {result.stderr}")
-                return False
-                
+            log_message(f"✗ Premium installer install failed (exit {ret})", "ERROR")
+            return False
+        except subprocess.TimeoutExpired:
+            log_message(
+                "✗ Premium installer exceeded 7200s; sending SIGKILL",
+                "ERROR",
+            )
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return False
         except Exception as e:
             log_message(f"✗ Exception running premium installer install: {e}", "ERROR")
             return False
