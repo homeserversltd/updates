@@ -146,11 +146,31 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
     Returns:
         bool: True if sync successful, False otherwise
     """
+    def _safe_rmtree(path: str) -> None:
+        """
+        Remove directory tree while tolerating transient ENOENT races.
+
+        Git can mutate .git internals while another update process is cleaning
+        the same temp directory; missing entries during traversal should not
+        abort sync when the end goal is "path removed before fresh clone".
+        """
+        def _onerror(_func, _target_path, exc_info):
+            exc = exc_info[1]
+            if isinstance(exc, FileNotFoundError):
+                return
+            raise exc
+
+        shutil.rmtree(path, onerror=_onerror)
+
     try:
         # Always remove existing directory and clone fresh to avoid ownership/permission issues
         if os.path.exists(local_path):
             log_message(f"Removing existing repository at {local_path}")
-            shutil.rmtree(local_path)
+            try:
+                _safe_rmtree(local_path)
+            except FileNotFoundError:
+                # Path disappeared between exists() and rmtree; safe to continue.
+                log_message(f"[SYNC] Repository path vanished during cleanup: {local_path}")
         
         # Clone repository fresh
         log_message(f"[SYNC] Cloning repository {repo_url} (branch: {branch}) to {local_path}")
