@@ -33,7 +33,9 @@ if [ ! -f "$WAN_LINK_FILE" ] || [ ! -f "$LAN_LINK_FILE" ]; then
 
     interfaces=()
     while IFS= read -r line; do
-        if [[ $line =~ ^[0-9]+:\ ([^@]+) ]]; then
+        # Match "N: ifname: <flags..." — capture only ifname (first field after index), not the rest of the line.
+        # [^@]+ was wrong: most lines have no "@", so it swallowed "enp1s0: <BROADCAST,..."
+        if [[ $line =~ ^[[:space:]]*[0-9]+:\ ([^:]+): ]]; then
             if_name="${BASH_REMATCH[1]}"
             if [[ $if_name =~ ^enp ]] && [[ $if_name != "lo" ]] && [[ $if_name != veth* ]] && [[ $if_name != tailscale* ]] && [[ $if_name != wlan* ]]; then
                 interfaces+=("$if_name")
