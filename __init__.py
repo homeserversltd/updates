@@ -29,9 +29,10 @@ from concurrent.futures import ThreadPoolExecutor
 import sys
 import datetime
 import time
+from contextlib import contextmanager
 
 try:
-    import fcntl  # Unix: serialize sync_from_repo across concurrent updaters
+    import fcntl  # Unix: serialize clone + module copy across concurrent updaters
 except ImportError:
     fcntl = None  # type: ignore
 
@@ -59,6 +60,7 @@ __all__ = [
     'load_module_index',
     'compare_schema_versions',
     'sync_from_repo',
+    'repo_sync_lock',
     'detect_module_updates',
     'update_modules',
     'get_branch_from_index',
@@ -140,6 +142,36 @@ def compare_schema_versions(version1: str, version2: str) -> int:
 
 # This function has been removed - we only need simple schema version comparison
 
+
+@contextmanager
+def repo_sync_lock(local_path: str):
+    """
+    Exclusive lock for the temp clone path until module copy completes.
+
+    sync_from_repo() alone used to release the lock immediately after git clone.
+    A second concurrent updater could then rm -rf the same path before
+    update_modules() ran, causing ENOENT on .../modules/<name>.
+    Hold this lock from before sync through update_modules (see index.py).
+    """
+    if fcntl is None:
+        yield
+        return
+    lock_path = f"{local_path}.sync.lock"
+    fd: Optional[int] = None
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        log_message(f"[SYNC] Acquired exclusive lock {lock_path} (clone + module copy)")
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+            except OSError:
+                pass
+
+
 def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool:
     """
     Sync updates from a Git repository.
@@ -152,37 +184,6 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
     Returns:
         bool: True if sync successful, False otherwise
     """
-    lock_path = f"{local_path}.sync.lock"
-    lock_fd: Optional[int] = None
-
-    def _acquire_sync_lock() -> None:
-        nonlocal lock_fd
-        if fcntl is None:
-            return
-        try:
-            lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
-            log_message(f"[SYNC] Acquired exclusive lock {lock_path}")
-        except OSError as e:
-            log_message(f"[SYNC] Could not acquire sync lock ({e}); continuing", "WARNING")
-            if lock_fd is not None:
-                try:
-                    os.close(lock_fd)
-                except OSError:
-                    pass
-                lock_fd = None
-
-    def _release_sync_lock() -> None:
-        nonlocal lock_fd
-        if lock_fd is None or fcntl is None:
-            return
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            os.close(lock_fd)
-        except OSError:
-            pass
-        lock_fd = None
-
     def _unlink_stale_git_config_lock(path: str) -> None:
         lock_file = os.path.join(path, ".git", "config.lock")
         if os.path.isfile(lock_file):
@@ -249,8 +250,6 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
             _force_remove_repo_path(local_path)
 
     try:
-        _acquire_sync_lock()
-
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
         clone_cmd = ["git", "clone", "-b", branch, repo_url, local_path]
@@ -283,8 +282,6 @@ def sync_from_repo(repo_url: str, local_path: str, branch: str = "main") -> bool
     except Exception as e:
         log_message(f"Sync failed: {e}", "ERROR")
         return False
-    finally:
-        _release_sync_lock()
 
 def get_branch_from_index(index_data: dict) -> str:
     """

@@ -30,7 +30,7 @@ Migrations execute in strict order as defined in `index.json`:
 
 1. Load all migrations from configuration
 2. For each migration in order where `has_run=false`:
-   - Execute the corresponding shell script from `src/`
+   - Execute the corresponding Python script from `src/` (`python3 NNNNNNNN.py`)
    - Capture all output to migration log
    - On success (exit code 0): mark `has_run=true` in index.json
    - On failure (exit code != 0): log error, leave `has_run=false`, continue to next update
@@ -38,9 +38,10 @@ Migrations execute in strict order as defined in `index.json`:
 
 ### Migration Scripts
 
-- **Location**: `src/00000001.sh`, `src/00000002.sh`, etc.
+- **Location**: `src/00000001.py`, `src/00000002.py`, etc. (shell `.sh` is no longer supported)
+- **Shared helpers**: `src/migrations_common.py` (logging, `require_root()`)
 - **Naming**: 8-digit zero-padded numbers (00000001 through 99999999)
-- **Execution**: Run as root with full system access
+- **Execution**: `MigrationManager` invokes `sys.executable` on each script; must run as root
 - **Timeout**: 10 minutes per migration (configurable)
 - **Environment**: Access to `/root/key/skeleton.key` (Factory Access Key)
 
@@ -122,8 +123,8 @@ Gaps in numbering are intentional to allow insertion of urgent migrations.
 
 ## Adding New Migrations
 
-1. **Create the script**: `src/NNNNNNNN.sh` with proper idempotency checks
-2. **Make executable**: `chmod +x src/NNNNNNNN.sh`
+1. **Create the script**: `src/NNNNNNNN.py` with `main() -> int` (exit 0 success), idempotent behavior, and `from migrations_common import log, require_root` as needed
+2. **Make executable**: `chmod +x src/NNNNNNNN.py` (optional; orchestrator chmods)
 3. **Add to index.json**:
    ```json
    {
@@ -132,7 +133,7 @@ Gaps in numbering are intentional to allow insertion of urgent migrations.
      "has_run": false
    }
    ```
-4. **Test locally**: Run the script multiple times to verify idempotency
+4. **Test locally**: `sudo python3 src/NNNNNNNN.py` multiple times to verify idempotency
 5. **Commit to repository**: Push to main updates repository (migrations is part of updates module)
 6. **Deploy**: Update system will automatically deploy new migration to all systems
 
@@ -203,7 +204,7 @@ Migration `00000006` completes the frontend build-tool migration from Create Rea
 If a migration repeatedly fails:
 
 1. Check migration log: `tail -f /var/log/homeserver/migrations.log`
-2. Run migration manually: `bash /usr/local/lib/updates/modules/migrations/src/NNNNNNNN.sh`
+2. Run migration manually: `sudo python3 /usr/local/lib/updates/modules/migrations/src/NNNNNNNN.py`
 3. Fix underlying issue
 4. Let update system retry automatically
 

@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import os
 import subprocess
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Any
 from updates.index import log_message
@@ -77,28 +78,35 @@ class MigrationManager:
         return True
     
     def _execute_migration_script(self, migration: Dict[str, Any]) -> bool:
-        """Execute the migration script for a migration."""
+        """Execute the migration script for a migration (Python only; shell is not supported)."""
         migration_id = migration.get('id', 'unknown')
-        script_name = f"{migration_id}.sh"
-        script_path = self.src_dir / script_name
-        
-        if not script_path.exists():
-            self._log_migration(f"Migration script not found: {script_path}", "ERROR")
+        py_name = f"{migration_id}.py"
+        sh_name = f"{migration_id}.sh"
+        py_path = self.src_dir / py_name
+        sh_path = self.src_dir / sh_name
+
+        if not py_path.exists():
+            if sh_path.exists():
+                self._log_migration(
+                    f"Migration {migration_id}: {sh_name} exists but shell migrations are no longer executed. "
+                    f"Add {py_name} alongside or replace the shell script.",
+                    "ERROR",
+                )
+            else:
+                self._log_migration(f"Migration script not found: {py_path}", "ERROR")
             return False
-        
-        self._log_migration(f"Executing migration script: {script_name}")
+
+        self._log_migration(f"Executing migration script: {py_name}")
         self._log_migration("=" * 60)
-        
+
         try:
-            # Make script executable
-            os.chmod(script_path, 0o755)
-            
-            # Execute the script with timeout (10 minutes)
+            os.chmod(py_path, 0o755)
+
             result = subprocess.run(
-                [str(script_path)],
+                [sys.executable, str(py_path)],
                 capture_output=True,
                 text=True,
-                timeout=600
+                timeout=600,
             )
             
             # Log all output
@@ -109,23 +117,23 @@ class MigrationManager:
                 self._log_migration(f"Migration stderr:\n{result.stderr}", "WARNING")
             
             if result.returncode == 0:
-                self._log_migration(f"Migration script {script_name} completed successfully")
+                self._log_migration(f"Migration script {py_name} completed successfully")
                 self._log_migration("=" * 60)
                 return True
             else:
                 self._log_migration(
-                    f"Migration script {script_name} failed with return code {result.returncode}", 
-                    "ERROR"
+                    f"Migration script {py_name} failed with return code {result.returncode}",
+                    "ERROR",
                 )
                 self._log_migration("=" * 60)
                 return False
                 
         except subprocess.TimeoutExpired:
-            self._log_migration(f"Migration script {script_name} timed out after 10 minutes", "ERROR")
+            self._log_migration(f"Migration script {py_name} timed out after 10 minutes", "ERROR")
             self._log_migration("=" * 60)
             return False
         except Exception as e:
-            self._log_migration(f"Error executing migration script {script_name}: {e}", "ERROR")
+            self._log_migration(f"Error executing migration script {py_name}: {e}", "ERROR")
             self._log_migration("=" * 60)
             return False
     

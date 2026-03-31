@@ -28,7 +28,7 @@ import importlib
 import sys
 from pathlib import Path
 from datetime import datetime
-from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, detect_module_updates, update_modules, DEBUG
+from . import compare_schema_versions, run_update, load_module_index, sync_from_repo, repo_sync_lock, detect_module_updates, update_modules, DEBUG
 from .utils import run_all_maintenance
 
 # Add current directory to path for relative imports
@@ -843,96 +843,101 @@ async def run_schema_based_updates(repo_url: str = None, local_repo_path: str = 
     }
     
     try:
-        # Step 1: Sync from repository
-        log_to_file("Step 1: Syncing from repository...")
-        if not sync_from_repo(repo_url, local_repo_path, branch):
-            results["errors"].append("Failed to sync from repository")
-            return results
-        
-        results["sync_success"] = True
-        
-        # Step 1.5: Check if orchestrator itself needs updating
-        log_to_file("Step 1.5: Checking orchestrator schema version...")
-        orchestrator_needs_update = check_orchestrator_update(modules_path, local_repo_path)
-        if orchestrator_needs_update and os.environ.get("HS_UPDATER_RESTARTED") != "1":
-            log_to_file("CRITICAL: Orchestrator update detected - updating orchestrator first")
-            
-            # Update orchestrator IMMEDIATELY and restart once via exec
-            log_message("Step 1.6: Updating orchestrator system...")
-            orchestrator_success = update_orchestrator(modules_path, local_repo_path)
-            if orchestrator_success:
-                log_message("Orchestrator updated successfully; restarting updater once before applying module updates…")
-                
-                # Update global index with new orchestrator version
-                update_global_index(modules_path, [], True)
-                
-                # Update homeserver config timestamp for orchestrator update
-                update_homeserver_config_timestamp()
-                
-                # Prepare exec to replace current process
-                shell_script_path = os.path.join(modules_path, "updateManager.sh")
-                current_args = sys.argv[1:]  # Skip script name
-                shell_args = []
-                for arg in current_args:
-                    if arg == "--check-only":
-                        shell_args.append("--check")
-                    elif arg == "--legacy":
-                        shell_args.append("--legacy")
-                # Set env flag to avoid restart loops
-                env = os.environ.copy()
-                env["HS_UPDATER_RESTARTED"] = "1"
-                
-                # Exec the shell script if available; else exec python -m updates.index
-                try:
+        modules_to_update: list = []
+        do_exec = False
+        exec_shell_path = None
+        exec_shell_args = None
+        exec_env = None
+
+        # Lock through clone + orchestrator read/copy + module copy so another process
+        # cannot rm -rf local_repo_path between git clone and shutil.copytree.
+        with repo_sync_lock(local_repo_path):
+            # Step 1: Sync from repository
+            log_to_file("Step 1: Syncing from repository...")
+            if not sync_from_repo(repo_url, local_repo_path, branch):
+                results["errors"].append("Failed to sync from repository")
+                return results
+
+            results["sync_success"] = True
+
+            # Step 1.5: Check if orchestrator itself needs updating
+            log_to_file("Step 1.5: Checking orchestrator schema version...")
+            orchestrator_needs_update = check_orchestrator_update(modules_path, local_repo_path)
+            if orchestrator_needs_update and os.environ.get("HS_UPDATER_RESTARTED") != "1":
+                log_to_file("CRITICAL: Orchestrator update detected - updating orchestrator first")
+
+                log_message("Step 1.6: Updating orchestrator system...")
+                orchestrator_success = update_orchestrator(modules_path, local_repo_path)
+                if orchestrator_success:
+                    log_message("Orchestrator updated successfully; restarting updater once before applying module updates…")
+
+                    update_global_index(modules_path, [], True)
+                    update_homeserver_config_timestamp()
+
+                    shell_script_path = os.path.join(modules_path, "updateManager.sh")
+                    current_args = sys.argv[1:]
+                    shell_args = []
+                    for arg in current_args:
+                        if arg == "--check-only":
+                            shell_args.append("--check")
+                        elif arg == "--legacy":
+                            shell_args.append("--legacy")
+                    exec_env = os.environ.copy()
+                    exec_env["HS_UPDATER_RESTARTED"] = "1"
                     if os.path.exists(shell_script_path):
-                        log_message("Executing updated updateManager.sh (exec)")
-                        os.execve(shell_script_path, [shell_script_path] + shell_args, env)
+                        exec_shell_path = shell_script_path
+                        exec_shell_args = [shell_script_path] + shell_args
                     else:
-                        log_message("Shell wrapper not found; exec Python module directly (exec)")
-                        exec_argv = [sys.executable, "-m", "updates.index"] + current_args
-                        os.execve(sys.executable, exec_argv, env)
-                except Exception as e:
-                    # If exec fails, treat as critical error
-                    log_message(f"Failed to exec updated orchestrator: {e}", "ERROR")
-                    results["errors"].append("Failed to exec updated orchestrator")
+                        exec_shell_path = sys.executable
+                        exec_shell_args = [sys.executable, "-m", "updates.index"] + current_args
+                    do_exec = True
+                else:
+                    results["errors"].append("Failed to update orchestrator")
                     return results
             else:
-                results["errors"].append("Failed to update orchestrator")
+                # Step 2: Detect modules that need updates
+                log_message("Step 2: Detecting module updates...")
+                repo_modules_path = os.path.join(local_repo_path, "modules")
+                if not os.path.exists(repo_modules_path):
+                    repo_modules_path = local_repo_path
+
+                local_modules_search_path = os.path.join(modules_path, "modules")
+                if not os.path.exists(local_modules_search_path):
+                    local_modules_search_path = modules_path
+
+                if DEBUG:
+                    log_message(f"🔍 Calling detect_module_updates with:")
+                    log_message(f"  Local modules path: {modules_path}")
+                    log_message(f"  Repository modules path: {repo_modules_path}")
+
+                modules_to_update = detect_module_updates(modules_path, repo_modules_path)
+                results["modules_detected"] = modules_to_update
+
+                if DEBUG:
+                    log_message(f"🎯 detect_module_updates returned: {modules_to_update}")
+
+                if modules_to_update:
+                    log_message(f"Found {len(modules_to_update)} modules to update: {', '.join(modules_to_update)}")
+                else:
+                    log_message("No modules need updating")
+
+                if modules_to_update:
+                    log_message("Step 3: Updating modules...")
+                    update_results = update_modules(modules_to_update, modules_path, repo_modules_path)
+                    results["modules_updated"] = update_results
+
+        if do_exec:
+            try:
+                if exec_shell_path and os.path.basename(exec_shell_path) == "updateManager.sh":
+                    log_message("Executing updated updateManager.sh (exec)")
+                else:
+                    log_message("Shell wrapper not found; exec Python module directly (exec)")
+                os.execve(exec_shell_path, exec_shell_args, exec_env)
+            except Exception as e:
+                log_message(f"Failed to exec updated orchestrator: {e}", "ERROR")
+                results["errors"].append("Failed to exec updated orchestrator")
                 return results
-        
-        # Step 2: Detect modules that need updates (only reached if orchestrator didn't need updating)
-        log_message("Step 2: Detecting module updates...")
-        repo_modules_path = os.path.join(local_repo_path, "modules")  # Look for modules subdirectory
-        if not os.path.exists(repo_modules_path):
-            repo_modules_path = local_repo_path  # Fallback to root if no modules subdirectory
-        
-        # Ensure local modules path has modules subdirectory
-        local_modules_search_path = os.path.join(modules_path, "modules")
-        if not os.path.exists(local_modules_search_path):
-            local_modules_search_path = modules_path  # Fallback to root
-        
-        if DEBUG:
-            log_message(f"🔍 Calling detect_module_updates with:")
-            log_message(f"  Local modules path: {modules_path}")
-            log_message(f"  Repository modules path: {repo_modules_path}")
-        
-        modules_to_update = detect_module_updates(modules_path, repo_modules_path)
-        results["modules_detected"] = modules_to_update
-        
-        if DEBUG:
-            log_message(f"🎯 detect_module_updates returned: {modules_to_update}")
-        
-        if modules_to_update:
-            log_message(f"Found {len(modules_to_update)} modules to update: {', '.join(modules_to_update)}")
-        else:
-            log_message("No modules need updating")
-        
-        # Step 3: Update modules
-        if modules_to_update:
-            log_message("Step 3: Updating modules...")
-            update_results = update_modules(modules_to_update, modules_path, repo_modules_path)
-            results["modules_updated"] = update_results
-        
+
         # Step 4: Run maintenance tasks for all modules
         log_message("Step 4: Running maintenance tasks...")
         maintenance_results = run_all_maintenance(modules_path)
@@ -1544,24 +1549,22 @@ def main():
                 orchestrator_update_available = False
                 # Use repository URL from metadata for check-only mode
                 check_repo_url = global_index.get("metadata", {}).get("repository_url", args.repo_url)
-                if sync_from_repo(check_repo_url, args.local_repo, args.branch):
+                with repo_sync_lock(args.local_repo):
+                    if not sync_from_repo(check_repo_url, args.local_repo, args.branch):
+                        log_message("Failed to sync repository for orchestrator check", "ERROR")
+                        return
                     orchestrator_needs_update = check_orchestrator_update(args.modules_path, args.local_repo)
                     if orchestrator_needs_update:
                         orchestrator_update_available = True
                         log_message("Orchestrator update available")
                     else:
                         log_message("Orchestrator is up to date")
-                else:
-                    log_message("Failed to sync repository for orchestrator check", "ERROR")
-                    return
-                
-                # Step 1: Schema-level check (existing functionality)
-                schema_updates_available = []
-                repo_modules_path = os.path.join(args.local_repo, "modules")
-                if not os.path.exists(repo_modules_path):
-                    repo_modules_path = args.local_repo
-                
-                modules_to_update = detect_module_updates(args.modules_path, repo_modules_path)
+                    # Step 1: Schema-level check (needs same clone as sync)
+                    repo_modules_path = os.path.join(args.local_repo, "modules")
+                    if not os.path.exists(repo_modules_path):
+                        repo_modules_path = args.local_repo
+                    modules_to_update = detect_module_updates(args.modules_path, repo_modules_path)
+
                 schema_updates_available = modules_to_update
                 
                 if modules_to_update:
