@@ -1,6 +1,6 @@
 {
     "metadata": {
-        "schema_version": "0.1.11",
+        "schema_version": "0.1.12",
         "module_name": "os",
         "description": "Operating system update module with intelligent repair and real-time progress",
         "enabled": true,
@@ -11,7 +11,7 @@
             "config_dir": "/etc/os-updates"
         },
         "package_manager": {
-            "update_command": ["apt", "update"],
+            "update_command": ["apt", "update", "--allow-releaseinfo-change"],
             "upgrade_command": ["apt", "upgrade", "-y"],
             "autoremove_command": ["apt", "autoremove", "-y"],
             "clean_command": ["apt", "autoclean"],

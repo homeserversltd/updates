@@ -45,7 +45,7 @@ def load_module_config():
             },
             "config": {
                 "package_manager": {
-                    "update_command": ["apt", "update"],
+                    "update_command": ["apt", "update", "--allow-releaseinfo-change"],
                     "upgrade_command": ["apt", "upgrade", "-y"],
                     "autoremove_command": ["apt", "autoremove", "-y"],
                     "clean_command": ["apt", "autoclean"],

@@ -473,7 +473,7 @@ class YourServiceMaintenance:
 - Doesn't affect other services: CONFIRMED
 
 ### Test Environment
-- OS: Debian 12
+- OS: Debian 13 (Trixie)
 - HOMESERVER version: [version]
 - Service version: [version]
 
