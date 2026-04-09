@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migration 00000007: PARTLABELs on system disk + nftables define lines (wan0/lan0)."""
+"""Migration 00000007: Apply PARTLABELs on system disk."""
 
 from __future__ import annotations
 
@@ -20,9 +20,6 @@ LABELS = [
     "homeserver-deploy",
     "homeserver-root",
 ]
-NFTABLES_CONF = Path("/etc/nftables.conf")
-
-
 def _root_disk() -> tuple[str, str]:
     r = subprocess.run(
         ["findmnt", "-n", "-o", "SOURCE", "/"],
@@ -54,39 +51,9 @@ def _apply_partlabels(disk: str) -> None:
             raise RuntimeError(f"sgdisk failed for partition {i}")
 
 
-def _fix_nftables_enp() -> None:
-    """Replace stale kernel ifnames in nftables define lines with wan0/lan0."""
-    if not NFTABLES_CONF.is_file():
-        return
-    text = NFTABLES_CONF.read_text(encoding="utf-8", errors="replace")
-    new = text
-    new = re.sub(
-        r"define\s+wan_if\s*=\s*enp[0-9a-z]+",
-        "define wan_if = wan0",
-        new,
-        flags=re.IGNORECASE,
-    )
-    new = re.sub(
-        r"define\s+lan_if\s*=\s*enp[0-9a-z]+",
-        "define lan_if = lan0",
-        new,
-        flags=re.IGNORECASE,
-    )
-    if new != text:
-        NFTABLES_CONF.write_text(new, encoding="utf-8")
-        log(
-            MIGRATION_ID,
-            "Updated /etc/nftables.conf define lines (enp* -> wan0/lan0)",
-        )
-        subprocess.run(
-            ["systemctl", "try-reload-or-restart", "nftables.service"],
-            check=False,
-        )
-
-
 def main() -> int:
     require_root()
-    log(MIGRATION_ID, "PARTLABEL + nftables define check")
+    log(MIGRATION_ID, "PARTLABEL retrofit")
 
     root_source, disk = _root_disk()
     log(MIGRATION_ID, f"System disk: {disk} (from root {root_source})")
@@ -115,11 +82,6 @@ def main() -> int:
         log(MIGRATION_ID, f"WARNING: missing partlabel symlinks: {missing}", level="WARNING")
     elif not skip_sgdisk:
         log(MIGRATION_ID, "All PARTLABEL symlinks present")
-
-    try:
-        _fix_nftables_enp()
-    except OSError as e:
-        log(MIGRATION_ID, f"nftables fix skipped: {e}", level="WARNING")
 
     log(MIGRATION_ID, "SUCCESS: migration 00000007 complete")
     return 0

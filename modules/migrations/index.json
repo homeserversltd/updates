@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "schema_version": "1.0.15",
+    "schema_version": "1.0.16",
     "content_version": "1.0.0",
     "enabled": true,
     "priority": 2,
@@ -34,12 +34,12 @@
     },
     {
       "id": "00000007",
-      "description": "Apply PARTLABELs (homeserver-*) to system partitions (drive-agnostic retrofit)",
+      "description": "Apply PARTLABELs (homeserver-*) to system partitions",
       "has_run": false
     },
     {
       "id": "00000008",
-      "description": "Apply wan0/lan0 .link files and Kea drop-in (stable interface naming + Kea after networkd-wait-online)",
+      "description": "Interface anonymization pass: wan0/lan0 .link + .network, Kea fixes, nftables define rewrite",
       "has_run": false
     }
   ]

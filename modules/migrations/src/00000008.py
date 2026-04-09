@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Migration 00000008: wan0/lan0 .link + .network + Kea drop-in + Kea interfaces JSON fix."""
+"""Migration 00000008: Interface anonymization retrofit (wan0/lan0 + Kea + nftables)."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ LAN_NET = NETWORK_DIR / "20-lan0.network"
 DROPIN_DIR = Path("/etc/systemd/system/kea-dhcp4-server.service.d")
 DROPIN_FILE = DROPIN_DIR / "override.conf"
 KEA_CONF = Path("/etc/kea/kea-dhcp4.conf")
+NFTABLES_CONF = Path("/etc/nftables.conf")
 
 WAN_NET_BODY = """[Match]
 Name=wan0
@@ -122,6 +123,36 @@ def _fix_kea_interfaces_json() -> None:
         log(MIGRATION_ID, "Updated Kea interfaces-config to use lan0 (was enp*)")
 
 
+def _fix_nftables_enp() -> None:
+    """Replace stale kernel ifnames in nftables define lines with wan0/lan0."""
+    if not NFTABLES_CONF.is_file():
+        return
+    text = NFTABLES_CONF.read_text(encoding="utf-8", errors="replace")
+    new = text
+    new = re.sub(
+        r"define\s+wan_if\s*=\s*enp[0-9a-z]+",
+        "define wan_if = wan0",
+        new,
+        flags=re.IGNORECASE,
+    )
+    new = re.sub(
+        r"define\s+lan_if\s*=\s*enp[0-9a-z]+",
+        "define lan_if = lan0",
+        new,
+        flags=re.IGNORECASE,
+    )
+    if new != text:
+        NFTABLES_CONF.write_text(new, encoding="utf-8")
+        log(
+            MIGRATION_ID,
+            "Updated /etc/nftables.conf define lines (enp* -> wan0/lan0)",
+        )
+        subprocess.run(
+            ["systemctl", "try-reload-or-restart", "nftables.service"],
+            check=False,
+        )
+
+
 def main() -> int:
     require_root()
     log(MIGRATION_ID, "Network .link/.network + Kea drop-in + Kea JSON")
@@ -181,6 +212,10 @@ def main() -> int:
         log(MIGRATION_ID, "Installed Kea drop-in")
 
     _fix_kea_interfaces_json()
+    try:
+        _fix_nftables_enp()
+    except OSError as e:
+        log(MIGRATION_ID, f"nftables fix skipped: {e}", level="WARNING")
 
     log(MIGRATION_ID, "SUCCESS: migration 00000008 complete")
     return 0
