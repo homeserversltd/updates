@@ -446,7 +446,7 @@ def install_atuin(admin_user):
         
         install_url = get_installation_config()["install_script_url"]
         # Use proper shell command construction for process substitution
-        shell_command = f"su - {admin_user} -c 'bash <(curl --proto \"=https\" --tlsv1.2 -sSf {install_url})'"
+        shell_command = f"su - {admin_user} -c 'bash <(curl --proto \"=https\" --tlsv1.2 -sSf {install_url}) --non-interactive'"
         
         result = subprocess.run(
             shell_command, shell=True, capture_output=True, text=True, check=False
