@@ -23,7 +23,21 @@ import tempfile
 import subprocess
 import requests
 from pathlib import Path
-from updates.utils.state_manager import StateManager
+try:
+    from updates.utils.state_manager import StateManager
+except Exception:
+    class StateManager:
+        def __init__(self, backup_dir: str = "/var/backups/updates"):
+            self.backup_root = Path(backup_dir)
+            self.backup_root.mkdir(parents=True, exist_ok=True)
+        def backup_module_state(self, module_name, description="", files=None, **_kwargs):
+            backup_dir = self.backup_root / f"{module_name}_backup"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            for file_path in files or []:
+                src = Path(file_path)
+                if src.exists():
+                    shutil.copy2(src, backup_dir / src.name)
+            return True
 
 
 def load_config():
@@ -221,3 +235,8 @@ def main(args=None):
 
     log("Blocklist update completed")
     return True
+
+
+if __name__ == "__main__":
+    import sys
+    raise SystemExit(0 if main(sys.argv[1:]) else 1)
