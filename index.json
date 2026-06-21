@@ -2,7 +2,7 @@
     "metadata": {
         "schema_version": "0.1.45",
         "channel": "stable",
-        "branch": "master",
+        "branch": "main",
         "repository_url": "https://github.com/homeserversltd/updates.git"
     },
     "debug": false,
